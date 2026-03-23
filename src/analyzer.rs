@@ -10,12 +10,15 @@ use crate::handlers::{self, Classification, HandlerContext};
 use crate::parser::BashParser;
 use crate::verdict::Verdict;
 
+const MAX_DEPTH: usize = 256;
+
 /// The core analysis engine: parses a command and produces a safety verdict.
 pub struct Analyzer {
     pub config: Config,
     pub parser: BashParser,
     pub remote: bool,
     pub working_directory: PathBuf,
+    pub verbose: bool,
 }
 
 impl Analyzer {
@@ -25,45 +28,52 @@ impl Analyzer {
     ///
     /// Returns `RippyError::Parse` if the command cannot be parsed.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
-        // Check config command rules first (user rules override everything)
         if let Some(verdict) = self.config.match_command(command) {
+            if self.verbose {
+                eprintln!(
+                    "[rippy] config rule matched: {command} -> {}",
+                    verdict.decision.as_str()
+                );
+            }
             return Ok(verdict);
         }
 
         let tree = self.parser.parse(command)?;
         let root = tree.root_node();
         let cwd = self.working_directory.clone();
-        Ok(self.analyze_node(root, command, &cwd))
+        Ok(self.analyze_node(root, command, &cwd, 0))
     }
 
-    fn analyze_node(&self, node: Node, source: &str, cwd: &Path) -> Verdict {
+    fn analyze_node(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
+        if depth > MAX_DEPTH {
+            return Verdict::ask("nesting depth exceeded");
+        }
         match node.kind() {
             "program" | "pipeline" | "list" | "if_statement" | "while_statement"
             | "for_statement" | "case_statement" | "negated_command" | "compound_statement" => {
-                self.analyze_children(node, source, cwd)
+                self.analyze_children(node, source, cwd, depth)
             }
-            "command" => self.analyze_command(node, source, cwd),
+            "command" => self.analyze_command(node, source, cwd, depth),
             kind @ ("subshell" | "command_substitution" | "process_substitution") => {
-                let inner = self.analyze_children(node, source, cwd);
+                let inner = self.analyze_children(node, source, cwd, depth);
                 most_restrictive(inner, Verdict::ask(kind))
             }
             "function_definition" => Verdict::ask("function definition"),
-            "redirected_statement" => self.analyze_redirected(node, source, cwd),
+            "redirected_statement" => self.analyze_redirected(node, source, cwd, depth),
             "variable_assignment" => Self::analyze_assignment(node, source),
             _ if node.has_error() => Verdict::ask("unparseable command"),
-            _ => self.analyze_children_or_allow(node, source, cwd),
+            _ => self.analyze_children_or_allow(node, source, cwd, depth),
         }
     }
 
-    fn analyze_children(&self, node: Node, source: &str, cwd: &Path) -> Verdict {
+    fn analyze_children(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
         let mut verdicts = Vec::new();
         let mut cursor = node.walk();
         let mut current_cwd = cwd.to_owned();
 
         for child in node.named_children(&mut cursor) {
-            let v = self.analyze_node(child, source, &current_cwd);
+            let v = self.analyze_node(child, source, &current_cwd, depth + 1);
 
-            // Track cd commands for working directory
             if child.kind() == "command"
                 && let Some(dir) = extract_cd_target(child, source)
             {
@@ -80,7 +90,13 @@ impl Analyzer {
         Verdict::combine(&verdicts)
     }
 
-    fn analyze_children_or_allow(&self, node: Node, source: &str, cwd: &Path) -> Verdict {
+    fn analyze_children_or_allow(
+        &self,
+        node: Node,
+        source: &str,
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
         let mut cursor = node.walk();
         let children: Vec<_> = node.named_children(&mut cursor).collect();
         if children.is_empty() {
@@ -88,20 +104,18 @@ impl Analyzer {
         }
         let verdicts: Vec<Verdict> = children
             .iter()
-            .map(|c| self.analyze_node(*c, source, cwd))
+            .map(|c| self.analyze_node(*c, source, cwd, depth + 1))
             .collect();
         Verdict::combine(&verdicts)
     }
 
-    fn analyze_command(&self, node: Node, source: &str, cwd: &Path) -> Verdict {
+    fn analyze_command(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
         let Some(raw_name) = ast::command_name(node, source) else {
             return Verdict::allow("empty command");
         };
         let name = raw_name.to_owned();
-
         let args = ast::command_args(node, source);
 
-        // Resolve aliases
         let resolved = self.config.resolve_alias(&name);
         let cmd_name = if resolved == name {
             name.clone()
@@ -109,19 +123,24 @@ impl Analyzer {
             resolved.to_owned()
         };
 
-        // Wrapper commands: analyze inner command
+        if self.verbose {
+            eprintln!("[rippy] command: {cmd_name}");
+        }
+
         if allowlists::is_wrapper(&cmd_name) {
             if args.is_empty() {
                 return Verdict::allow(format!("{cmd_name} (no inner command)"));
             }
             let inner = args.join(" ");
-            return self.analyze_inner_command(&inner, cwd);
+            return self.analyze_inner_command(&inner, cwd, depth);
         }
 
-        // Simple safe commands (but check for embedded expansions)
         if allowlists::is_simple_safe(&cmd_name) {
+            if self.verbose {
+                eprintln!("[rippy] allowlist: {cmd_name} is safe");
+            }
             if ast::has_expansions(node) {
-                let inner_verdict = self.analyze_children(node, source, cwd);
+                let inner_verdict = self.analyze_children(node, source, cwd, depth);
                 return most_restrictive(
                     Verdict::allow(format!("{cmd_name} is safe")),
                     inner_verdict,
@@ -130,7 +149,6 @@ impl Analyzer {
             return Verdict::allow(format!("{cmd_name} is safe"));
         }
 
-        // --help / --version on any command
         if args
             .iter()
             .any(|a| a == "--help" || a == "-h" || a == "--version")
@@ -138,22 +156,37 @@ impl Analyzer {
             return Verdict::allow(format!("{cmd_name} help/version"));
         }
 
-        // Handler delegation
-        if let Some(handler) = handlers::get_handler(&cmd_name) {
+        self.classify_with_handler(&cmd_name, &args, cwd, depth)
+    }
+
+    fn classify_with_handler(
+        &self,
+        cmd_name: &str,
+        args: &[String],
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
+        if let Some(handler) = handlers::get_handler(cmd_name) {
             let ctx = HandlerContext {
-                command_name: &cmd_name,
-                args: &args,
+                command_name: cmd_name,
+                args,
                 working_directory: cwd,
                 remote: self.remote,
             };
-            return self.apply_classification(handler.classify(&ctx), cwd);
+            let classification = handler.classify(&ctx);
+            if self.verbose {
+                eprintln!("[rippy] handler: {cmd_name} -> {classification:?}");
+            }
+            return self.apply_classification(classification, cwd, depth);
         }
 
-        // Default: ask
-        self.default_verdict(&cmd_name)
+        if self.verbose {
+            eprintln!("[rippy] no handler for: {cmd_name}");
+        }
+        self.default_verdict(cmd_name)
     }
 
-    fn analyze_redirected(&self, node: Node, source: &str, cwd: &Path) -> Verdict {
+    fn analyze_redirected(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
         let mut cmd_verdict = Verdict::allow("");
         let mut redirect_verdicts = Vec::new();
 
@@ -164,7 +197,7 @@ impl Analyzer {
                     redirect_verdicts.push(self.analyze_redirect(op, &target));
                 }
             } else {
-                cmd_verdict = self.analyze_node(child, source, cwd);
+                cmd_verdict = self.analyze_node(child, source, cwd, depth + 1);
             }
         }
 
@@ -173,26 +206,18 @@ impl Analyzer {
     }
 
     fn analyze_redirect(&self, op: ast::RedirectOp, target: &str) -> Verdict {
-        // Read redirects are safe
         if op == ast::RedirectOp::Read {
             return Verdict::allow("input redirect");
         }
-
-        // /dev/null is always safe
         if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
             return Verdict::allow(format!("redirect to {target}"));
         }
-
-        // FD duplication (2>&1 etc) is safe
         if op == ast::RedirectOp::FdDup {
             return Verdict::allow("fd redirect");
         }
-
-        // Check config redirect rules
         if let Some(verdict) = self.config.match_redirect(target) {
             return verdict;
         }
-
         Verdict::ask(format!("redirect to {target}"))
     }
 
@@ -203,19 +228,27 @@ impl Analyzer {
         Verdict::allow("variable assignment")
     }
 
-    fn analyze_inner_command(&self, inner: &str, cwd: &Path) -> Verdict {
-        let Ok(tree) = Self::parser_for_inner().parse(inner) else {
+    fn analyze_inner_command(&self, inner: &str, cwd: &Path, depth: usize) -> Verdict {
+        let Some(mut parser) = Self::parser_for_inner() else {
+            return Verdict::ask("parser initialization failed");
+        };
+        let Ok(tree) = parser.parse(inner) else {
             return Verdict::ask("unparseable inner command");
         };
-        self.analyze_node(tree.root_node(), inner, cwd)
+        self.analyze_node(tree.root_node(), inner, cwd, depth)
     }
 
-    fn apply_classification(&self, class: Classification, cwd: &Path) -> Verdict {
+    fn apply_classification(&self, class: Classification, cwd: &Path, depth: usize) -> Verdict {
         match class {
             Classification::Allow(desc) => Verdict::allow(desc),
             Classification::Ask(desc) => Verdict::ask(desc),
             Classification::Deny(desc) => Verdict::deny(desc),
-            Classification::Recurse(inner) => self.analyze_inner_command(&inner, cwd),
+            Classification::Recurse(inner) => {
+                if self.verbose {
+                    eprintln!("[rippy] recurse: {inner}");
+                }
+                self.analyze_inner_command(&inner, cwd, depth)
+            }
             Classification::WithRedirects(decision, desc, targets) => {
                 let mut verdicts = vec![Verdict {
                     decision,
@@ -239,13 +272,8 @@ impl Analyzer {
         )
     }
 
-    /// Create a temporary parser for inner command analysis.
-    /// This is needed because the main parser holds a mutable borrow.
-    fn parser_for_inner() -> BashParser {
-        BashParser::new().unwrap_or_else(|_| {
-            // This should never fail since we already initialized once
-            unreachable!("bash parser initialization should not fail twice")
-        })
+    fn parser_for_inner() -> Option<BashParser> {
+        BashParser::new().ok()
     }
 }
 
@@ -274,6 +302,7 @@ mod tests {
             parser: BashParser::new().unwrap(),
             remote: false,
             working_directory: PathBuf::from("/tmp"),
+            verbose: false,
         }
     }
 
@@ -383,6 +412,7 @@ mod tests {
             parser: BashParser::new().unwrap(),
             remote: false,
             working_directory: PathBuf::from("/tmp"),
+            verbose: false,
         };
         let v = a.analyze("rm -rf /tmp").unwrap();
         assert_eq!(v.decision, Decision::Allow);
@@ -407,5 +437,41 @@ mod tests {
         let mut a = make_analyzer();
         let v = a.analyze("some_unknown_tool --flag").unwrap();
         assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn depth_limit_exceeded() {
+        let a = make_analyzer();
+        let parser = &mut BashParser::new().unwrap();
+        let tree = parser.parse("echo ok").unwrap();
+        let root = tree.root_node();
+        let v = a.analyze_node(root, "echo ok", Path::new("/tmp"), MAX_DEPTH + 1);
+        assert_eq!(v.decision, Decision::Ask);
+        assert!(v.reason.contains("nesting depth exceeded"));
+    }
+
+    #[test]
+    fn depth_at_max_still_works() {
+        let a = make_analyzer();
+        let parser = &mut BashParser::new().unwrap();
+        let tree = parser.parse("echo ok").unwrap();
+        let root = tree.root_node();
+        // At MAX_DEPTH, the root node is allowed, but children increment
+        // depth further, so a simple command still works (command node
+        // doesn't recurse deeper). Test with a leaf-like command.
+        let v = a.analyze_node(root, "echo ok", Path::new("/tmp"), MAX_DEPTH - 2);
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn moderate_nesting_works() {
+        let mut a = make_analyzer();
+        // 10 levels of nesting should be fine
+        let mut cmd = "echo ok".to_string();
+        for _ in 0..10 {
+            cmd = format!("({cmd})");
+        }
+        let v = a.analyze(&cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask); // subshell → Ask
     }
 }

@@ -13,61 +13,108 @@ use rippy::parser::BashParser;
 use rippy::payload::Payload;
 use rippy::verdict::{Decision, Verdict};
 
-fn run() -> Result<ExitCode, RippyError> {
-    let args = Args::parse();
-
-    // Read JSON from stdin
-    let mut input = String::new();
-    std::io::stdin().read_to_string(&mut input)?;
-
-    // Parse payload and detect mode
-    let payload = Payload::parse(&input, args.forced_mode())?;
-
-    // Load config
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let env_config = args.config_path();
-    let config = Config::load(&cwd, env_config.as_deref())?;
-
-    // Dispatch based on hook type
-    let verdict = match payload.hook_type {
+fn evaluate(
+    payload: &Payload,
+    config: Config,
+    args: &Args,
+    cwd: PathBuf,
+) -> Result<Verdict, RippyError> {
+    match payload.hook_type {
         HookType::PreToolUse => {
             if payload.is_mcp() {
-                // MCP tool: check config MCP rules
-                config
+                let v = config
                     .match_mcp(&payload.tool_name)
-                    .unwrap_or_else(|| Verdict::ask(format!("MCP tool: {}", payload.tool_name)))
+                    .unwrap_or_else(|| Verdict::ask(format!("MCP tool: {}", payload.tool_name)));
+                if args.verbose {
+                    eprintln!(
+                        "[rippy] mcp: {} -> {}",
+                        payload.tool_name,
+                        v.decision.as_str()
+                    );
+                }
+                Ok(v)
             } else if let Some(command) = &payload.command {
-                // Shell command: full analysis
                 let mut analyzer = Analyzer {
                     config,
                     parser: BashParser::new()?,
                     remote: args.remote,
                     working_directory: cwd,
+                    verbose: args.verbose,
                 };
-                analyzer.analyze(command)?
+                Ok(analyzer.analyze(command)?)
             } else {
-                Verdict::ask("no command found in payload")
+                Ok(Verdict::ask("no command found in payload"))
             }
         }
-        HookType::PostToolUse => payload.command.as_ref().map_or_else(
+        HookType::PostToolUse => Ok(payload.command.as_ref().map_or_else(
             || Verdict::allow(""),
             |command| {
                 config
                     .match_after(command)
                     .map_or_else(|| Verdict::allow(""), Verdict::allow)
             },
-        ),
-    };
+        )),
+    }
+}
 
-    // Serialize and output
+const MAX_INPUT_SIZE: usize = 1_048_576; // 1 MB
+
+fn run() -> Result<ExitCode, RippyError> {
+    let args = Args::parse();
+
+    let mut buffer = Vec::new();
+    std::io::stdin()
+        .take(MAX_INPUT_SIZE as u64 + 1)
+        .read_to_end(&mut buffer)?;
+    if buffer.len() > MAX_INPUT_SIZE {
+        return Err(RippyError::Parse(format!(
+            "input exceeds {MAX_INPUT_SIZE} byte limit"
+        )));
+    }
+    let input =
+        String::from_utf8(buffer).map_err(|e| RippyError::Parse(format!("invalid UTF-8: {e}")))?;
+
+    let payload = Payload::parse(&input, args.forced_mode())?;
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let config = Config::load(&cwd, args.config_path().as_deref())?;
+    let log_file = config.log_file.clone();
+    let log_full = config.log_full;
+
+    if args.verbose {
+        eprintln!(
+            "[rippy] mode: {:?}, tool: {}",
+            payload.mode, payload.tool_name
+        );
+        if let Some(cmd) = &payload.command {
+            eprintln!("[rippy] command: {cmd}");
+        }
+    }
+
+    let verdict = evaluate(&payload, config, &args, cwd)?;
+
+    log_verdict(log_file.as_ref(), log_full, &payload, &verdict);
+
     let json = verdict.to_json(payload.mode);
     println!("{json}");
 
-    // Exit code: 0 for allow, 2 for ask/deny
     Ok(match verdict.decision {
         Decision::Allow => ExitCode::SUCCESS,
         Decision::Ask | Decision::Deny => ExitCode::from(2),
     })
+}
+
+fn log_verdict(log_file: Option<&PathBuf>, log_full: bool, payload: &Payload, verdict: &Verdict) {
+    if let Some(path) = log_file {
+        rippy::logging::write_log_entry(&rippy::logging::LogEntry {
+            log_file: path,
+            log_full,
+            command: payload.command.as_deref(),
+            verdict,
+            mode: payload.mode,
+            raw_payload: if log_full { Some(&payload.raw) } else { None },
+        });
+    }
 }
 
 fn main() -> ExitCode {

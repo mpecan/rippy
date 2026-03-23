@@ -10,17 +10,68 @@ impl Handler for ShellHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // Look for -c flag with inline command
         for (i, arg) in ctx.args.iter().enumerate() {
             if arg == "-c" {
-                if let Some(inner) = ctx.args.get(i + 1) {
-                    return Classification::Recurse(inner.clone());
+                let Some(inner) = ctx.args.get(i + 1) else {
+                    return Classification::Ask(format!("{} -c (no command)", ctx.command_name));
+                };
+                // If there are positional args after the -c command string,
+                // they could be injected via $0/$1. Conservative: return Ask.
+                if ctx.args.len() > i + 2 {
+                    return Classification::Ask(format!(
+                        "{} -c with positional arguments",
+                        ctx.command_name
+                    ));
                 }
-                return Classification::Ask(format!("{} -c (no command)", ctx.command_name));
+                return Classification::Recurse(inner.clone());
             }
         }
 
-        // No -c = interactive shell
         Classification::Ask(format!("{} (interactive)", ctx.command_name))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
+        HandlerContext {
+            command_name: cmd,
+            args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+        }
+    }
+
+    #[test]
+    fn bash_c_simple_recurses() {
+        let args: Vec<String> = vec!["-c".into(), "git status".into()];
+        let result = SHELL_HANDLER.classify(&ctx(&args, "bash"));
+        assert!(matches!(result, Classification::Recurse(cmd) if cmd == "git status"));
+    }
+
+    #[test]
+    fn bash_c_with_positional_args_asks() {
+        let args: Vec<String> = vec!["-c".into(), "$0 $1".into(), "rm".into(), "-rf /".into()];
+        let result = SHELL_HANDLER.classify(&ctx(&args, "bash"));
+        assert!(matches!(result, Classification::Ask(reason) if reason.contains("positional")));
+    }
+
+    #[test]
+    fn bash_interactive_asks() {
+        let args: Vec<String> = vec![];
+        let result = SHELL_HANDLER.classify(&ctx(&args, "bash"));
+        assert!(matches!(result, Classification::Ask(reason) if reason.contains("interactive")));
+    }
+
+    #[test]
+    fn sh_c_no_command_asks() {
+        let args: Vec<String> = vec!["-c".into()];
+        let result = SHELL_HANDLER.classify(&ctx(&args, "sh"));
+        assert!(matches!(result, Classification::Ask(reason) if reason.contains("no command")));
     }
 }
