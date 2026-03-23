@@ -12,28 +12,6 @@ fn rippy_binary() -> PathBuf {
     path
 }
 
-fn run_rippy(json: &str, mode: &str, extra_args: &[&str]) -> (String, i32) {
-    let mut cmd = Command::new(rippy_binary());
-    cmd.arg("--mode").arg(mode);
-    for arg in extra_args {
-        cmd.arg(arg);
-    }
-    cmd.stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    let mut child = cmd.spawn().unwrap();
-    {
-        use std::io::Write;
-        let stdin = child.stdin.as_mut().unwrap();
-        stdin.write_all(json.as_bytes()).unwrap();
-    }
-    let output = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let code = output.status.code().unwrap_or(-1);
-    (stdout, code)
-}
-
 fn run_rippy_with_stderr(json: &str, mode: &str, extra_args: &[&str]) -> (String, String, i32) {
     let mut cmd = Command::new(rippy_binary());
     cmd.arg("--mode").arg(mode);
@@ -55,6 +33,11 @@ fn run_rippy_with_stderr(json: &str, mode: &str, extra_args: &[&str]) -> (String
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let code = output.status.code().unwrap_or(-1);
     (stdout, stderr, code)
+}
+
+fn run_rippy(json: &str, mode: &str, extra_args: &[&str]) -> (String, i32) {
+    let (stdout, _, code) = run_rippy_with_stderr(json, mode, extra_args);
+    (stdout, code)
 }
 
 // ---- Claude mode tests ----
@@ -268,4 +251,38 @@ fn xargs_with_value_flags_finds_inner_command() {
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+// ---- Resource limit tests (Issue #3) ----
+
+#[test]
+fn oversized_input_returns_error() {
+    // Send > 1MB of input
+    let big_json = format!(
+        r#"{{"tool_name":"Bash","tool_input":{{"command":"echo {}"}}}}"#,
+        "x".repeat(1_100_000)
+    );
+    let (stdout, code) = run_rippy(&big_json, "claude", &[]);
+    assert_eq!(code, 1);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(v["error"].as_str().unwrap().contains("limit"));
+}
+
+// ---- Logging integration test (Issue #2) ----
+
+#[test]
+fn log_file_receives_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("rippy.log");
+    let config_path = dir.path().join("config");
+    std::fs::write(&config_path, format!("set log {}", log_path.display())).unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &["--config", config_path.to_str().unwrap()]);
+    assert_eq!(code, 0);
+
+    let content = std::fs::read_to_string(&log_path).unwrap();
+    let entry: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+    assert_eq!(entry["decision"], "allow");
+    assert_eq!(entry["command"], "ls");
 }

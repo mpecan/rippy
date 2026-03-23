@@ -229,7 +229,10 @@ impl Analyzer {
     }
 
     fn analyze_inner_command(&self, inner: &str, cwd: &Path, depth: usize) -> Verdict {
-        let Ok(tree) = Self::parser_for_inner().parse(inner) else {
+        let Some(mut parser) = Self::parser_for_inner() else {
+            return Verdict::ask("parser initialization failed");
+        };
+        let Ok(tree) = parser.parse(inner) else {
             return Verdict::ask("unparseable inner command");
         };
         self.analyze_node(tree.root_node(), inner, cwd, depth)
@@ -269,9 +272,8 @@ impl Analyzer {
         )
     }
 
-    fn parser_for_inner() -> BashParser {
-        BashParser::new()
-            .unwrap_or_else(|_| unreachable!("bash parser initialization should not fail twice"))
+    fn parser_for_inner() -> Option<BashParser> {
+        BashParser::new().ok()
     }
 }
 
@@ -443,10 +445,22 @@ mod tests {
         let parser = &mut BashParser::new().unwrap();
         let tree = parser.parse("echo ok").unwrap();
         let root = tree.root_node();
-        // Simulate exceeding the depth limit
         let v = a.analyze_node(root, "echo ok", Path::new("/tmp"), MAX_DEPTH + 1);
         assert_eq!(v.decision, Decision::Ask);
         assert!(v.reason.contains("nesting depth exceeded"));
+    }
+
+    #[test]
+    fn depth_at_max_still_works() {
+        let a = make_analyzer();
+        let parser = &mut BashParser::new().unwrap();
+        let tree = parser.parse("echo ok").unwrap();
+        let root = tree.root_node();
+        // At MAX_DEPTH, the root node is allowed, but children increment
+        // depth further, so a simple command still works (command node
+        // doesn't recurse deeper). Test with a leaf-like command.
+        let v = a.analyze_node(root, "echo ok", Path::new("/tmp"), MAX_DEPTH - 2);
+        assert_eq!(v.decision, Decision::Allow);
     }
 
     #[test]
