@@ -97,6 +97,8 @@ rippy loads config from three tiers (lowest to highest priority):
 2. **Project:** `.rippy` file walked up from cwd (or `.dippy`)
 3. **Environment:** `RIPPY_CONFIG` or `DIPPY_CONFIG` env var
 
+See [`examples/recommended.rippy`](examples/recommended.rippy) for a starter config covering macOS system tools, process management, network utilities, and more.
+
 ### Example config
 
 ```bash

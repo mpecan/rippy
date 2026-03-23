@@ -1,0 +1,141 @@
+# Recommended rippy config — sensible defaults for common tools
+# Copy to ~/.rippy/config or include the rules you want in your project .rippy
+#
+# rippy's built-in handlers already cover: git, docker, kubectl, aws, gcloud,
+# az, npm/yarn/pnpm, pip, cargo, brew, terraform, helm, curl, wget, python,
+# bash/sh/zsh, find, psql, mysql, sqlite3, sed, awk, and many more.
+#
+# These rules cover additional tools that don't have built-in handlers.
+
+# ── macOS system tools ──────────────────────────────────────────────
+
+# defaults: read is safe, write/delete modifies system preferences
+allow defaults read
+allow defaults read-type
+allow defaults domains
+allow defaults find
+allow defaults help
+deny defaults write "modifies system preferences"
+deny defaults delete "modifies system preferences"
+
+# diskutil: info/listing is safe, partitioning is not
+allow diskutil list
+allow diskutil info
+allow diskutil information
+allow diskutil activity
+allow diskutil listFilesystems
+
+# launchctl: listing/info is safe, loading/unloading services is not
+allow launchctl list
+allow launchctl print
+allow launchctl blame
+allow launchctl version
+allow launchctl help
+allow launchctl managerpid
+
+# security: find/show is safe, modifying keychain is not
+allow security help
+allow security find-generic-password
+allow security find-internet-password
+allow security find-key
+allow security find-certificate
+allow security find-identity
+allow security show-keychain-info
+allow security dump-keychain
+allow security verify-cert
+allow security error
+
+# xattr: reading is safe, writing/deleting/clearing is not
+allow xattr|
+deny xattr -w "writes extended attributes"
+deny xattr -d "deletes extended attributes"
+deny xattr -c "clears all extended attributes"
+
+# codesign: viewing signatures is safe, signing is not
+deny codesign -s "signs code"
+deny codesign --sign "signs code"
+
+# hdiutil: info/verify is safe, mounting/creating is not
+allow hdiutil help
+allow hdiutil info
+allow hdiutil verify
+allow hdiutil checksum
+
+# pkgutil: querying is safe, forgetting packages is not
+allow pkgutil --pkgs
+allow pkgutil --files
+allow pkgutil --pkg-info
+allow pkgutil --info
+allow pkgutil --payload-files
+
+# tmutil: info is safe, operations are not
+allow tmutil destinationinfo
+allow tmutil version
+allow tmutil help
+allow tmutil currentphase
+allow tmutil status
+
+# spctl: assessment is safe, adding/removing rules is not
+allow spctl --assess
+allow spctl -a
+
+# plutil: reading/validating is safe
+allow plutil -lint
+allow plutil -p
+
+# lipo: info is safe
+allow lipo -info
+allow lipo -detailed_info
+allow lipo -archs
+
+# ── System utilities ────────────────────────────────────────────────
+
+# Process management — always ask
+deny kill "terminates processes"
+deny killall "terminates processes by name"
+deny pkill "terminates processes by pattern"
+
+# Disk operations — always ask
+deny dd "raw disk/file operations"
+
+# Network listeners — always ask
+deny nc "network utility — can open listeners"
+deny netcat "network utility — can open listeners"
+deny ncat "network utility — can open listeners"
+deny socat "network utility — can open listeners"
+
+# Scheduled tasks — always ask
+deny crontab "modifies scheduled tasks"
+deny at "schedules future commands"
+
+# Service management — always ask
+deny systemctl "manages system services"
+deny service "manages system services"
+
+# Firewall — always ask
+deny iptables "modifies firewall rules"
+deny ufw "modifies firewall rules"
+
+# ── DevOps tools ────────────────────────────────────────────────────
+
+# ansible: docs and linting are safe
+allow ansible-doc
+allow ansible-lint
+
+# packer: validate/inspect are safe
+allow packer validate
+allow packer inspect
+allow packer --help
+allow packer --version
+
+# ── Code formatters / linters ───────────────────────────────────────
+
+# isort: check mode is safe, formatting is not
+allow isort --check-only
+allow isort --diff
+allow isort --check
+
+# pre-commit: validation is safe
+allow pre-commit validate-config
+allow pre-commit validate-manifest
+allow pre-commit help
