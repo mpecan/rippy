@@ -88,9 +88,9 @@ jobs:
         run: |
           TAG="${{ env.RELEASE_TAG }}"
           VERSION="${TAG#rippy-v}"
-          ARCHIVE="rippy-v${VERSION}-${{ matrix.target }}.tar.gz"
-          cp "target/${{ matrix.target }}/release/rippy" rippy
-          tar -czf "${ARCHIVE}" rippy
+          ARCHIVE="rppy-v${VERSION}-${{ matrix.target }}.tar.gz"
+          cp "target/${{ matrix.target }}/release/rppy" rppy
+          tar -czf "${ARCHIVE}" rppy
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
           openssl dgst -sha256 "${ARCHIVE}" | awk '{print $2}' > "${ARCHIVE}.sha256"
 

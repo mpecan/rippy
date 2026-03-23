@@ -4,6 +4,8 @@ A fast shell command safety hook for AI coding tools — written in Rust.
 
 rippy intercepts shell commands from **Claude Code**, **Cursor**, **Gemini CLI**, and **Codex CLI**, parses them with [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash), and automatically approves safe commands while blocking dangerous ones. It is a Rust rewrite of [Dippy](https://github.com/ldayton/Dippy) with drop-in config compatibility.
 
+> **Note:** The binary is called `rppy` (not `rippy`) because `rippy` is already taken on crates.io.
+
 ## Why rippy?
 
 - **Single static binary** — no Python runtime, no pip, no virtualenv
@@ -37,7 +39,7 @@ Add to `~/.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "rippy --mode claude" }]
+        "hooks": [{ "type": "command", "command": "rppy --mode claude" }]
       }
     ]
   }
@@ -52,7 +54,7 @@ Add to `~/.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "rippy --mode cursor" }]
+        "hooks": [{ "type": "command", "command": "rppy --mode cursor" }]
       }
     ]
   }
@@ -67,7 +69,7 @@ Add to `~/.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "rippy --mode gemini" }]
+        "hooks": [{ "type": "command", "command": "rppy --mode gemini" }]
       }
     ]
   }
@@ -153,8 +155,8 @@ rippy has 130+ commands in its safe allowlist (read-only tools like `cat`, `ls`,
 
 rippy reads `.dippy` config files and the `DIPPY_CONFIG` environment variable automatically. To migrate:
 
-1. Install rippy
-2. Replace `dippy` with `rippy --mode claude` in your hook config
+1. Install rippy (`cargo install rippy`)
+2. Replace `dippy` with `rppy --mode claude` in your hook config
 3. Your existing `.dippy` config files work as-is
 
 Optionally rename `.dippy` to `.rippy` and `~/.dippy/config` to `~/.rippy/config`.

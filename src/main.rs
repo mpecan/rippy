@@ -26,7 +26,7 @@ fn evaluate(
                     .unwrap_or_else(|| Verdict::ask(format!("MCP tool: {}", payload.tool_name)));
                 if args.verbose {
                     eprintln!(
-                        "[rippy] mcp: {} -> {}",
+                        "[rppy] mcp: {} -> {}",
                         payload.tool_name,
                         v.decision.as_str()
                     );
@@ -76,11 +76,11 @@ fn run() -> Result<ExitCode, RippyError> {
 
     if args.verbose {
         eprintln!(
-            "[rippy] mode: {:?}, tool: {}",
+            "[rppy] mode: {:?}, tool: {}",
             payload.mode, payload.tool_name
         );
         if let Some(cmd) = &payload.command {
-            eprintln!("[rippy] command: {cmd}");
+            eprintln!("[rppy] command: {cmd}");
         }
     }
 
