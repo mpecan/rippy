@@ -84,7 +84,7 @@ impl Default for Verdict {
 }
 
 impl Decision {
-    const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Allow => "allow",
             Self::Ask => "ask",

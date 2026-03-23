@@ -34,6 +34,29 @@ fn run_rippy(json: &str, mode: &str, extra_args: &[&str]) -> (String, i32) {
     (stdout, code)
 }
 
+fn run_rippy_with_stderr(json: &str, mode: &str, extra_args: &[&str]) -> (String, String, i32) {
+    let mut cmd = Command::new(rippy_binary());
+    cmd.arg("--mode").arg(mode);
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
+    cmd.stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(json.as_bytes()).unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let code = output.status.code().unwrap_or(-1);
+    (stdout, stderr, code)
+}
+
 // ---- Claude mode tests ----
 
 #[test]
@@ -187,4 +210,62 @@ fn redirect_to_file_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo foo > /tmp/output.txt"}}"#;
     let (_stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 2);
+}
+
+// ---- Verbose mode tests ----
+
+#[test]
+fn verbose_traces_to_stderr() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git status"}}"#;
+    let (stdout, stderr, code) = run_rippy_with_stderr(json, "claude", &["--verbose"]);
+    assert_eq!(code, 0);
+    // stdout is still valid JSON
+    let _v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // stderr contains trace lines
+    assert!(
+        stderr.contains("[rippy]"),
+        "stderr should contain [rippy] trace lines"
+    );
+    assert!(
+        stderr.contains("command:"),
+        "stderr should trace the command"
+    );
+}
+
+#[test]
+fn verbose_handler_trace() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
+    let (_stdout, stderr, code) = run_rippy_with_stderr(json, "claude", &["--verbose"]);
+    assert_eq!(code, 2);
+    assert!(
+        stderr.contains("[rippy] handler:"),
+        "stderr should show handler decision"
+    );
+}
+
+// ---- Handler fix tests (Issue #4) ----
+
+#[test]
+fn bash_c_with_positional_args_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"bash -c '$0 $1' rm '-rf /'"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn bash_c_without_positional_args_recurses() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"bash -c 'git status'"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn xargs_with_value_flags_finds_inner_command() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"xargs -n 5 -P 4 grep pattern"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }

@@ -48,6 +48,10 @@ pub struct Args {
     /// Remote mode (container/SSH context — skip local path validation)
     #[arg(long)]
     pub remote: bool,
+
+    /// Print decision trace to stderr for debugging
+    #[arg(long, short = 'v')]
+    pub verbose: bool,
 }
 
 impl Args {
@@ -76,6 +80,7 @@ mod tests {
             mode: Some(ModeArg::Claude),
             config: None,
             remote: false,
+            verbose: false,
         };
         assert_eq!(args.forced_mode(), Some(Mode::Claude));
     }
@@ -86,6 +91,7 @@ mod tests {
             mode: None,
             config: None,
             remote: false,
+            verbose: false,
         };
         assert_eq!(args.forced_mode(), None);
     }
