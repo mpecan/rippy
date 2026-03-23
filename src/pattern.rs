@@ -11,49 +11,63 @@
 pub struct Pattern {
     raw: String,
     exact: bool,
+    literal: bool,
 }
 
 impl Pattern {
     /// Create a pattern from a raw string. A trailing `|` forces exact matching.
     #[must_use]
     pub fn new(raw: &str) -> Self {
-        raw.strip_suffix('|').map_or_else(
-            || Self {
-                raw: raw.to_owned(),
-                exact: false,
-            },
-            |stripped| Self {
-                raw: stripped.to_owned(),
-                exact: true,
-            },
-        )
+        let (raw_str, exact) = raw
+            .strip_suffix('|')
+            .map_or((raw, false), |stripped| (stripped, true));
+        let literal = !raw_str.contains(['*', '?', '[']);
+        Self {
+            raw: raw_str.to_owned(),
+            exact,
+            literal,
+        }
     }
 
     /// Test whether `input` matches this pattern.
     #[must_use]
     pub fn matches(&self, input: &str) -> bool {
-        if self.exact {
-            glob_match(self.raw.as_bytes(), input.as_bytes())
-        } else {
-            // An empty pattern prefix-matches everything.
-            if self.raw.is_empty() {
-                return true;
-            }
-            if glob_match(self.raw.as_bytes(), input.as_bytes()) {
-                return true;
-            }
-            // Try matching against the input truncated at each space boundary
-            // (matching how Dippy does command prefix matching).
-            for (i, _) in input.match_indices(' ') {
-                if glob_match(
-                    self.raw.as_bytes(),
-                    input.as_bytes().get(..i).unwrap_or_default(),
-                ) {
-                    return true;
-                }
-            }
-            false
+        if self.literal {
+            return self.matches_literal(input);
         }
+        if self.exact {
+            return glob_match(self.raw.as_bytes(), input.as_bytes());
+        }
+        if self.raw.is_empty() {
+            return true;
+        }
+        if glob_match(self.raw.as_bytes(), input.as_bytes()) {
+            return true;
+        }
+        for (i, _) in input.match_indices(' ') {
+            if glob_match(
+                self.raw.as_bytes(),
+                input.as_bytes().get(..i).unwrap_or_default(),
+            ) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Fast path for patterns without glob metacharacters.
+    fn matches_literal(&self, input: &str) -> bool {
+        if self.exact {
+            return self.raw == input;
+        }
+        if self.raw.is_empty() {
+            return true;
+        }
+        // Exact match or prefix match at a space boundary
+        input == self.raw
+            || (input.len() > self.raw.len()
+                && input.as_bytes()[self.raw.len()] == b' '
+                && input.starts_with(&self.raw))
     }
 
     /// Return the raw pattern string (without trailing `|` if it was exact).
