@@ -88,7 +88,36 @@ allow lipo -info
 allow lipo -detailed_info
 allow lipo -archs
 
+# scutil: read-only flags are safe, interactive mode is not
+allow scutil --dns
+allow scutil --proxy
+allow scutil --nwi
+allow scutil --get
+
+# networksetup: get/list/show queries are safe, set/create/remove are not
+allow networksetup -getinfo
+allow networksetup -getdnsservers
+allow networksetup -getwebproxy
+allow networksetup -getsearchdomains
+allow networksetup -listallhardwareports
+allow networksetup -listallnetworkservices
+allow networksetup -listnetworkserviceorder
+allow networksetup -showorder
+
+# ifconfig: viewing network config is safe
+allow ifconfig|
+
 # ── System utilities ────────────────────────────────────────────────
+
+# dmesg: reading is safe, clearing is not
+allow dmesg|
+deny dmesg -c "clears kernel ring buffer"
+deny dmesg -C "clears kernel ring buffer"
+deny dmesg --clear "clears kernel ring buffer"
+
+# sysctl: reading is safe, writing is not
+allow sysctl|
+deny sysctl -w "writes kernel parameters"
 
 # Process management — always ask
 deny kill "terminates processes"
@@ -112,6 +141,14 @@ deny at "schedules future commands"
 deny systemctl "manages system services"
 deny service "manages system services"
 
+# journalctl: reading is safe, maintenance operations are not
+allow journalctl|
+deny journalctl --rotate "rotates journal files"
+deny journalctl --vacuum-size "deletes old journal entries"
+deny journalctl --vacuum-time "deletes old journal entries"
+deny journalctl --vacuum-files "deletes old journal entries"
+deny journalctl --flush "flushes journal to persistent storage"
+
 # Firewall — always ask
 deny iptables "modifies firewall rules"
 deny ufw "modifies firewall rules"
@@ -127,6 +164,10 @@ allow packer validate
 allow packer inspect
 allow packer --help
 allow packer --version
+
+# prometheus: only help/version are safe (everything else starts the server)
+allow prometheus --help
+allow prometheus --version
 
 # ── Code formatters / linters ───────────────────────────────────────
 
