@@ -59,7 +59,7 @@ fn classify_kubectl_exec(ctx: &HandlerContext) -> Classification {
             .collect::<Vec<_>>()
             .join(" ");
         if !inner.is_empty() {
-            return Classification::Recurse(inner);
+            return Classification::RecurseRemote(inner);
         }
     }
     Classification::Ask("kubectl exec".into())
@@ -247,5 +247,63 @@ impl Handler for AzHandler {
         } else {
             Classification::Ask(format!("az {}", ctx.args.join(" ")))
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
+        HandlerContext {
+            command_name: cmd,
+            args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+        }
+    }
+
+    #[test]
+    fn kubectl_get_allows() {
+        let args: Vec<String> = vec!["get".into(), "pods".into()];
+        let result = KUBECTL_HANDLER.classify(&ctx(&args, "kubectl"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn kubectl_exec_recurses_remote() {
+        let args: Vec<String> = vec![
+            "exec".into(),
+            "mypod".into(),
+            "--".into(),
+            "cat".into(),
+            "/etc/hosts".into(),
+        ];
+        let result = KUBECTL_HANDLER.classify(&ctx(&args, "kubectl"));
+        assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "cat /etc/hosts"));
+    }
+
+    #[test]
+    fn kubectl_apply_asks() {
+        let args: Vec<String> = vec!["apply".into(), "-f".into(), "deploy.yaml".into()];
+        let result = KUBECTL_HANDLER.classify(&ctx(&args, "kubectl"));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn aws_describe_allows() {
+        let args: Vec<String> = vec!["ec2".into(), "describe-instances".into()];
+        let result = AWS_HANDLER.classify(&ctx(&args, "aws"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn aws_create_asks() {
+        let args: Vec<String> = vec!["ec2".into(), "create-instance".into()];
+        let result = AWS_HANDLER.classify(&ctx(&args, "aws"));
+        assert!(matches!(result, Classification::Ask(_)));
     }
 }

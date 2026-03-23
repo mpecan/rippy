@@ -50,6 +50,8 @@ pub enum Classification {
     Deny(String),
     /// Re-parse and analyze this inner command string.
     Recurse(String),
+    /// Re-parse inner command with remote=true (for docker exec, kubectl exec).
+    RecurseRemote(String),
     /// Decision with redirect targets that need config rule checking.
     WithRedirects(Decision, String, Vec<String>),
 }

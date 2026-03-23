@@ -87,3 +87,62 @@ fn classify_sql_command(tool: &str, sql: &str) -> Classification {
         None => Classification::Ask(format!("{tool} (ambiguous SQL)")),
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
+        HandlerContext {
+            command_name: cmd,
+            args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+        }
+    }
+
+    #[test]
+    fn psql_readonly_sql_allows() {
+        let args: Vec<String> = vec!["-c".into(), "SELECT * FROM users".into()];
+        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn psql_write_sql_asks() {
+        let args: Vec<String> = vec!["-c".into(), "DELETE FROM users".into()];
+        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn psql_list_allows() {
+        let args: Vec<String> = vec!["-l".into()];
+        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn mysql_select_allows() {
+        let args: Vec<String> = vec!["-e".into(), "SELECT 1".into()];
+        let result = MYSQL_HANDLER.classify(&ctx(&args, "mysql"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn mysql_insert_asks() {
+        let args: Vec<String> = vec!["-e".into(), "INSERT INTO users VALUES (1)".into()];
+        let result = MYSQL_HANDLER.classify(&ctx(&args, "mysql"));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn sqlite3_readonly_allows() {
+        let args: Vec<String> = vec!["-readonly".into(), "test.db".into()];
+        let result = SQLITE3_HANDLER.classify(&ctx(&args, "sqlite3"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+}
