@@ -1,0 +1,5 @@
+# Test config file
+deny rm -rf "use trash instead"
+allow git status
+deny-redirect /etc/*
+allow uv run python -c

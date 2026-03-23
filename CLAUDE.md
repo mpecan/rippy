@@ -26,9 +26,17 @@
 | `src/lib.rs` | Library re-exports |
 | `src/cli.rs` | CLI argument parsing (clap) |
 | `src/config.rs` | Config file loading and merging (global + project) |
+| `src/pattern.rs` | Glob-style pattern matching for config rules |
 | `src/parser.rs` | tree-sitter-bash command parsing |
-| `src/rules/` | Safety rule evaluation (deny, allow, deny-redirect) |
-| `src/verdict.rs` | Verdict types and JSON serialization |
+| `src/ast.rs` | AST node helpers (command name/args/redirects extraction) |
+| `src/analyzer.rs` | Recursive AST walker: Tree + Config + Handlers → Verdict |
+| `src/allowlists.rs` | SIMPLE_SAFE (~200 cmds) and WRAPPER_COMMANDS sets |
+| `src/handlers/` | 85+ CLI-specific command handlers (git, docker, etc.) |
+| `src/payload.rs` | JSON input deserialization (4 AI tool formats) |
+| `src/verdict.rs` | Decision (Allow/Ask/Deny), per-mode JSON serialization |
+| `src/mode.rs` | Mode (Claude/Gemini/Cursor/Codex) and HookType enums |
+| `src/error.rs` | RippyError via thiserror |
+| `src/sql.rs` | SQL read-only classifier for database handlers |
 | `tests/` | Integration tests |
 
 ### Command flow
