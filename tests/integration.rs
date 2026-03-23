@@ -378,3 +378,102 @@ fn empty_command_in_payload() {
     let (_stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
 }
+
+// ---- Recommended config tests (#16) ----
+
+fn recommended_config_path() -> String {
+    format!("{}/examples/recommended.rippy", env!("CARGO_MANIFEST_DIR"))
+}
+
+#[test]
+fn recommended_config_allows_defaults_read() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"defaults read com.apple.finder"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn recommended_config_asks_defaults_write() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"defaults write com.apple.finder key val"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+}
+
+#[test]
+fn recommended_config_asks_kill() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"kill -9 1234"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+}
+
+#[test]
+fn recommended_config_asks_dd() {
+    let json =
+        r#"{"tool_name":"Bash","tool_input":{"command":"dd if=/dev/zero of=/dev/sda bs=1M"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+}
+
+#[test]
+fn recommended_config_allows_xattr_bare() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"xattr"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn recommended_config_asks_xattr_write() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"xattr -w attr val file.txt"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+}
+
+#[test]
+fn recommended_config_allows_ansible_doc() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"ansible-doc copy"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn recommended_config_allows_diskutil_list() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"diskutil list"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn recommended_config_exact_match_dmesg_allows_bare() {
+    // dmesg| uses exact match — bare `dmesg` is allowed
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"dmesg"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn recommended_config_exact_match_dmesg_asks_clear() {
+    // dmesg -c needs approval even though bare dmesg is allowed
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"dmesg -c"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+}

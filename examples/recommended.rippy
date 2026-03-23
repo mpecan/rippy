@@ -15,8 +15,8 @@ allow defaults read-type
 allow defaults domains
 allow defaults find
 allow defaults help
-deny defaults write "modifies system preferences"
-deny defaults delete "modifies system preferences"
+ask defaults write "modifies system preferences"
+ask defaults delete "modifies system preferences"
 
 # diskutil: info/listing is safe, partitioning is not
 allow diskutil list
@@ -47,13 +47,13 @@ allow security error
 
 # xattr: reading is safe, writing/deleting/clearing is not
 allow xattr|
-deny xattr -w "writes extended attributes"
-deny xattr -d "deletes extended attributes"
-deny xattr -c "clears all extended attributes"
+ask xattr -w "writes extended attributes"
+ask xattr -d "deletes extended attributes"
+ask xattr -c "clears all extended attributes"
 
 # codesign: viewing signatures is safe, signing is not
-deny codesign -s "signs code"
-deny codesign --sign "signs code"
+ask codesign -s "signs code"
+ask codesign --sign "signs code"
 
 # hdiutil: info/verify is safe, mounting/creating is not
 allow hdiutil help
@@ -88,33 +88,70 @@ allow lipo -info
 allow lipo -detailed_info
 allow lipo -archs
 
+# scutil: read-only flags are safe, interactive mode is not
+allow scutil --dns
+allow scutil --proxy
+allow scutil --nwi
+allow scutil --get
+
+# networksetup: get/list/show queries are safe, set/create/remove are not
+allow networksetup -getinfo
+allow networksetup -getdnsservers
+allow networksetup -getwebproxy
+allow networksetup -getsearchdomains
+allow networksetup -listallhardwareports
+allow networksetup -listallnetworkservices
+allow networksetup -listnetworkserviceorder
+allow networksetup -showorder
+
+# ifconfig: viewing network config is safe
+allow ifconfig|
+
 # ── System utilities ────────────────────────────────────────────────
 
-# Process management — always ask
-deny kill "terminates processes"
-deny killall "terminates processes by name"
-deny pkill "terminates processes by pattern"
+# dmesg: reading is safe, clearing is not
+allow dmesg|
+ask dmesg -c "clears kernel ring buffer"
+ask dmesg -C "clears kernel ring buffer"
+ask dmesg --clear "clears kernel ring buffer"
 
-# Disk operations — always ask
-deny dd "raw disk/file operations"
+# sysctl: reading is safe, writing is not
+allow sysctl|
+ask sysctl -w "writes kernel parameters"
 
-# Network listeners — always ask
-deny nc "network utility — can open listeners"
-deny netcat "network utility — can open listeners"
-deny ncat "network utility — can open listeners"
-deny socat "network utility — can open listeners"
+# Process management
+ask kill "terminates processes"
+ask killall "terminates processes by name"
+ask pkill "terminates processes by pattern"
 
-# Scheduled tasks — always ask
-deny crontab "modifies scheduled tasks"
-deny at "schedules future commands"
+# Disk operations
+ask dd "raw disk/file operations"
 
-# Service management — always ask
-deny systemctl "manages system services"
-deny service "manages system services"
+# Network listeners
+ask nc "network utility — can open listeners"
+ask netcat "network utility — can open listeners"
+ask ncat "network utility — can open listeners"
+ask socat "network utility — can open listeners"
 
-# Firewall — always ask
-deny iptables "modifies firewall rules"
-deny ufw "modifies firewall rules"
+# Scheduled tasks
+ask crontab "modifies scheduled tasks"
+ask at "schedules future commands"
+
+# Service management
+ask systemctl "manages system services"
+ask service "manages system services"
+
+# journalctl: reading is safe, maintenance operations are not
+allow journalctl|
+ask journalctl --rotate "rotates journal files"
+ask journalctl --vacuum-size "deletes old journal entries"
+ask journalctl --vacuum-time "deletes old journal entries"
+ask journalctl --vacuum-files "deletes old journal entries"
+ask journalctl --flush "flushes journal to persistent storage"
+
+# Firewall
+ask iptables "modifies firewall rules"
+ask ufw "modifies firewall rules"
 
 # ── DevOps tools ────────────────────────────────────────────────────
 
@@ -127,6 +164,10 @@ allow packer validate
 allow packer inspect
 allow packer --help
 allow packer --version
+
+# prometheus: only help/version are safe (everything else starts the server)
+allow prometheus --help
+allow prometheus --version
 
 # ── Code formatters / linters ───────────────────────────────────────
 
