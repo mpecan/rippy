@@ -286,3 +286,96 @@ fn log_file_receives_entry() {
     assert_eq!(entry["decision"], "allow");
     assert_eq!(entry["command"], "ls");
 }
+
+// ---- Heredoc tests ----
+
+#[test]
+fn heredoc_safe_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cat <<EOF\nhello\nEOF"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+// ---- Handler integration tests ----
+
+#[test]
+fn docker_exec_ls_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"docker exec container ls"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn find_exec_grep_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"find . -exec grep pattern {} ;"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn env_inner_command_analyzed() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"env FOO=bar ls"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+// ---- PostToolUse ----
+
+#[test]
+fn post_tool_use_returns_allow() {
+    let json =
+        r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_result":{"output":"file.txt"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+// ---- Codex mode ----
+
+#[test]
+fn codex_mode_safe_command() {
+    let json = r#"{"tool_name":"bash","tool_input":"ls -la"}"#;
+    let (stdout, code) = run_rippy(json, "codex", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["decision"], "allow");
+}
+
+#[test]
+fn codex_mode_dangerous_command() {
+    let json = r#"{"tool_name":"bash","tool_input":"rm -rf /"}"#;
+    let (stdout, code) = run_rippy(json, "codex", &[]);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["decision"], "deny");
+}
+
+// ---- Dippy backward compat ----
+
+#[test]
+fn dippy_config_file_loaded() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_path = dir.path().join(".dippy");
+    std::fs::write(&config_path, "deny rm -rf \"blocked by dippy config\"").unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &["--config", config_path.to_str().unwrap()]);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
+}
+
+// ---- Empty command ----
+
+#[test]
+fn empty_command_in_payload() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":""}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+}

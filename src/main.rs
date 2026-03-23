@@ -9,7 +9,6 @@ use rippy::cli::Args;
 use rippy::config::Config;
 use rippy::error::RippyError;
 use rippy::mode::HookType;
-use rippy::parser::BashParser;
 use rippy::payload::Payload;
 use rippy::verdict::{Decision, Verdict};
 
@@ -34,13 +33,7 @@ fn evaluate(
                 }
                 Ok(v)
             } else if let Some(command) = &payload.command {
-                let mut analyzer = Analyzer {
-                    config,
-                    parser: BashParser::new()?,
-                    remote: args.remote,
-                    working_directory: cwd,
-                    verbose: args.verbose,
-                };
+                let mut analyzer = Analyzer::new(config, args.remote, cwd, args.verbose)?;
                 Ok(analyzer.analyze(command)?)
             } else {
                 Ok(Verdict::ask("no command found in payload"))

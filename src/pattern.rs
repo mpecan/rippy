@@ -63,31 +63,86 @@ impl Pattern {
     }
 }
 
-/// Recursive glob matching of `pattern` against `text`.
+/// Iterative glob matching with backtracking. O(n*m) worst case.
+/// Since `*` already crosses `/`, `**/` is normalized to `*`.
 fn glob_match(pattern: &[u8], text: &[u8]) -> bool {
-    match (pattern, text) {
-        ([], []) => true,
-        // `*` or `**` — match zero-or-more characters (our `*` crosses `/` too).
-        // `**/` skips 3 bytes, `**` at end matches everything, `*` skips 1.
-        ([b'*', ..], _) => {
-            if pattern == b"**" {
-                return true;
+    let normalized = normalize_stars(pattern);
+    let pat = &normalized;
+    let mut pidx = 0;
+    let mut tidx = 0;
+    // Saved positions for `*` backtracking
+    let mut saved_pat = usize::MAX;
+    let mut saved_txt: usize = 0;
+
+    while tidx < text.len() {
+        if pidx < pat.len() && pat[pidx] == b'*' {
+            saved_pat = pidx + 1;
+            saved_txt = tidx;
+            pidx += 1;
+        } else if pidx < pat.len() && pat[pidx] == b'?' {
+            pidx += 1;
+            tidx += 1;
+        } else if pidx < pat.len() && pat[pidx] == b'[' {
+            if let Some((true, rest)) = match_char_class(&pat[pidx + 1..], text[tidx]) {
+                pidx = pat.len() - rest.len();
+                tidx += 1;
+                continue;
             }
-            let skip = if pattern.starts_with(b"**/") { 3 } else { 1 };
-            let rest = &pattern[skip..];
-            glob_match(rest, text) || (!text.is_empty() && glob_match(pattern, &text[1..]))
+            if !bt(&mut pidx, &mut tidx, saved_pat, &mut saved_txt, text.len()) {
+                return false;
+            }
+        } else if pidx < pat.len() && pat[pidx] == text[tidx] {
+            pidx += 1;
+            tidx += 1;
+        } else if !bt(&mut pidx, &mut tidx, saved_pat, &mut saved_txt, text.len()) {
+            return false;
         }
-        ([b'?', rest @ ..], [_, text_rest @ ..]) => glob_match(rest, text_rest),
-        ([b'[', rest @ ..], [c, text_rest @ ..]) => {
-            match_char_class(rest, *c).map_or_else(
-                // Malformed bracket — treat `[` as literal
-                || *c == b'[' && glob_match(rest, text_rest),
-                |(matched, after_bracket)| matched && glob_match(after_bracket, text_rest),
-            )
-        }
-        ([p, rest @ ..], [c, text_rest @ ..]) if *p == *c => glob_match(rest, text_rest),
-        _ => false,
     }
+
+    while pidx < pat.len() && pat[pidx] == b'*' {
+        pidx += 1;
+    }
+    pidx == pat.len()
+}
+
+/// Backtrack to the last `*` position, advancing the text cursor by one.
+const fn bt(
+    pidx: &mut usize,
+    tidx: &mut usize,
+    saved_pat: usize,
+    saved_txt: &mut usize,
+    text_len: usize,
+) -> bool {
+    if saved_pat == usize::MAX || *saved_txt >= text_len {
+        return false;
+    }
+    *saved_txt += 1;
+    *pidx = saved_pat;
+    *tidx = *saved_txt;
+    true
+}
+
+/// Normalize `**/` to `*` and collapse consecutive `*`s.
+fn normalize_stars(pattern: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(pattern.len());
+    let mut i = 0;
+    while i < pattern.len() {
+        if pattern[i] == b'*' {
+            result.push(b'*');
+            // Skip all consecutive stars and `**/` sequences
+            while i < pattern.len() && pattern[i] == b'*' {
+                i += 1;
+            }
+            // `**/` is equivalent to `*` since our `*` crosses `/` — skip the `/`
+            if i < pattern.len() && pattern[i] == b'/' {
+                i += 1;
+            }
+        } else {
+            result.push(pattern[i]);
+            i += 1;
+        }
+    }
+    result
 }
 
 /// Parse a character class after the opening `[`.

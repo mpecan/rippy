@@ -70,7 +70,7 @@ fn classify_exec(ctx: &HandlerContext) -> Classification {
             .map(String::as_str)
             .collect::<Vec<_>>()
             .join(" ");
-        return Classification::Recurse(inner);
+        return Classification::RecurseRemote(inner);
     }
     Classification::Ask("docker exec".into())
 }
@@ -91,5 +91,74 @@ fn classify_compose(ctx: &HandlerContext) -> Classification {
         Classification::Allow(format!("compose {sub}"))
     } else {
         Classification::Ask(format!("compose {sub}"))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
+        HandlerContext {
+            command_name: cmd,
+            args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+        }
+    }
+
+    #[test]
+    fn docker_exec_recurses_remote() {
+        let args: Vec<String> = vec![
+            "exec".into(),
+            "mycontainer".into(),
+            "ls".into(),
+            "-la".into(),
+        ];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "ls -la"));
+    }
+
+    #[test]
+    fn docker_exec_with_flags() {
+        let args: Vec<String> = vec![
+            "exec".into(),
+            "-it".into(),
+            "-u".into(),
+            "root".into(),
+            "mycontainer".into(),
+            "bash".into(),
+        ];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "bash"));
+    }
+
+    #[test]
+    fn docker_compose_safe() {
+        let args: Vec<String> = vec!["compose".into(), "ps".into()];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn docker_run_asks() {
+        let args: Vec<String> = vec!["run".into(), "alpine".into()];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn docker_safe_subcommands() {
+        for sub in &["ps", "images", "logs", "inspect", "version", "info"] {
+            let args: Vec<String> = vec![(*sub).into()];
+            let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+            assert!(
+                matches!(result, Classification::Allow(_)),
+                "docker {sub} should be allowed"
+            );
+        }
     }
 }

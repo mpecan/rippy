@@ -19,9 +19,31 @@ pub struct Analyzer {
     pub remote: bool,
     pub working_directory: PathBuf,
     pub verbose: bool,
+    inner_parser: Option<BashParser>,
 }
 
 impl Analyzer {
+    /// Create a new analyzer.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RippyError::Parse` if the bash parser cannot be initialized.
+    pub fn new(
+        config: Config,
+        remote: bool,
+        working_directory: PathBuf,
+        verbose: bool,
+    ) -> Result<Self, RippyError> {
+        Ok(Self {
+            parser: BashParser::new()?,
+            config,
+            remote,
+            working_directory,
+            verbose,
+            inner_parser: None,
+        })
+    }
+
     /// Analyze a shell command string and return a safety verdict.
     ///
     /// # Errors
@@ -44,7 +66,7 @@ impl Analyzer {
         Ok(self.analyze_node(root, command, &cwd, 0))
     }
 
-    fn analyze_node(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
+    fn analyze_node(&mut self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
         if depth > MAX_DEPTH {
             return Verdict::ask("nesting depth exceeded");
         }
@@ -66,7 +88,7 @@ impl Analyzer {
         }
     }
 
-    fn analyze_children(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
+    fn analyze_children(&mut self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
         let mut verdicts = Vec::new();
         let mut cursor = node.walk();
         let mut current_cwd = cwd.to_owned();
@@ -91,7 +113,7 @@ impl Analyzer {
     }
 
     fn analyze_children_or_allow(
-        &self,
+        &mut self,
         node: Node,
         source: &str,
         cwd: &Path,
@@ -109,7 +131,7 @@ impl Analyzer {
         Verdict::combine(&verdicts)
     }
 
-    fn analyze_command(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
+    fn analyze_command(&mut self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
         let Some(raw_name) = ast::command_name(node, source) else {
             return Verdict::allow("empty command");
         };
@@ -160,7 +182,7 @@ impl Analyzer {
     }
 
     fn classify_with_handler(
-        &self,
+        &mut self,
         cmd_name: &str,
         args: &[String],
         cwd: &Path,
@@ -186,18 +208,30 @@ impl Analyzer {
         self.default_verdict(cmd_name)
     }
 
-    fn analyze_redirected(&self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
+    fn analyze_redirected(
+        &mut self,
+        node: Node,
+        source: &str,
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
         let mut cmd_verdict = Verdict::allow("");
         let mut redirect_verdicts = Vec::new();
 
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            if child.kind() == "file_redirect" {
-                if let Some((op, target)) = ast::redirect_info(child, source) {
-                    redirect_verdicts.push(self.analyze_redirect(op, &target));
+            match child.kind() {
+                "file_redirect" => {
+                    if let Some((op, target)) = ast::redirect_info(child, source) {
+                        redirect_verdicts.push(self.analyze_redirect(op, &target));
+                    }
                 }
-            } else {
-                cmd_verdict = self.analyze_node(child, source, cwd, depth + 1);
+                "heredoc_redirect" => {
+                    redirect_verdicts.push(Self::analyze_heredoc(child, source));
+                }
+                _ => {
+                    cmd_verdict = self.analyze_node(child, source, cwd, depth + 1);
+                }
             }
         }
 
@@ -221,6 +255,32 @@ impl Analyzer {
         Verdict::ask(format!("redirect to {target}"))
     }
 
+    fn analyze_heredoc(node: Node, source: &str) -> Verdict {
+        let mut delimiter_quoted = false;
+        let mut body_has_expansions = false;
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "heredoc_start" => {
+                    let text = child.utf8_text(source.as_bytes()).unwrap_or_default();
+                    delimiter_quoted =
+                        text.starts_with('\'') || text.starts_with('"') || text.starts_with('\\');
+                }
+                "heredoc_body" => {
+                    body_has_expansions = ast::has_expansions(child);
+                }
+                _ => {}
+            }
+        }
+
+        if delimiter_quoted || !body_has_expansions {
+            Verdict::allow("heredoc")
+        } else {
+            Verdict::ask("heredoc with command substitution")
+        }
+    }
+
     fn analyze_assignment(node: Node, _source: &str) -> Verdict {
         if ast::has_expansions(node) {
             return Verdict::ask("assignment with command substitution");
@@ -228,17 +288,23 @@ impl Analyzer {
         Verdict::allow("variable assignment")
     }
 
-    fn analyze_inner_command(&self, inner: &str, cwd: &Path, depth: usize) -> Verdict {
-        let Some(mut parser) = Self::parser_for_inner() else {
-            return Verdict::ask("parser initialization failed");
-        };
+    fn analyze_inner_command(&mut self, inner: &str, cwd: &Path, depth: usize) -> Verdict {
+        let parser = self.get_inner_parser();
         let Ok(tree) = parser.parse(inner) else {
             return Verdict::ask("unparseable inner command");
         };
         self.analyze_node(tree.root_node(), inner, cwd, depth)
     }
 
-    fn apply_classification(&self, class: Classification, cwd: &Path, depth: usize) -> Verdict {
+    fn get_inner_parser(&mut self) -> &mut BashParser {
+        if self.inner_parser.is_none() {
+            self.inner_parser = BashParser::new().ok();
+        }
+        // Fall back to main parser if inner parser init failed
+        self.inner_parser.as_mut().unwrap_or(&mut self.parser)
+    }
+
+    fn apply_classification(&mut self, class: Classification, cwd: &Path, depth: usize) -> Verdict {
         match class {
             Classification::Allow(desc) => Verdict::allow(desc),
             Classification::Ask(desc) => Verdict::ask(desc),
@@ -248,6 +314,16 @@ impl Analyzer {
                     eprintln!("[rippy] recurse: {inner}");
                 }
                 self.analyze_inner_command(&inner, cwd, depth)
+            }
+            Classification::RecurseRemote(inner) => {
+                if self.verbose {
+                    eprintln!("[rippy] recurse (remote): {inner}");
+                }
+                let prev_remote = self.remote;
+                self.remote = true;
+                let v = self.analyze_inner_command(&inner, cwd, depth);
+                self.remote = prev_remote;
+                v
             }
             Classification::WithRedirects(decision, desc, targets) => {
                 let mut verdicts = vec![Verdict {
@@ -271,10 +347,6 @@ impl Analyzer {
             },
         )
     }
-
-    fn parser_for_inner() -> Option<BashParser> {
-        BashParser::new().ok()
-    }
 }
 
 fn extract_cd_target(node: Node, source: &str) -> Option<String> {
@@ -297,13 +369,7 @@ mod tests {
     use crate::verdict::Decision;
 
     fn make_analyzer() -> Analyzer {
-        Analyzer {
-            config: Config::empty(),
-            parser: BashParser::new().unwrap(),
-            remote: false,
-            working_directory: PathBuf::from("/tmp"),
-            verbose: false,
-        }
+        Analyzer::new(Config::empty(), false, PathBuf::from("/tmp"), false).unwrap()
     }
 
     #[test]
@@ -407,13 +473,7 @@ mod tests {
             pattern: Pattern::new("rm -rf /tmp"),
             message: Some("cleanup allowed".into()),
         }]);
-        let mut a = Analyzer {
-            config,
-            parser: BashParser::new().unwrap(),
-            remote: false,
-            working_directory: PathBuf::from("/tmp"),
-            verbose: false,
-        };
+        let mut a = Analyzer::new(config, false, PathBuf::from("/tmp"), false).unwrap();
         let v = a.analyze("rm -rf /tmp").unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
@@ -441,7 +501,7 @@ mod tests {
 
     #[test]
     fn depth_limit_exceeded() {
-        let a = make_analyzer();
+        let mut a = make_analyzer();
         let parser = &mut BashParser::new().unwrap();
         let tree = parser.parse("echo ok").unwrap();
         let root = tree.root_node();
@@ -452,7 +512,7 @@ mod tests {
 
     #[test]
     fn depth_at_max_still_works() {
-        let a = make_analyzer();
+        let mut a = make_analyzer();
         let parser = &mut BashParser::new().unwrap();
         let tree = parser.parse("echo ok").unwrap();
         let root = tree.root_node();
@@ -473,5 +533,69 @@ mod tests {
         }
         let v = a.analyze(&cmd).unwrap();
         assert_eq!(v.decision, Decision::Ask); // subshell → Ask
+    }
+
+    #[test]
+    fn heredoc_safe_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<EOF\nhello world\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn heredoc_quoted_delimiter_allows_even_with_expansion_syntax() {
+        let mut a = make_analyzer();
+        // Quoted delimiter suppresses expansion, so $(rm -rf /) is literal text
+        let v = a.analyze("cat <<'EOF'\n$(rm -rf /)\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn nested_substitution_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $(echo $(whoami))").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn complex_pipeline_all_safe() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat file | grep pattern | head -5").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn if_statement_safe() {
+        let mut a = make_analyzer();
+        let v = a.analyze("if true; then echo yes; fi").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn if_statement_unsafe_body() {
+        let mut a = make_analyzer();
+        let v = a.analyze("if true; then rm -rf /; fi").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn for_loop_unsafe() {
+        let mut a = make_analyzer();
+        let v = a.analyze("for i in 1 2 3; do rm -rf /; done").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn empty_command_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn case_statement() {
+        let mut a = make_analyzer();
+        let v = a.analyze("case x in a) echo yes;; esac").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
     }
 }

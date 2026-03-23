@@ -431,4 +431,53 @@ mod tests {
         let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
         assert!(matches!(result, Classification::Recurse(cmd) if cmd.starts_with("echo")));
     }
+
+    #[test]
+    fn env_bare_allows() {
+        let args: Vec<String> = vec![];
+        let result = ENV_HANDLER.classify(&ctx(&args, "env"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn env_with_command_recurses() {
+        let args: Vec<String> = vec!["FOO=bar".into(), "git".into(), "status".into()];
+        let result = ENV_HANDLER.classify(&ctx(&args, "env"));
+        assert!(matches!(result, Classification::Recurse(_)));
+    }
+
+    #[test]
+    fn uv_sync_allows() {
+        let args: Vec<String> = vec!["sync".into()];
+        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn uv_run_recurses() {
+        let args: Vec<String> = vec!["run".into(), "python".into()];
+        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
+        assert!(matches!(result, Classification::Recurse(_)));
+    }
+
+    #[test]
+    fn uv_pip_list_allows() {
+        let args: Vec<String> = vec!["pip".into(), "list".into()];
+        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn tar_list_allows() {
+        let args: Vec<String> = vec!["-t".into(), "archive.tar".into()];
+        let result = TAR_HANDLER.classify(&ctx(&args, "tar"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn tar_extract_asks() {
+        let args: Vec<String> = vec!["-x".into(), "archive.tar".into()];
+        let result = TAR_HANDLER.classify(&ctx(&args, "tar"));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
 }
