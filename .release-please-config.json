@@ -18,7 +18,7 @@
   ],
   "packages": {
     ".": {
-      "component": "rippy"
+      "component": "rippy-cli"
     }
   }
 }

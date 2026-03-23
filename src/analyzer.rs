@@ -53,7 +53,7 @@ impl Analyzer {
         if let Some(verdict) = self.config.match_command(command) {
             if self.verbose {
                 eprintln!(
-                    "[rppy] config rule matched: {command} -> {}",
+                    "[rippy] config rule matched: {command} -> {}",
                     verdict.decision.as_str()
                 );
             }
@@ -146,7 +146,7 @@ impl Analyzer {
         };
 
         if self.verbose {
-            eprintln!("[rppy] command: {cmd_name}");
+            eprintln!("[rippy] command: {cmd_name}");
         }
 
         if allowlists::is_wrapper(&cmd_name) {
@@ -159,7 +159,7 @@ impl Analyzer {
 
         if allowlists::is_simple_safe(&cmd_name) {
             if self.verbose {
-                eprintln!("[rppy] allowlist: {cmd_name} is safe");
+                eprintln!("[rippy] allowlist: {cmd_name} is safe");
             }
             if ast::has_expansions(node) {
                 let inner_verdict = self.analyze_children(node, source, cwd, depth);
@@ -197,13 +197,13 @@ impl Analyzer {
             };
             let classification = handler.classify(&ctx);
             if self.verbose {
-                eprintln!("[rppy] handler: {cmd_name} -> {classification:?}");
+                eprintln!("[rippy] handler: {cmd_name} -> {classification:?}");
             }
             return self.apply_classification(classification, cwd, depth);
         }
 
         if self.verbose {
-            eprintln!("[rppy] no handler for: {cmd_name}");
+            eprintln!("[rippy] no handler for: {cmd_name}");
         }
         self.default_verdict(cmd_name)
     }
@@ -311,13 +311,13 @@ impl Analyzer {
             Classification::Deny(desc) => Verdict::deny(desc),
             Classification::Recurse(inner) => {
                 if self.verbose {
-                    eprintln!("[rppy] recurse: {inner}");
+                    eprintln!("[rippy] recurse: {inner}");
                 }
                 self.analyze_inner_command(&inner, cwd, depth)
             }
             Classification::RecurseRemote(inner) => {
                 if self.verbose {
-                    eprintln!("[rppy] recurse (remote): {inner}");
+                    eprintln!("[rippy] recurse (remote): {inner}");
                 }
                 let prev_remote = self.remote;
                 self.remote = true;

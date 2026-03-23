@@ -47,7 +47,7 @@ pub fn write_log_entry(entry: &LogEntry<'_>) {
         .open(entry.log_file)
     else {
         eprintln!(
-            "[rppy] warning: could not open log file: {}",
+            "[rippy] warning: could not open log file: {}",
             entry.log_file.display()
         );
         return;
@@ -57,7 +57,7 @@ pub fn write_log_entry(entry: &LogEntry<'_>) {
         && writeln!(file, "{line}").is_err()
     {
         eprintln!(
-            "[rppy] warning: could not write to log: {}",
+            "[rippy] warning: could not write to log: {}",
             entry.log_file.display()
         );
     }

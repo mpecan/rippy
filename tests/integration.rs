@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn rippy_binary() -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_BIN_EXE_rppy"));
+    let mut path = PathBuf::from(env!("CARGO_BIN_EXE_rippy"));
     if !path.exists() {
-        path = PathBuf::from("target/debug/rppy");
+        path = PathBuf::from("target/debug/rippy");
     }
     path
 }
@@ -205,8 +205,8 @@ fn verbose_traces_to_stderr() {
     let _v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     // stderr contains trace lines
     assert!(
-        stderr.contains("[rppy]"),
-        "stderr should contain [rppy] trace lines"
+        stderr.contains("[rippy]"),
+        "stderr should contain [rippy] trace lines"
     );
     assert!(
         stderr.contains("command:"),
@@ -220,7 +220,7 @@ fn verbose_handler_trace() {
     let (_stdout, stderr, code) = run_rippy_with_stderr(json, "claude", &["--verbose"]);
     assert_eq!(code, 2);
     assert!(
-        stderr.contains("[rppy] handler:"),
+        stderr.contains("[rippy] handler:"),
         "stderr should show handler decision"
     );
 }

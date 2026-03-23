@@ -27,14 +27,14 @@ impl ModeArg {
 /// A shell command safety hook for AI coding tools.
 #[derive(Parser, Debug)]
 #[command(
-    name = "rppy",
+    name = "rippy",
     version,
     about,
     after_help = "\
 Reads a JSON hook payload from stdin and writes a verdict to stdout.\n\n\
 Exit codes: 0 = allow, 2 = ask/deny, 1 = error\n\n\
 Example:\n  \
-echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"}}' | rppy --mode claude"
+echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"}}' | rippy --mode claude"
 )]
 pub struct Args {
     /// Force a specific AI tool mode

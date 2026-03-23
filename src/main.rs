@@ -4,13 +4,13 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use rippy::analyzer::Analyzer;
-use rippy::cli::Args;
-use rippy::config::Config;
-use rippy::error::RippyError;
-use rippy::mode::HookType;
-use rippy::payload::Payload;
-use rippy::verdict::{Decision, Verdict};
+use rippy_cli::analyzer::Analyzer;
+use rippy_cli::cli::Args;
+use rippy_cli::config::Config;
+use rippy_cli::error::RippyError;
+use rippy_cli::mode::HookType;
+use rippy_cli::payload::Payload;
+use rippy_cli::verdict::{Decision, Verdict};
 
 fn evaluate(
     payload: &Payload,
@@ -26,7 +26,7 @@ fn evaluate(
                     .unwrap_or_else(|| Verdict::ask(format!("MCP tool: {}", payload.tool_name)));
                 if args.verbose {
                     eprintln!(
-                        "[rppy] mcp: {} -> {}",
+                        "[rippy] mcp: {} -> {}",
                         payload.tool_name,
                         v.decision.as_str()
                     );
@@ -76,11 +76,11 @@ fn run() -> Result<ExitCode, RippyError> {
 
     if args.verbose {
         eprintln!(
-            "[rppy] mode: {:?}, tool: {}",
+            "[rippy] mode: {:?}, tool: {}",
             payload.mode, payload.tool_name
         );
         if let Some(cmd) = &payload.command {
-            eprintln!("[rppy] command: {cmd}");
+            eprintln!("[rippy] command: {cmd}");
         }
     }
 
@@ -99,7 +99,7 @@ fn run() -> Result<ExitCode, RippyError> {
 
 fn log_verdict(log_file: Option<&PathBuf>, log_full: bool, payload: &Payload, verdict: &Verdict) {
     if let Some(path) = log_file {
-        rippy::logging::write_log_entry(&rippy::logging::LogEntry {
+        rippy_cli::logging::write_log_entry(&rippy_cli::logging::LogEntry {
             log_file: path,
             log_full,
             command: payload.command.as_deref(),

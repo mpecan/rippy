@@ -1,5 +1,5 @@
 [package]
-name = "rippy"
+name = "rippy-cli"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -11,7 +11,7 @@ readme = "README.md"
 rust-version = "1.93"
 
 [[bin]]
-name = "rppy"
+name = "rippy"
 path = "src/main.rs"
 
 [dependencies]
@@ -26,7 +26,7 @@ tree-sitter-bash = "0.25"
 tempfile = "3"
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/rippy-v{ version }/rppy-v{ version }-{ target }.tar.gz"
+pkg-url = "{ repo }/releases/download/rippy-cli-v{ version }/rippy-v{ version }-{ target }.tar.gz"
 pkg-fmt = "tgz"
 bin-dir = "{ bin }{ binary-ext }"
 

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to republish (e.g. rippy-v0.1.0)"
+        description: "Release tag to republish (e.g. rippy-cli-v0.1.0)"
         required: true
         type: string
 
@@ -20,7 +20,7 @@ env:
 jobs:
   publish:
     name: Publish to crates.io
-    if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-v')
+    if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -31,12 +31,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Publish rippy
+      - name: Publish rippy-cli
         run: |
-          LOCAL=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "rippy") | .version')
-          PUBLISHED=$(cargo search rippy --limit 1 --color never | sed -n 's/^rippy = "\([^"]*\)".*/\1/p')
+          LOCAL=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "rippy-cli") | .version')
+          PUBLISHED=$(cargo search rippy-cli --limit 1 --color never | sed -n 's/^rippy-cli = "\([^"]*\)".*/\1/p')
           if [ "$LOCAL" = "$PUBLISHED" ]; then
-            echo "::notice::rippy@$LOCAL already published, skipping"
+            echo "::notice::rippy-cli@$LOCAL already published, skipping"
           else
             cargo publish
           fi
@@ -45,7 +45,7 @@ jobs:
 
   build-binaries:
     name: Build ${{ matrix.target }}
-    if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-v')
+    if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -87,10 +87,10 @@ jobs:
         shell: bash
         run: |
           TAG="${{ env.RELEASE_TAG }}"
-          VERSION="${TAG#rippy-v}"
-          ARCHIVE="rppy-v${VERSION}-${{ matrix.target }}.tar.gz"
-          cp "target/${{ matrix.target }}/release/rppy" rppy
-          tar -czf "${ARCHIVE}" rppy
+          VERSION="${TAG#rippy-cli-v}"
+          ARCHIVE="rippy-v${VERSION}-${{ matrix.target }}.tar.gz"
+          cp "target/${{ matrix.target }}/release/rippy" rippy
+          tar -czf "${ARCHIVE}" rippy
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
           openssl dgst -sha256 "${ARCHIVE}" | awk '{print $2}' > "${ARCHIVE}.sha256"
 
