@@ -35,10 +35,13 @@ pub enum Rule {
     },
 }
 
-/// Loaded and merged configuration.
+/// Loaded and merged configuration with rules partitioned by type.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    pub rules: Vec<Rule>,
+    command_rules: Vec<(Decision, Pattern, Option<String>)>,
+    redirect_rules: Vec<(Decision, Pattern, Option<String>)>,
+    mcp_rules: Vec<(Decision, Pattern)>,
+    after_rules: Vec<(Pattern, String)>,
     pub default_action: Option<Decision>,
     pub log_file: Option<PathBuf>,
     pub log_full: bool,
@@ -47,7 +50,6 @@ pub struct Config {
 
 impl Config {
     /// Load config from the three-tier system: global, project, env override.
-    /// Missing files are silently ignored.
     ///
     /// # Errors
     ///
@@ -55,7 +57,6 @@ impl Config {
     pub fn load(cwd: &Path, env_config: Option<&Path>) -> Result<Self, RippyError> {
         let mut rules = Vec::new();
 
-        // Tier 1: global config
         if let Some(home) = home_dir() {
             load_first_existing(
                 &[home.join(".rippy/config"), home.join(".dippy/config")],
@@ -63,12 +64,10 @@ impl Config {
             )?;
         }
 
-        // Tier 2: project config (walk up from cwd)
         if let Some(project_config) = find_project_config(cwd) {
             load_file(&project_config, &mut rules)?;
         }
 
-        // Tier 3: env override (highest priority)
         if let Some(env_path) = env_config {
             load_file(env_path, &mut rules)?;
         }
@@ -76,7 +75,6 @@ impl Config {
         Ok(Self::from_rules(rules))
     }
 
-    /// Create an empty config (for testing or when no config files exist).
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
@@ -85,37 +83,45 @@ impl Config {
     /// Match a command string against command rules (last-match-wins).
     #[must_use]
     pub fn match_command(&self, command: &str) -> Option<Verdict> {
-        Self::last_match(&self.rules, command, |r| match r {
-            Rule::Command {
-                kind,
-                pattern,
-                message,
-            } => Some((kind, pattern, message.as_deref())),
-            _ => None,
-        })
+        let mut result = None;
+        for (kind, pattern, message) in &self.command_rules {
+            if pattern.matches(command) {
+                result = Some(Verdict {
+                    decision: *kind,
+                    reason: message.as_deref().map_or_else(
+                        || format!("matched rule: {}", pattern.as_str()),
+                        String::from,
+                    ),
+                });
+            }
+        }
+        result
     }
 
     /// Match a redirect target path against redirect rules.
     #[must_use]
     pub fn match_redirect(&self, path: &str) -> Option<Verdict> {
-        Self::last_match(&self.rules, path, |r| match r {
-            Rule::Redirect {
-                kind,
-                pattern,
-                message,
-            } => Some((kind, pattern, message.as_deref())),
-            _ => None,
-        })
+        let mut result = None;
+        for (kind, pattern, message) in &self.redirect_rules {
+            if pattern.matches(path) {
+                result = Some(Verdict {
+                    decision: *kind,
+                    reason: message.as_deref().map_or_else(
+                        || format!("redirect rule: {}", pattern.as_str()),
+                        String::from,
+                    ),
+                });
+            }
+        }
+        result
     }
 
     /// Match an MCP tool name against MCP rules.
     #[must_use]
     pub fn match_mcp(&self, tool_name: &str) -> Option<Verdict> {
         let mut result = None;
-        for rule in &self.rules {
-            if let Rule::Mcp { kind, pattern } = rule
-                && pattern.matches(tool_name)
-            {
+        for (kind, pattern) in &self.mcp_rules {
+            if pattern.matches(tool_name) {
                 result = Some(Verdict {
                     decision: *kind,
                     reason: format!("MCP rule: {}", pattern.as_str()),
@@ -129,10 +135,8 @@ impl Config {
     #[must_use]
     pub fn match_after(&self, command: &str) -> Option<String> {
         let mut result = None;
-        for rule in &self.rules {
-            if let Rule::After { pattern, message } = rule
-                && pattern.matches(command)
-            {
+        for (pattern, message) in &self.after_rules {
+            if pattern.matches(command) {
                 result = Some(message.clone());
             }
         }
@@ -156,55 +160,37 @@ impl Config {
 
     /// Build a `Config` from a list of rules (for testing and programmatic use).
     pub fn from_rules(rules: Vec<Rule>) -> Self {
-        let mut default_action = None;
-        let mut log_file = None;
-        let mut log_full = false;
-        let mut aliases = Vec::new();
+        let mut config = Self::default();
 
-        for rule in &rules {
+        for rule in rules {
             match rule {
+                Rule::Command {
+                    kind,
+                    pattern,
+                    message,
+                } => config.command_rules.push((kind, pattern, message)),
+                Rule::Redirect {
+                    kind,
+                    pattern,
+                    message,
+                } => config.redirect_rules.push((kind, pattern, message)),
+                Rule::Mcp { kind, pattern } => config.mcp_rules.push((kind, pattern)),
+                Rule::After { pattern, message } => {
+                    config.after_rules.push((pattern, message));
+                }
                 Rule::Set { key, value } => match key.as_str() {
-                    "default" => default_action = parse_action_word(value),
-                    "log" => log_file = Some(PathBuf::from(value)),
-                    "log-full" => log_full = true,
+                    "default" => config.default_action = parse_action_word(&value),
+                    "log" => config.log_file = Some(PathBuf::from(&value)),
+                    "log-full" => config.log_full = true,
                     _ => {}
                 },
                 Rule::Alias { source, target } => {
-                    aliases.push((source.clone(), target.clone()));
+                    config.aliases.push((source, target));
                 }
-                _ => {}
             }
         }
 
-        Self {
-            rules,
-            default_action,
-            log_file,
-            log_full,
-            aliases,
-        }
-    }
-
-    fn last_match(
-        rules: &[Rule],
-        input: &str,
-        extract: impl Fn(&Rule) -> Option<(&Decision, &Pattern, Option<&str>)>,
-    ) -> Option<Verdict> {
-        let mut result = None;
-        for rule in rules {
-            if let Some((kind, pattern, message)) = extract(rule)
-                && pattern.matches(input)
-            {
-                result = Some(Verdict {
-                    decision: *kind,
-                    reason: message.map_or_else(
-                        || format!("matched rule: {}", pattern.as_str()),
-                        String::from,
-                    ),
-                });
-            }
-        }
-        result
+        config
     }
 }
 
