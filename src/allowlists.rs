@@ -47,7 +47,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "diff",
         "cut",
         "tr",
-        "sort",
+        // sort has a dedicated handler (handles -o output flag)
         "uniq",
         "paste",
         "join",
@@ -70,8 +70,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "sha512sum",
         "cksum",
         "sum",
-        // Search
-        "find", // Note: find with -exec is handled by the find handler
+        // Search (find, env, sort, yq have dedicated handlers — not in this list)
         "fd",
         "locate",
         "which",
@@ -87,7 +86,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "uptime",
         "pwd",
         "date",
-        "env",
+        // env has a dedicated handler (can delegate inner commands)
         "printenv",
         "locale",
         // Process info
@@ -148,7 +147,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "lsb_release",
         // Modern CLI tools
         "jq",
-        "yq",
+        // yq has a dedicated handler (handles -i inplace)
         "fzf",
         "tokei",
         "cloc",

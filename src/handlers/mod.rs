@@ -1,5 +1,6 @@
 mod cloud;
 mod curl;
+mod dangerous;
 mod database;
 mod docker;
 mod file_ops;
@@ -166,6 +167,11 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &misc::YQ_HANDLER,
         &misc::RUFF_HANDLER,
         &misc::BLACK_HANDLER,
+        &dangerous::DANGEROUS_BUILTINS_HANDLER,
+        &dangerous::SUDO_HANDLER,
+        &dangerous::SSH_HANDLER,
+        &dangerous::INTERPRETER_HANDLER,
+        &dangerous::PACKAGE_MANAGER_HANDLER,
     ];
 
     let mut map = HashMap::new();

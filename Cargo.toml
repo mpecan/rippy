@@ -5,8 +5,10 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/mpecan/rippy"
 description = "A shell command safety hook for AI coding tools — Rust rewrite of Dippy"
-keywords = ["shell", "safety", "claude-code", "hook", "security"]
+keywords = ["ai-safety", "shell", "claude-code", "cursor", "security"]
 categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+rust-version = "1.93"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
