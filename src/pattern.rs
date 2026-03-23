@@ -133,8 +133,8 @@ fn normalize_stars(pattern: &[u8]) -> Vec<u8> {
             while i < pattern.len() && pattern[i] == b'*' {
                 i += 1;
             }
-            // If we stopped at `/` after stars, skip it
-            if i < pattern.len() && pattern[i] == b'/' && i >= 2 && pattern[i - 1] == b'*' {
+            // `**/` is equivalent to `*` since our `*` crosses `/` — skip the `/`
+            if i < pattern.len() && pattern[i] == b'/' {
                 i += 1;
             }
         } else {

@@ -543,6 +543,14 @@ mod tests {
     }
 
     #[test]
+    fn heredoc_quoted_delimiter_allows_even_with_expansion_syntax() {
+        let mut a = make_analyzer();
+        // Quoted delimiter suppresses expansion, so $(rm -rf /) is literal text
+        let v = a.analyze("cat <<'EOF'\n$(rm -rf /)\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
     fn nested_substitution_asks() {
         let mut a = make_analyzer();
         let v = a.analyze("echo $(echo $(whoami))").unwrap();
