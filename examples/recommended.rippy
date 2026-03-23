@@ -15,8 +15,8 @@ allow defaults read-type
 allow defaults domains
 allow defaults find
 allow defaults help
-deny defaults write "modifies system preferences"
-deny defaults delete "modifies system preferences"
+ask defaults write "modifies system preferences"
+ask defaults delete "modifies system preferences"
 
 # diskutil: info/listing is safe, partitioning is not
 allow diskutil list
@@ -47,13 +47,13 @@ allow security error
 
 # xattr: reading is safe, writing/deleting/clearing is not
 allow xattr|
-deny xattr -w "writes extended attributes"
-deny xattr -d "deletes extended attributes"
-deny xattr -c "clears all extended attributes"
+ask xattr -w "writes extended attributes"
+ask xattr -d "deletes extended attributes"
+ask xattr -c "clears all extended attributes"
 
 # codesign: viewing signatures is safe, signing is not
-deny codesign -s "signs code"
-deny codesign --sign "signs code"
+ask codesign -s "signs code"
+ask codesign --sign "signs code"
 
 # hdiutil: info/verify is safe, mounting/creating is not
 allow hdiutil help
@@ -111,47 +111,47 @@ allow ifconfig|
 
 # dmesg: reading is safe, clearing is not
 allow dmesg|
-deny dmesg -c "clears kernel ring buffer"
-deny dmesg -C "clears kernel ring buffer"
-deny dmesg --clear "clears kernel ring buffer"
+ask dmesg -c "clears kernel ring buffer"
+ask dmesg -C "clears kernel ring buffer"
+ask dmesg --clear "clears kernel ring buffer"
 
 # sysctl: reading is safe, writing is not
 allow sysctl|
-deny sysctl -w "writes kernel parameters"
+ask sysctl -w "writes kernel parameters"
 
-# Process management — always ask
-deny kill "terminates processes"
-deny killall "terminates processes by name"
-deny pkill "terminates processes by pattern"
+# Process management
+ask kill "terminates processes"
+ask killall "terminates processes by name"
+ask pkill "terminates processes by pattern"
 
-# Disk operations — always ask
-deny dd "raw disk/file operations"
+# Disk operations
+ask dd "raw disk/file operations"
 
-# Network listeners — always ask
-deny nc "network utility — can open listeners"
-deny netcat "network utility — can open listeners"
-deny ncat "network utility — can open listeners"
-deny socat "network utility — can open listeners"
+# Network listeners
+ask nc "network utility — can open listeners"
+ask netcat "network utility — can open listeners"
+ask ncat "network utility — can open listeners"
+ask socat "network utility — can open listeners"
 
-# Scheduled tasks — always ask
-deny crontab "modifies scheduled tasks"
-deny at "schedules future commands"
+# Scheduled tasks
+ask crontab "modifies scheduled tasks"
+ask at "schedules future commands"
 
-# Service management — always ask
-deny systemctl "manages system services"
-deny service "manages system services"
+# Service management
+ask systemctl "manages system services"
+ask service "manages system services"
 
 # journalctl: reading is safe, maintenance operations are not
 allow journalctl|
-deny journalctl --rotate "rotates journal files"
-deny journalctl --vacuum-size "deletes old journal entries"
-deny journalctl --vacuum-time "deletes old journal entries"
-deny journalctl --vacuum-files "deletes old journal entries"
-deny journalctl --flush "flushes journal to persistent storage"
+ask journalctl --rotate "rotates journal files"
+ask journalctl --vacuum-size "deletes old journal entries"
+ask journalctl --vacuum-time "deletes old journal entries"
+ask journalctl --vacuum-files "deletes old journal entries"
+ask journalctl --flush "flushes journal to persistent storage"
 
-# Firewall — always ask
-deny iptables "modifies firewall rules"
-deny ufw "modifies firewall rules"
+# Firewall
+ask iptables "modifies firewall rules"
+ask ufw "modifies firewall rules"
 
 # ── DevOps tools ────────────────────────────────────────────────────
 
