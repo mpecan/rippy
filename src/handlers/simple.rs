@@ -24,7 +24,7 @@ pub static CARGO_HANDLER: SubcommandHandler = SubcommandHandler::new(
         "doc",
         "clean",
         "nextest",
-        // Dependency management (read-only operations)
+        // Dependency management (modifies Cargo.lock / vendor only)
         "fetch",
         "generate-lockfile",
         "update",

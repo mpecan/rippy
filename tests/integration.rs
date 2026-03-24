@@ -528,6 +528,33 @@ fn cargo_audit_allows() {
 }
 
 #[test]
+fn cargo_bench_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo bench"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_deny_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo deny check"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_rm_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".claude")).unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo rm serde"}}"#;
+    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
+#[test]
 fn cargo_run_asks() {
     // Use isolated dir to avoid CC permission rules from ~/.claude/
     let dir = tempfile::tempdir().unwrap();
