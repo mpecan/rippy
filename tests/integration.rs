@@ -435,6 +435,60 @@ fn python_script_asks() {
     assert_eq!(code, 2);
 }
 
+// ---- CC permission rules tests ----
+
+#[test]
+fn cc_allow_rule_auto_approves() {
+    let dir = tempfile::tempdir().unwrap();
+    let claude_dir = dir.path().join(".claude");
+    std::fs::create_dir(&claude_dir).unwrap();
+    std::fs::write(
+        claude_dir.join("settings.local.json"),
+        r#"{"permissions": {"allow": ["Bash(git push)"]}}"#,
+    )
+    .unwrap();
+    // git push normally asks, but CC allow rule should auto-approve
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cc_deny_rule_blocks() {
+    let dir = tempfile::tempdir().unwrap();
+    let claude_dir = dir.path().join(".claude");
+    std::fs::create_dir(&claude_dir).unwrap();
+    std::fs::write(
+        claude_dir.join("settings.json"),
+        r#"{"permissions": {"deny": ["Bash(ls)"]}}"#,
+    )
+    .unwrap();
+    // ls is normally safe, but CC deny rule should block it
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
+}
+
+#[test]
+fn cc_ask_rule_prompts() {
+    let dir = tempfile::tempdir().unwrap();
+    let claude_dir = dir.path().join(".claude");
+    std::fs::create_dir(&claude_dir).unwrap();
+    std::fs::write(
+        claude_dir.join("settings.json"),
+        r#"{"permissions": {"ask": ["Bash(git status)"]}}"#,
+    )
+    .unwrap();
+    // git status is normally safe, but CC ask rule should prompt
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git status"}}"#;
+    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
 // ---- PostToolUse ----
 
 #[test]

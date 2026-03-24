@@ -33,7 +33,8 @@ fn run_rippy_cmd(
     {
         use std::io::Write;
         let stdin = child.stdin.as_mut().unwrap();
-        stdin.write_all(json.as_bytes()).unwrap();
+        // Ignore broken pipe — child may reject oversized input
+        let _ = stdin.write_all(json.as_bytes());
     }
     let output = child.wait_with_output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
