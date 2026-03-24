@@ -35,8 +35,9 @@ fn check_sed_expression(args: &[String]) -> Option<String> {
         if arg == "e" || arg.starts_with("e ") || arg.contains(";e ") || arg.contains(";e\n") {
             return Some("sed e (shell execution)".into());
         }
-        // `w` flag on s command — writes matches to file (e.g., s/x/y/w file)
-        if arg.contains("/w ") || arg.contains("/w\t") {
+        // `w` flag on s command — s/pat/repl/[flags]w file
+        // The `w` must appear in the flags section after the 3rd delimiter
+        if sed_has_write_flag(arg) {
             return Some("sed w (writes to file)".into());
         }
         // Standalone `w` command (e.g., `w output.txt`)
@@ -45,6 +46,40 @@ fn check_sed_expression(args: &[String]) -> Option<String> {
         }
     }
     None
+}
+
+/// Check if a sed `s` command has a `w` flag after the third delimiter.
+/// e.g., `s/foo/bar/gw output.txt` — the `w` is in the flags section.
+/// Avoids false positives like `s/foo/w bar/` where `w` is in the replacement.
+fn sed_has_write_flag(expr: &str) -> bool {
+    // Handle each semicolon-separated command
+    for cmd in expr.split(';') {
+        let cmd = cmd.trim();
+        if !cmd.starts_with('s') || cmd.len() < 4 {
+            continue;
+        }
+        // The delimiter is the character after 's'
+        let delim = cmd.as_bytes()[1];
+        // Find the 3rd occurrence of the delimiter (end of replacement)
+        let mut count = 0u8;
+        let mut flags_start = None;
+        for (i, &b) in cmd.as_bytes()[1..].iter().enumerate() {
+            if b == delim {
+                count += 1;
+                if count == 3 {
+                    flags_start = Some(i + 2); // +1 for skip, +1 for after delim
+                    break;
+                }
+            }
+        }
+        if let Some(start) = flags_start {
+            let flags = &cmd[start..];
+            if flags.contains('w') {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // ---- awk ----
@@ -78,20 +113,36 @@ fn check_awk_program(args: &[String], cmd_name: &str) -> Option<String> {
         if arg.starts_with('-') {
             continue;
         }
-        // system() calls
         if arg.contains("system(") {
             return Some(format!("{cmd_name} system() (shell execution)"));
         }
-        // Pipe to command: | "cmd" or |"cmd"
-        if arg.contains("| \"") || arg.contains("|\"") {
+        // Pipe to command: `| "cmd"` — require space before `|` or `|` after
+        // a statement keyword to avoid matching `|"` inside string literals
+        if awk_has_pipe_to_command(arg) {
             return Some(format!("{cmd_name} pipe to command"));
         }
-        // File redirects: > "file" or >> "file"
-        if arg.contains("> \"") || arg.contains(">>\"") || arg.contains(">> \"") {
+        // File redirects: `> "file"` or `>> "file"`
+        if awk_has_file_redirect(arg) {
             return Some(format!("{cmd_name} file redirect"));
         }
     }
     None
+}
+
+/// Detect awk pipe-to-command patterns: `print ... | "cmd"`.
+fn awk_has_pipe_to_command(program: &str) -> bool {
+    // Look for `| "` preceded by a space (statement context, not inside a string)
+    program.contains(" | \"") || program.contains("\t| \"")
+}
+
+/// Detect awk file redirect patterns: `print ... > "file"` or `>> "file"`.
+fn awk_has_file_redirect(program: &str) -> bool {
+    // `>> "` is always a redirect in awk
+    if program.contains(">> \"") || program.contains(">>\"") {
+        return true;
+    }
+    // `> "` preceded by a space (to avoid matching `->` or `=>` patterns)
+    program.contains(" > \"") || program.contains("\t> \"")
 }
 
 #[cfg(test)]
@@ -194,5 +245,22 @@ mod tests {
         let args: Vec<String> = vec![r#"{system("echo hi")}"#.into()];
         let result = AWK_HANDLER.classify(&ctx(&args, "gawk"));
         assert!(matches!(result, Classification::Ask(r) if r.contains("system()")));
+    }
+
+    // False positive prevention tests
+    #[test]
+    fn sed_w_in_replacement_allows() {
+        // `w` in the replacement text is NOT a write flag
+        let args: Vec<String> = vec!["s/foo/w bar/".into(), "file.txt".into()];
+        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn sed_w_flag_with_g_asks() {
+        // s/foo/bar/gw output.txt — w is in the flags section
+        let args: Vec<String> = vec!["s/foo/bar/gw output.txt".into(), "file.txt".into()];
+        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
+        assert!(matches!(result, Classification::Ask(r) if r.contains("writes to file")));
     }
 }
