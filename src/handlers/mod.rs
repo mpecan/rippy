@@ -1,3 +1,4 @@
+mod ansible;
 mod cloud;
 mod curl;
 mod dangerous;
@@ -181,6 +182,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &system::DMESG_HANDLER,
         &system::IP_HANDLER,
         &system::IFCONFIG_HANDLER,
+        &ansible::ANSIBLE_HANDLER,
     ];
 
     let mut map = HashMap::new();
