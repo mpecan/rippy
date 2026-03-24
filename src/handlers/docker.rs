@@ -7,7 +7,6 @@ pub struct DockerHandler;
 const SAFE: &[&str] = &[
     "version", "help", "info", "ps", "images", "image", "inspect", "logs", "stats", "top", "port",
     "diff", "history", "search", "events", "system", "network", "volume", "config", "context",
-    "export", "save",
 ];
 
 // All non-safe commands default to Ask, so no explicit ASK list needed.
