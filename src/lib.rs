@@ -10,5 +10,6 @@ pub mod mode;
 pub mod parser;
 pub mod pattern;
 pub mod payload;
+pub mod python_safety;
 pub mod sql;
 pub mod verdict;

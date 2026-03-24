@@ -437,6 +437,40 @@ fn ansible_inventory_list_allows() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
+// ---- Python -c safety analysis tests ----
+
+#[test]
+fn python_c_print_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"python -c 'print(1)'"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn python_c_import_os_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"python -c 'import os; os.system(\"rm -rf /\")'"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn python_c_import_json_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"python -c 'import json; print(json.dumps({}))'"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn python_script_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"python script.py"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2);
+}
+
 // ---- PostToolUse ----
 
 #[test]
