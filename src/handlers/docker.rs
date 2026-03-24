@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
 
 pub static DOCKER_HANDLER: DockerHandler = DockerHandler;
 
@@ -30,6 +30,11 @@ impl Handler for DockerHandler {
 
         if sub == "compose" || ctx.command_name.ends_with("-compose") {
             return classify_compose(ctx);
+        }
+
+        // export/save: safe to stdout, but -o/--output writes to file
+        if sub == "export" || sub == "save" {
+            return classify_export_save(ctx, sub);
         }
 
         if SAFE.contains(&sub) {
@@ -73,6 +78,17 @@ fn classify_exec(ctx: &HandlerContext) -> Classification {
         return Classification::RecurseRemote(inner);
     }
     Classification::Ask("docker exec".into())
+}
+
+fn classify_export_save(ctx: &HandlerContext, sub: &str) -> Classification {
+    if let Some(output) = get_flag_value(ctx.args, &["-o", "--output"]) {
+        return Classification::WithRedirects(
+            crate::verdict::Decision::Allow,
+            format!("{} {sub} with output file", ctx.command_name),
+            vec![output],
+        );
+    }
+    Classification::Allow(format!("{} {sub} (stdout)", ctx.command_name))
 }
 
 fn classify_compose(ctx: &HandlerContext) -> Classification {
@@ -148,6 +164,44 @@ mod tests {
         let args: Vec<String> = vec!["run".into(), "alpine".into()];
         let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
         assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn docker_save_stdout_allows() {
+        let args: Vec<String> = vec!["save".into(), "myimage".into()];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn docker_save_output_file() {
+        let args: Vec<String> = vec![
+            "save".into(),
+            "-o".into(),
+            "/tmp/image.tar".into(),
+            "myimage".into(),
+        ];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::WithRedirects(..)));
+    }
+
+    #[test]
+    fn docker_export_stdout_allows() {
+        let args: Vec<String> = vec!["export".into(), "container".into()];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn docker_export_output_file() {
+        let args: Vec<String> = vec![
+            "export".into(),
+            "--output".into(),
+            "/tmp/container.tar".into(),
+            "container".into(),
+        ];
+        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        assert!(matches!(result, Classification::WithRedirects(..)));
     }
 
     #[test]
