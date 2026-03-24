@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag};
 use crate::python_safety::is_python_source_safe;
 
 pub static PYTHON_HANDLER: PythonHandler = PythonHandler;
@@ -60,7 +60,15 @@ impl Handler for PythonHandler {
             return Classification::Ask("python (interactive)".into());
         }
 
-        // Script execution
+        // Script execution — try to read and analyze the file
+        let script = first_positional(ctx.args).unwrap_or("");
+        if let Some(source) = ctx.read_file(script) {
+            return if is_python_source_safe(&source) {
+                Classification::Allow(format!("python {script} (safe script)"))
+            } else {
+                Classification::Ask(format!("python {script} (potentially dangerous)"))
+            };
+        }
         Classification::Ask("python script execution".into())
     }
 }
@@ -141,6 +149,58 @@ mod tests {
     fn m_unknown_module_asks() {
         let args = vec!["-m".into(), "http.server".into()];
         let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn script_file_safe_allows() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("safe.py"),
+            "import json\nprint(json.dumps({}))",
+        )
+        .unwrap();
+        let args = vec!["safe.py".into()];
+        let ctx = HandlerContext {
+            command_name: "python",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = PYTHON_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn script_file_dangerous_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("evil.py"),
+            "import os\nos.system('rm -rf /')",
+        )
+        .unwrap();
+        let args = vec!["evil.py".into()];
+        let ctx = HandlerContext {
+            command_name: "python",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = PYTHON_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn script_file_missing_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = vec!["missing.py".into()];
+        let ctx = HandlerContext {
+            command_name: "python",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
     }
 }

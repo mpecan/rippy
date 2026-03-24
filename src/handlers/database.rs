@@ -23,8 +23,11 @@ impl Handler for PsqlHandler {
         if let Some(sql) = get_flag_value(ctx.args, &["-c", "--command"]) {
             return classify_sql_command("psql", &sql);
         }
-        // -f file
-        if has_flag(ctx.args, &["-f", "--file"]) {
+        // -f file — try to read and classify the SQL
+        if let Some(path) = get_flag_value(ctx.args, &["-f", "--file"]) {
+            if let Some(sql) = ctx.read_file(&path) {
+                return classify_sql_command("psql -f", &sql);
+            }
             return Classification::Ask("psql -f (file execution)".into());
         }
         Classification::Ask("psql (interactive)".into())
@@ -144,5 +147,49 @@ mod tests {
         let args: Vec<String> = vec!["-readonly".into(), "test.db".into()];
         let result = SQLITE3_HANDLER.classify(&ctx(&args, "sqlite3"));
         assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn psql_f_readonly_allows() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("query.sql"), "SELECT * FROM users;").unwrap();
+        let args: Vec<String> = vec!["-f".into(), "query.sql".into()];
+        let ctx = HandlerContext {
+            command_name: "psql",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = PSQL_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn psql_f_write_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("migrate.sql"), "DROP TABLE users;").unwrap();
+        let args: Vec<String> = vec!["-f".into(), "migrate.sql".into()];
+        let ctx = HandlerContext {
+            command_name: "psql",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = PSQL_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn psql_f_missing_file_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        let args: Vec<String> = vec!["-f".into(), "missing.sql".into()];
+        let ctx = HandlerContext {
+            command_name: "psql",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = PSQL_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Ask(_)));
     }
 }

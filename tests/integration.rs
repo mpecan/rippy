@@ -1,43 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use std::path::PathBuf;
-use std::process::Command;
-
-fn rippy_binary() -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_BIN_EXE_rippy"));
-    if !path.exists() {
-        path = PathBuf::from("target/debug/rippy");
-    }
-    path
-}
-
-fn run_rippy_with_stderr(json: &str, mode: &str, extra_args: &[&str]) -> (String, String, i32) {
-    let mut cmd = Command::new(rippy_binary());
-    cmd.arg("--mode").arg(mode);
-    for arg in extra_args {
-        cmd.arg(arg);
-    }
-    cmd.stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    let mut child = cmd.spawn().unwrap();
-    {
-        use std::io::Write;
-        let stdin = child.stdin.as_mut().unwrap();
-        stdin.write_all(json.as_bytes()).unwrap();
-    }
-    let output = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let code = output.status.code().unwrap_or(-1);
-    (stdout, stderr, code)
-}
-
-fn run_rippy(json: &str, mode: &str, extra_args: &[&str]) -> (String, i32) {
-    let (stdout, _, code) = run_rippy_with_stderr(json, mode, extra_args);
-    (stdout, code)
-}
+mod common;
+use common::{run_rippy, run_rippy_with_stderr};
 
 // ---- Claude mode tests ----
 

@@ -27,6 +27,14 @@ impl Handler for ShellHandler {
             }
         }
 
+        // Script file — try to read and recurse through tree-sitter-bash
+        if let Some(script) = ctx.args.first()
+            && !script.starts_with('-')
+            && let Some(contents) = ctx.read_file(script)
+        {
+            return Classification::Recurse(contents);
+        }
+
         Classification::Ask(format!("{} (interactive)", ctx.command_name))
     }
 }
@@ -73,5 +81,34 @@ mod tests {
         let args: Vec<String> = vec!["-c".into()];
         let result = SHELL_HANDLER.classify(&ctx(&args, "sh"));
         assert!(matches!(result, Classification::Ask(reason) if reason.contains("no command")));
+    }
+
+    #[test]
+    fn bash_script_file_recurses() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.sh"), "git status\nls -la").unwrap();
+        let args = vec!["test.sh".into()];
+        let ctx = HandlerContext {
+            command_name: "bash",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = SHELL_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Recurse(cmd) if cmd.contains("git status")));
+    }
+
+    #[test]
+    fn bash_script_missing_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = vec!["missing.sh".into()];
+        let ctx = HandlerContext {
+            command_name: "bash",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = SHELL_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Ask(_)));
     }
 }
