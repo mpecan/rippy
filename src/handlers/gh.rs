@@ -54,10 +54,9 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
         }
     }
 
-    if let Some(input) = get_flag_value(ctx.args, &["--input"])
-        && input.contains("mutation")
-    {
-        return Classification::Ask("gh api (GraphQL mutation)".into());
+    // --input reads from a file — we can't inspect its contents, so ask
+    if has_flag(ctx.args, &["--input"]) {
+        return Classification::Ask("gh api (--input, cannot verify contents)".into());
     }
 
     Classification::Allow("gh api (GET)".into())
@@ -147,6 +146,18 @@ mod tests {
         ];
         let result = GH_HANDLER.classify(&ctx(&args));
         assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn api_input_file_asks() {
+        let args: Vec<String> = vec![
+            "api".into(),
+            "graphql".into(),
+            "--input".into(),
+            "query.graphql".into(),
+        ];
+        let result = GH_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
     }
 
     // gh pr tests
