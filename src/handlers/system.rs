@@ -138,6 +138,13 @@ mod tests {
     }
 
     #[test]
+    fn fd_exec_no_command_asks() {
+        let args: Vec<String> = vec!["-x".into()];
+        let result = FD_HANDLER.classify(&ctx(&args, "fd"));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
     fn fd_exec_batch_recurses() {
         let args: Vec<String> = vec!["--exec-batch".into(), "grep".into(), "pattern".into()];
         let result = FD_HANDLER.classify(&ctx(&args, "fd"));
@@ -155,6 +162,13 @@ mod tests {
     #[test]
     fn dmesg_clear_asks() {
         let args: Vec<String> = vec!["-c".into()];
+        let result = DMESG_HANDLER.classify(&ctx(&args, "dmesg"));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn dmesg_clear_uppercase_asks() {
+        let args: Vec<String> = vec!["-C".into()];
         let result = DMESG_HANDLER.classify(&ctx(&args, "dmesg"));
         assert!(matches!(result, Classification::Ask(_)));
     }
@@ -191,6 +205,13 @@ mod tests {
     #[test]
     fn ip_link_allows() {
         let args: Vec<String> = vec!["link".into(), "show".into()];
+        let result = IP_HANDLER.classify(&ctx(&args, "ip"));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn ip_bare_allows() {
+        let args: Vec<String> = vec![];
         let result = IP_HANDLER.classify(&ctx(&args, "ip"));
         assert!(matches!(result, Classification::Allow(_)));
     }
