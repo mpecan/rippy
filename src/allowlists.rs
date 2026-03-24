@@ -70,8 +70,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "sha512sum",
         "cksum",
         "sum",
-        // Search (find, env, sort, yq have dedicated handlers — not in this list)
-        "fd",
+        // Search (find, fd, env, sort, yq have dedicated handlers — not in this list)
         "locate",
         "which",
         "whereis",
@@ -106,8 +105,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "tracepath",
         "netstat",
         "ss",
-        "ifconfig",
-        "ip",
+        // ifconfig and ip have dedicated handlers
         "host",
         "getent",
         // Help/docs
@@ -162,8 +160,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "findmnt",
         "lsblk",
         "blkid",
-        // Dmesg
-        "dmesg",
+        // dmesg has a dedicated handler (clear flags)
     ])
 });
 

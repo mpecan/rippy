@@ -11,6 +11,7 @@ mod npm;
 mod python;
 mod shell;
 mod simple;
+mod system;
 mod text_tools;
 
 use std::collections::HashMap;
@@ -174,6 +175,10 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &dangerous::SSH_HANDLER,
         &dangerous::INTERPRETER_HANDLER,
         &dangerous::PACKAGE_MANAGER_HANDLER,
+        &system::FD_HANDLER,
+        &system::DMESG_HANDLER,
+        &system::IP_HANDLER,
+        &system::IFCONFIG_HANDLER,
     ];
 
     let mut map = HashMap::new();
