@@ -100,39 +100,6 @@ pub static TERRAFORM_HANDLER: SubcommandHandler = SubcommandHandler::new(
     "terraform",
 );
 
-pub static HELM_HANDLER: SubcommandHandler = SubcommandHandler::new(
-    &["helm"],
-    &[
-        "completion",
-        "env",
-        "get",
-        "help",
-        "history",
-        "lint",
-        "list",
-        "ls",
-        "search",
-        "show",
-        "inspect",
-        "status",
-        "template",
-        "verify",
-        "version",
-    ],
-    &[
-        "create",
-        "install",
-        "package",
-        "pull",
-        "push",
-        "rollback",
-        "test",
-        "uninstall",
-        "upgrade",
-    ],
-    "helm",
-);
-
 pub static PYTEST_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["pytest"],
     &["--version", "--help", "--co", "--collect-only"],

@@ -7,6 +7,7 @@ mod file_ops;
 mod find;
 mod gh;
 mod git;
+mod helm;
 mod misc;
 mod npm;
 mod python;
@@ -141,7 +142,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &simple::BREW_HANDLER,
         &simple::PIP_HANDLER,
         &simple::TERRAFORM_HANDLER,
-        &simple::HELM_HANDLER,
+        &helm::HELM_HANDLER,
         &simple::PYTEST_HANDLER,
         &gh::GH_HANDLER,
         &simple::MAKE_HANDLER,
