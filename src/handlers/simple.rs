@@ -140,19 +140,6 @@ pub static PYTEST_HANDLER: SubcommandHandler = SubcommandHandler::new(
     "pytest",
 );
 
-pub static GH_HANDLER: SubcommandHandler = SubcommandHandler::new(
-    &["gh"],
-    &[
-        "status", "browse", "search", "list", "view", "diff", "checks", "get", "download", "watch",
-        "verify", "token", "logs", "ports",
-    ],
-    &[
-        "create", "delete", "edit", "close", "reopen", "merge", "comment", "review", "approve",
-        "ready", "push", "sync",
-    ],
-    "gh",
-);
-
 pub static MAKE_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["make", "gmake"],
     &[], // make targets are all potentially unsafe
