@@ -316,6 +316,31 @@ fn find_exec_grep_allows() {
 }
 
 #[test]
+fn fd_search_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"fd -e rs"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn fd_exec_rm_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"fd -x rm"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn fd_exec_batch_grep_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"fd -X grep pattern"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
 fn env_inner_command_analyzed() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"env FOO=bar ls"}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
