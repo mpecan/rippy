@@ -31,6 +31,9 @@ pub struct HandlerContext<'a> {
     pub remote: bool,
 }
 
+/// Maximum file size (64 KB) for `read_file` — prevents reading huge files.
+const MAX_FILE_SIZE: u64 = 65_536;
+
 impl HandlerContext<'_> {
     /// Get the first argument (typically a subcommand).
     pub fn subcommand(&self) -> &str {
@@ -40,6 +43,27 @@ impl HandlerContext<'_> {
     /// Get the Nth argument.
     pub fn arg(&self, n: usize) -> &str {
         self.args.get(n).map_or("", String::as_str)
+    }
+
+    /// Read a file's contents for informed classification.
+    ///
+    /// Returns `None` if the file can't be read (remote mode, missing,
+    /// too large, binary, or outside the working directory).
+    pub fn read_file(&self, path: &str) -> Option<String> {
+        if self.remote {
+            return None;
+        }
+        let file_path = self.working_directory.join(path);
+        let canonical = file_path.canonicalize().ok()?;
+        let cwd_canonical = self.working_directory.canonicalize().ok()?;
+        if !canonical.starts_with(&cwd_canonical) {
+            return None;
+        }
+        let metadata = std::fs::metadata(&canonical).ok()?;
+        if metadata.len() > MAX_FILE_SIZE {
+            return None;
+        }
+        std::fs::read_to_string(&canonical).ok()
     }
 }
 
@@ -222,4 +246,62 @@ pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn ctx_with_dir(dir: &Path, remote: bool) -> HandlerContext<'_> {
+        HandlerContext {
+            command_name: "test",
+            args: &[],
+            working_directory: dir,
+            remote,
+        }
+    }
+
+    #[test]
+    fn read_file_returns_none_when_remote() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello").unwrap();
+        let ctx = ctx_with_dir(dir.path(), true);
+        assert!(ctx.read_file("test.txt").is_none());
+    }
+
+    #[test]
+    fn read_file_returns_none_for_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx_with_dir(dir.path(), false);
+        assert!(ctx.read_file("nonexistent.txt").is_none());
+    }
+
+    #[test]
+    fn read_file_reads_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world").unwrap();
+        let ctx = ctx_with_dir(dir.path(), false);
+        assert_eq!(ctx.read_file("test.txt").unwrap(), "hello world");
+    }
+
+    #[test]
+    fn read_file_rejects_path_outside_working_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx_with_dir(dir.path(), false);
+        assert!(ctx.read_file("../../etc/passwd").is_none());
+    }
+
+    #[test]
+    fn read_file_rejects_oversized_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("big.txt");
+        #[allow(clippy::cast_possible_truncation)]
+        let content = "x".repeat(MAX_FILE_SIZE as usize + 1);
+        std::fs::write(&file, content).unwrap();
+        let ctx = ctx_with_dir(dir.path(), false);
+        assert!(ctx.read_file("big.txt").is_none());
+    }
 }

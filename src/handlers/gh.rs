@@ -54,12 +54,27 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
         }
     }
 
-    // --input reads from a file — we can't inspect its contents, so ask
-    if has_flag(ctx.args, &["--input"]) {
+    // --input reads from a file — try to inspect contents
+    if let Some(path) = get_flag_value(ctx.args, &["--input"]) {
+        if let Some(content) = ctx.read_file(&path) {
+            return if is_graphql_mutation(&content) {
+                Classification::Ask("gh api --input (GraphQL mutation)".into())
+            } else {
+                Classification::Allow("gh api --input (query)".into())
+            };
+        }
         return Classification::Ask("gh api (--input, cannot verify contents)".into());
     }
 
     Classification::Allow("gh api (GET)".into())
+}
+
+/// Check if a GraphQL document contains a mutation operation.
+fn is_graphql_mutation(content: &str) -> bool {
+    // Look for "mutation" as a top-level keyword (not inside a string or comment)
+    content
+        .split_whitespace()
+        .any(|word| word.eq_ignore_ascii_case("mutation") || word.starts_with("mutation{"))
 }
 
 fn classify_resource(ctx: &HandlerContext, resource: &str) -> Classification {
@@ -216,5 +231,53 @@ mod tests {
         let args: Vec<String> = vec!["--help".into()];
         let result = GH_HANDLER.classify(&ctx(&args));
         assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn api_input_query_file_allows() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("query.graphql"),
+            "{ repository(owner: \"o\", name: \"r\") { name } }",
+        )
+        .unwrap();
+        let args: Vec<String> = vec![
+            "api".into(),
+            "graphql".into(),
+            "--input".into(),
+            "query.graphql".into(),
+        ];
+        let ctx = HandlerContext {
+            command_name: "gh",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = GH_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn api_input_mutation_file_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("mutate.graphql"),
+            "mutation { addStar(input: {}) { clientMutationId } }",
+        )
+        .unwrap();
+        let args: Vec<String> = vec![
+            "api".into(),
+            "graphql".into(),
+            "--input".into(),
+            "mutate.graphql".into(),
+        ];
+        let ctx = HandlerContext {
+            command_name: "gh",
+            args: &args,
+            working_directory: dir.path(),
+            remote: false,
+        };
+        let result = GH_HANDLER.classify(&ctx);
+        assert!(matches!(result, Classification::Ask(_)));
     }
 }
