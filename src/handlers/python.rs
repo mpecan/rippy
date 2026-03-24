@@ -1,4 +1,5 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use crate::python_safety::is_python_source_safe;
 
 pub static PYTHON_HANDLER: PythonHandler = PythonHandler;
 
@@ -24,9 +25,13 @@ impl Handler for PythonHandler {
             return Classification::Allow("python version/help".into());
         }
 
-        // -c inline code
-        if has_flag(ctx.args, &["-c"]) {
-            return Classification::Ask("python -c (inline code execution)".into());
+        // -c inline code — analyze source for dangerous patterns
+        if let Some(source) = get_flag_value(ctx.args, &["-c"]) {
+            return if is_python_source_safe(&source) {
+                Classification::Allow("python -c (safe inline code)".into())
+            } else {
+                Classification::Ask("python -c (potentially dangerous code)".into())
+            };
         }
 
         // -m module
@@ -57,5 +62,85 @@ impl Handler for PythonHandler {
 
         // Script execution
         Classification::Ask("python script execution".into())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn ctx(args: &[String]) -> HandlerContext<'_> {
+        HandlerContext {
+            command_name: "python",
+            args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+        }
+    }
+
+    #[test]
+    fn version_allows() {
+        let args = vec!["--version".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn c_safe_print_allows() {
+        let args = vec!["-c".into(), "print(1)".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn c_import_json_allows() {
+        let args = vec!["-c".into(), "import json; print(json.dumps({}))".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn c_import_os_asks() {
+        let args = vec!["-c".into(), "import os; os.system('ls')".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn c_eval_asks() {
+        let args = vec!["-c".into(), "eval('1+1')".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn script_file_asks() {
+        let args = vec!["script.py".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn no_args_asks() {
+        let args: Vec<String> = vec![];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn m_safe_module_allows() {
+        let args = vec!["-m".into(), "json.tool".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn m_unknown_module_asks() {
+        let args = vec!["-m".into(), "http.server".into()];
+        let result = PYTHON_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
     }
 }
