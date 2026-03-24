@@ -4,11 +4,12 @@ use tree_sitter::Node;
 
 use crate::allowlists;
 use crate::ast;
+use crate::cc_permissions::{self, CcRules};
 use crate::config::Config;
 use crate::error::RippyError;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::parser::BashParser;
-use crate::verdict::Verdict;
+use crate::verdict::{Decision, Verdict};
 
 const MAX_DEPTH: usize = 256;
 
@@ -20,6 +21,7 @@ pub struct Analyzer {
     pub working_directory: PathBuf,
     pub verbose: bool,
     inner_parser: Option<BashParser>,
+    cc_rules: CcRules,
 }
 
 impl Analyzer {
@@ -34,6 +36,7 @@ impl Analyzer {
         working_directory: PathBuf,
         verbose: bool,
     ) -> Result<Self, RippyError> {
+        let cc_rules = cc_permissions::load_cc_rules(&working_directory);
         Ok(Self {
             parser: BashParser::new()?,
             config,
@@ -41,6 +44,7 @@ impl Analyzer {
             working_directory,
             verbose,
             inner_parser: None,
+            cc_rules,
         })
     }
 
@@ -50,6 +54,17 @@ impl Analyzer {
     ///
     /// Returns `RippyError::Parse` if the command cannot be parsed.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
+        // Check Claude Code permission rules first (user-granted allows, denies, asks)
+        if let Some(decision) = self.cc_rules.check(command) {
+            if self.verbose {
+                eprintln!(
+                    "[rippy] CC permission rule matched: {command} -> {}",
+                    decision.as_str()
+                );
+            }
+            return Ok(cc_decision_to_verdict(decision, command));
+        }
+
         if let Some(verdict) = self.config.match_command(command) {
             if self.verbose {
                 eprintln!(
@@ -349,6 +364,15 @@ impl Analyzer {
     }
 }
 
+fn cc_decision_to_verdict(decision: Decision, command: &str) -> Verdict {
+    let reason = match decision {
+        Decision::Allow => format!("{command} (CC permission: allow)"),
+        Decision::Ask => format!("{command} (CC permission: ask)"),
+        Decision::Deny => format!("{command} (CC permission: deny)"),
+    };
+    Verdict { decision, reason }
+}
+
 fn extract_cd_target(node: Node, source: &str) -> Option<String> {
     let name = ast::command_name(node, source)?;
     if name != "cd" {
@@ -597,5 +621,61 @@ mod tests {
         let mut a = make_analyzer();
         let v = a.analyze("case x in a) echo yes;; esac").unwrap();
         assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn cc_allow_rule_overrides_handler() {
+        // git push normally asks, but if CC has an allow rule, it should allow
+        let dir = tempfile::tempdir().unwrap();
+        let claude_dir = dir.path().join(".claude");
+        std::fs::create_dir(&claude_dir).unwrap();
+        std::fs::write(
+            claude_dir.join("settings.local.json"),
+            r#"{"permissions": {"allow": ["Bash(git push)"]}}"#,
+        )
+        .unwrap();
+        let mut a = Analyzer::new(Config::empty(), false, dir.path().to_path_buf(), false).unwrap();
+        let v = a.analyze("git push origin main").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn cc_deny_rule_overrides_handler() {
+        let dir = tempfile::tempdir().unwrap();
+        let claude_dir = dir.path().join(".claude");
+        std::fs::create_dir(&claude_dir).unwrap();
+        std::fs::write(
+            claude_dir.join("settings.json"),
+            r#"{"permissions": {"deny": ["Bash(ls)"]}}"#,
+        )
+        .unwrap();
+        let mut a = Analyzer::new(Config::empty(), false, dir.path().to_path_buf(), false).unwrap();
+        let v = a.analyze("ls").unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+    }
+
+    #[test]
+    fn cc_rules_checked_before_rippy_config() {
+        // CC allow should take priority over rippy config ask
+        use crate::config::Rule;
+        use crate::pattern::Pattern;
+
+        let dir = tempfile::tempdir().unwrap();
+        let claude_dir = dir.path().join(".claude");
+        std::fs::create_dir(&claude_dir).unwrap();
+        std::fs::write(
+            claude_dir.join("settings.local.json"),
+            r#"{"permissions": {"allow": ["Bash(rm -rf /tmp)"]}}"#,
+        )
+        .unwrap();
+
+        let config = Config::from_rules(vec![Rule::Command {
+            kind: Decision::Ask,
+            pattern: Pattern::new("rm -rf /tmp"),
+            message: Some("dangerous".into()),
+        }]);
+        let mut a = Analyzer::new(config, false, dir.path().to_path_buf(), false).unwrap();
+        let v = a.analyze("rm -rf /tmp").unwrap();
+        assert_eq!(v.decision, Decision::Allow); // CC allow wins over rippy ask
     }
 }
