@@ -5,6 +5,7 @@ mod database;
 mod docker;
 mod file_ops;
 mod find;
+mod gh;
 mod git;
 mod misc;
 mod npm;
@@ -142,7 +143,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &simple::TERRAFORM_HANDLER,
         &simple::HELM_HANDLER,
         &simple::PYTEST_HANDLER,
-        &simple::GH_HANDLER,
+        &gh::GH_HANDLER,
         &simple::MAKE_HANDLER,
         &simple::RUSTUP_HANDLER,
         &simple::OPENSSL_HANDLER,
