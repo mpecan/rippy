@@ -1,4 +1,4 @@
-use rable::ast::Node;
+use rable::{Node, NodeKind};
 
 /// The operator used in a file redirect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,19 +15,19 @@ pub enum RedirectOp {
     Other,
 }
 
-/// Extract the command name (first word) from a `Command` node.
-#[must_use]
-pub fn command_name(node: &Node) -> Option<&str> {
-    let Node::Command { words, .. } = node else {
-        return None;
-    };
-    command_name_from_words(words)
-}
-
 /// Extract the command name from a word slice.
 #[must_use]
 pub fn command_name_from_words(words: &[Node]) -> Option<&str> {
     words.first().and_then(word_value)
+}
+
+/// Extract the command name from a `Command` node.
+#[must_use]
+pub fn command_name(node: &Node) -> Option<&str> {
+    let NodeKind::Command { words, .. } = &node.kind else {
+        return None;
+    };
+    command_name_from_words(words)
 }
 
 /// Extract command arguments from a word slice (all words after the name).
@@ -39,7 +39,7 @@ pub fn command_args_from_words(words: &[Node]) -> Vec<String> {
 /// Extract command arguments from a `Command` node.
 #[must_use]
 pub fn command_args(node: &Node) -> Vec<String> {
-    let Node::Command { words, .. } = node else {
+    let NodeKind::Command { words, .. } = &node.kind else {
         return Vec::new();
     };
     command_args_from_words(words)
@@ -48,7 +48,7 @@ pub fn command_args(node: &Node) -> Vec<String> {
 /// Extract the redirect operator and target from a `Redirect` node.
 #[must_use]
 pub fn redirect_info(node: &Node) -> Option<(RedirectOp, String)> {
-    let Node::Redirect { op, target, .. } = node else {
+    let NodeKind::Redirect { op, target, .. } = &node.kind else {
         return None;
     };
     let redirect_op = match op.as_str() {
@@ -61,22 +61,34 @@ pub fn redirect_info(node: &Node) -> Option<(RedirectOp, String)> {
     Some((redirect_op, node_text(target)))
 }
 
-/// Check whether a node's subtree contains command or process substitutions.
+/// Check whether a node contains command or process substitutions.
 ///
-/// Rable keeps `$(...)` and backtick substitutions as literal text in word values,
-/// so we check word values for expansion patterns.
+/// Rable keeps `$(...)` and backtick substitutions as literal text in word
+/// values, so we check word values for expansion patterns.
 #[must_use]
 pub fn has_expansions(node: &Node) -> bool {
-    match node {
-        Node::CommandSubstitution { .. } | Node::ProcessSubstitution { .. } => true,
-        Node::Word { value, parts, .. } => {
+    has_expansions_kind(&node.kind)
+}
+
+/// Check for expansions in word and redirect slices.
+#[must_use]
+pub fn has_expansions_in_slices(words: &[Node], redirects: &[Node]) -> bool {
+    words.iter().any(has_expansions) || redirects.iter().any(has_expansions)
+}
+
+fn has_expansions_kind(kind: &NodeKind) -> bool {
+    match kind {
+        NodeKind::CommandSubstitution { .. } | NodeKind::ProcessSubstitution { .. } => true,
+        NodeKind::Word { value, parts, .. } => {
             value.contains("$(") || value.contains('`') || parts.iter().any(has_expansions)
         }
-        Node::Command { words, redirects } => has_expansions_in_slices(words, redirects),
-        Node::Pipeline { commands } => commands.iter().any(has_expansions),
-        Node::List { parts } => parts.iter().any(has_expansions),
-        Node::Redirect { target, .. } => has_expansions(target),
-        Node::If {
+        NodeKind::Command {
+            words, redirects, ..
+        } => has_expansions_in_slices(words, redirects),
+        NodeKind::Pipeline { commands, .. } => commands.iter().any(has_expansions),
+        NodeKind::List { items } => items.iter().any(|item| has_expansions(&item.command)),
+        NodeKind::Redirect { target, .. } => has_expansions(target),
+        NodeKind::If {
             condition,
             then_body,
             else_body,
@@ -86,23 +98,17 @@ pub fn has_expansions(node: &Node) -> bool {
                 || has_expansions(then_body)
                 || else_body.as_deref().is_some_and(has_expansions)
         }
-        Node::Subshell { body, .. } | Node::BraceGroup { body, .. } => has_expansions(body),
-        Node::HereDoc {
+        NodeKind::Subshell { body, .. } | NodeKind::BraceGroup { body, .. } => has_expansions(body),
+        NodeKind::HereDoc {
             content, quoted, ..
         } => !quoted && (content.contains("$(") || content.contains('`')),
         _ => false,
     }
 }
 
-/// Check for expansions in word and redirect slices without requiring a full Node.
-#[must_use]
-pub fn has_expansions_in_slices(words: &[Node], redirects: &[Node]) -> bool {
-    words.iter().any(has_expansions) || redirects.iter().any(has_expansions)
-}
-
 /// Extract text from a node, stripping quotes.
 fn node_text(node: &Node) -> String {
-    if let Node::Word { value, .. } = node {
+    if let NodeKind::Word { value, .. } = &node.kind {
         strip_quotes(value)
     } else {
         String::new()
@@ -111,9 +117,10 @@ fn node_text(node: &Node) -> String {
 
 /// Get the string value of a word node.
 const fn word_value(node: &Node) -> Option<&str> {
-    match node {
-        Node::Word { value, .. } => Some(value.as_str()),
-        _ => None,
+    if let NodeKind::Word { value, .. } = &node.kind {
+        Some(value.as_str())
+    } else {
+        None
     }
 }
 
@@ -141,19 +148,29 @@ mod tests {
 
     fn find_command(nodes: &[Node]) -> Option<&Node> {
         for node in nodes {
-            match node {
-                Node::Command { .. } => return Some(node),
-                Node::Pipeline { commands } => {
+            match &node.kind {
+                NodeKind::Command { .. } => return Some(node),
+                NodeKind::Pipeline { commands, .. } => {
                     if let Some(cmd) = find_command(commands) {
                         return Some(cmd);
                     }
                 }
-                Node::List { parts } => {
-                    if let Some(cmd) = find_command(parts) {
+                NodeKind::List { items } => {
+                    let nodes: Vec<&Node> = items.iter().map(|i| &i.command).collect();
+                    if let Some(cmd) = find_command_refs(&nodes) {
                         return Some(cmd);
                     }
                 }
                 _ => {}
+            }
+        }
+        None
+    }
+
+    fn find_command_refs<'a>(nodes: &[&'a Node]) -> Option<&'a Node> {
+        for node in nodes {
+            if matches!(node.kind, NodeKind::Command { .. }) {
+                return Some(node);
             }
         }
         None
@@ -191,7 +208,7 @@ mod tests {
     #[test]
     fn redirect_write() {
         let nodes = parse_first("echo foo > output.txt");
-        let Node::Command { redirects, .. } = &nodes[0] else {
+        let NodeKind::Command { redirects, .. } = &nodes[0].kind else {
             unreachable!("expected Command node");
         };
         let (op, target) = redirect_info(&redirects[0]).unwrap();
@@ -202,7 +219,7 @@ mod tests {
     #[test]
     fn redirect_append() {
         let nodes = parse_first("echo foo >> log.txt");
-        let Node::Command { redirects, .. } = &nodes[0] else {
+        let NodeKind::Command { redirects, .. } = &nodes[0].kind else {
             unreachable!("expected Command node");
         };
         let (op, target) = redirect_info(&redirects[0]).unwrap();

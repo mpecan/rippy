@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rable::ast::Node;
+use rable::{Node, NodeKind};
 
 use crate::allowlists;
 use crate::ast;
@@ -52,7 +52,6 @@ impl Analyzer {
     ///
     /// Returns `RippyError::Parse` if the command cannot be parsed.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
-        // Check Claude Code permission rules first (user-granted allows, denies, asks)
         if let Some(decision) = self.cc_rules.check(command) {
             if self.verbose {
                 eprintln!(
@@ -93,39 +92,39 @@ impl Analyzer {
         if depth > MAX_DEPTH {
             return Verdict::ask("nesting depth exceeded");
         }
-        match node {
-            Node::Command { words, redirects } => {
-                self.analyze_command_node(words, redirects, cwd, depth)
-            }
-            Node::Pipeline { commands } => self.analyze_nodes(commands, cwd, depth + 1),
-            Node::List { parts } => self.analyze_list(parts, cwd, depth),
-            Node::If { .. }
-            | Node::While { .. }
-            | Node::Until { .. }
-            | Node::For { .. }
-            | Node::ForArith { .. }
-            | Node::Select { .. }
-            | Node::Case { .. }
-            | Node::BraceGroup { .. } => self.analyze_control_flow(node, cwd, depth),
-            Node::Subshell { body, .. } => {
+        match &node.kind {
+            NodeKind::Command {
+                words, redirects, ..
+            } => self.analyze_command_node(words, redirects, cwd, depth),
+            NodeKind::Pipeline { commands, .. } => self.analyze_nodes(commands, cwd, depth + 1),
+            NodeKind::List { items } => self.analyze_list(items, cwd, depth),
+            NodeKind::If { .. }
+            | NodeKind::While { .. }
+            | NodeKind::Until { .. }
+            | NodeKind::For { .. }
+            | NodeKind::ForArith { .. }
+            | NodeKind::Select { .. }
+            | NodeKind::Case { .. }
+            | NodeKind::BraceGroup { .. } => self.analyze_control_flow(node, cwd, depth),
+            NodeKind::Subshell { body, .. } => {
                 let inner = self.analyze_node(body, cwd, depth + 1);
                 most_restrictive(inner, Verdict::ask("subshell"))
             }
-            Node::CommandSubstitution { command, .. }
-            | Node::ProcessSubstitution { command, .. } => {
+            NodeKind::CommandSubstitution { command, .. }
+            | NodeKind::ProcessSubstitution { command, .. } => {
                 let inner = self.analyze_node(command, cwd, depth + 1);
                 most_restrictive(inner, Verdict::ask("command substitution"))
             }
-            Node::Function { .. } => Verdict::ask("function definition"),
-            Node::Negation { pipeline } | Node::Time { pipeline, .. } => {
+            NodeKind::Function { .. } => Verdict::ask("function definition"),
+            NodeKind::Negation { pipeline } | NodeKind::Time { pipeline, .. } => {
                 self.analyze_node(pipeline, cwd, depth + 1)
             }
-            Node::HereDoc {
+            NodeKind::HereDoc {
                 quoted, content, ..
             } => Self::analyze_heredoc_node(*quoted, Some(content.as_str())),
-            Node::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
-            Node::ConditionalExpr { body, .. } => self.analyze_node(body, cwd, depth + 1),
-            Node::ArithmeticCommand { redirects, .. } => {
+            NodeKind::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
+            NodeKind::ConditionalExpr { body, .. } => self.analyze_node(body, cwd, depth + 1),
+            NodeKind::ArithmeticCommand { redirects, .. } => {
                 let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
                 Verdict::combine(&redirect_verdicts)
             }
@@ -134,8 +133,8 @@ impl Analyzer {
     }
 
     fn analyze_control_flow(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
-        match node {
-            Node::If {
+        match &node.kind {
+            NodeKind::If {
                 condition,
                 then_body,
                 else_body,
@@ -147,26 +146,29 @@ impl Analyzer {
                 }
                 self.analyze_compound(&parts, redirects, cwd, depth)
             }
-            Node::While {
+            NodeKind::While {
                 condition,
                 body,
                 redirects,
             }
-            | Node::Until {
+            | NodeKind::Until {
                 condition,
                 body,
                 redirects,
             } => self.analyze_compound(&[condition.as_ref(), body.as_ref()], redirects, cwd, depth),
-            Node::For {
+            NodeKind::For {
                 body, redirects, ..
             }
-            | Node::ForArith {
+            | NodeKind::ForArith {
                 body, redirects, ..
             }
-            | Node::Select {
+            | NodeKind::Select {
                 body, redirects, ..
-            } => self.analyze_compound(&[body.as_ref()], redirects, cwd, depth),
-            Node::Case {
+            }
+            | NodeKind::BraceGroup { body, redirects } => {
+                self.analyze_compound(&[body.as_ref()], redirects, cwd, depth)
+            }
+            NodeKind::Case {
                 patterns,
                 redirects,
                 ..
@@ -179,21 +181,18 @@ impl Analyzer {
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
                 Verdict::combine(&verdicts)
             }
-            Node::BraceGroup { body, redirects } => {
-                self.analyze_compound(&[body.as_ref()], redirects, cwd, depth)
-            }
             _ => Verdict::allow(""),
         }
     }
 
-    fn analyze_list(&mut self, parts: &[Node], cwd: &Path, depth: usize) -> Verdict {
+    fn analyze_list(&mut self, items: &[rable::ListItem], cwd: &Path, depth: usize) -> Verdict {
         let mut verdicts = Vec::new();
         let mut current_cwd = cwd.to_owned();
 
-        for part in parts {
-            let v = self.analyze_node(part, &current_cwd, depth + 1);
+        for item in items {
+            let v = self.analyze_node(&item.command, &current_cwd, depth + 1);
 
-            if let Some(dir) = extract_cd_target(part) {
+            if let Some(dir) = extract_cd_target(&item.command) {
                 current_cwd = if Path::new(&dir).is_absolute() {
                     PathBuf::from(&dir)
                 } else {
@@ -290,13 +289,13 @@ impl Analyzer {
     fn analyze_redirects(&self, redirects: &[Node], _cwd: &Path, _depth: usize) -> Vec<Verdict> {
         let mut verdicts = Vec::new();
         for redir in redirects {
-            match redir {
-                Node::Redirect { .. } => {
+            match &redir.kind {
+                NodeKind::Redirect { .. } => {
                     if let Some((op, target)) = ast::redirect_info(redir) {
                         verdicts.push(self.analyze_redirect(op, &target));
                     }
                 }
-                Node::HereDoc {
+                NodeKind::HereDoc {
                     quoted, content, ..
                 } => {
                     verdicts.push(Self::analyze_heredoc_node(*quoted, Some(content.as_str())));
@@ -593,7 +592,6 @@ mod tests {
     #[test]
     fn moderate_nesting_works() {
         let mut a = make_analyzer();
-        // Single subshell should ask
         let v = a.analyze("(echo ok)").unwrap();
         assert_eq!(v.decision, Decision::Ask); // subshell → Ask
     }
@@ -608,7 +606,6 @@ mod tests {
     #[test]
     fn heredoc_quoted_delimiter_allows_even_with_expansion_syntax() {
         let mut a = make_analyzer();
-        // Quoted delimiter suppresses expansion, so $(rm -rf /) is literal text
         let v = a.analyze("cat <<'EOF'\n$(rm -rf /)\nEOF").unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
