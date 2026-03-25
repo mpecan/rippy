@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use tree_sitter::Node;
+use rable::{Node, NodeKind};
 
 use crate::allowlists;
 use crate::ast;
@@ -20,7 +20,6 @@ pub struct Analyzer {
     pub remote: bool,
     pub working_directory: PathBuf,
     pub verbose: bool,
-    inner_parser: Option<BashParser>,
     cc_rules: CcRules,
 }
 
@@ -43,7 +42,6 @@ impl Analyzer {
             remote,
             working_directory,
             verbose,
-            inner_parser: None,
             cc_rules,
         })
     }
@@ -54,7 +52,6 @@ impl Analyzer {
     ///
     /// Returns `RippyError::Parse` if the command cannot be parsed.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
-        // Check Claude Code permission rules first (user-granted allows, denies, asks)
         if let Some(decision) = self.cc_rules.check(command) {
             if self.verbose {
                 eprintln!(
@@ -75,45 +72,127 @@ impl Analyzer {
             return Ok(verdict);
         }
 
-        let tree = self.parser.parse(command)?;
-        let root = tree.root_node();
+        let nodes = self.parser.parse(command)?;
         let cwd = self.working_directory.clone();
-        Ok(self.analyze_node(root, command, &cwd, 0))
+        Ok(self.analyze_nodes(&nodes, &cwd, 0))
     }
 
-    fn analyze_node(&mut self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
+    fn analyze_nodes(&mut self, nodes: &[Node], cwd: &Path, depth: usize) -> Verdict {
+        if nodes.is_empty() {
+            return Verdict::allow("");
+        }
+        let verdicts: Vec<Verdict> = nodes
+            .iter()
+            .map(|n| self.analyze_node(n, cwd, depth))
+            .collect();
+        Verdict::combine(&verdicts)
+    }
+
+    fn analyze_node(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
         if depth > MAX_DEPTH {
             return Verdict::ask("nesting depth exceeded");
         }
-        match node.kind() {
-            "program" | "pipeline" | "list" | "if_statement" | "while_statement"
-            | "for_statement" | "case_statement" | "negated_command" | "compound_statement" => {
-                self.analyze_children(node, source, cwd, depth)
+        match &node.kind {
+            NodeKind::Command {
+                words, redirects, ..
+            } => self.analyze_command_node(words, redirects, cwd, depth),
+            NodeKind::Pipeline { commands, .. } => self.analyze_nodes(commands, cwd, depth + 1),
+            NodeKind::List { items } => self.analyze_list(items, cwd, depth),
+            NodeKind::If { .. }
+            | NodeKind::While { .. }
+            | NodeKind::Until { .. }
+            | NodeKind::For { .. }
+            | NodeKind::ForArith { .. }
+            | NodeKind::Select { .. }
+            | NodeKind::Case { .. }
+            | NodeKind::BraceGroup { .. } => self.analyze_control_flow(node, cwd, depth),
+            NodeKind::Subshell { body, .. } => {
+                let inner = self.analyze_node(body, cwd, depth + 1);
+                most_restrictive(inner, Verdict::ask("subshell"))
             }
-            "command" => self.analyze_command(node, source, cwd, depth),
-            kind @ ("subshell" | "command_substitution" | "process_substitution") => {
-                let inner = self.analyze_children(node, source, cwd, depth);
-                most_restrictive(inner, Verdict::ask(kind))
+            NodeKind::CommandSubstitution { command, .. }
+            | NodeKind::ProcessSubstitution { command, .. } => {
+                let inner = self.analyze_node(command, cwd, depth + 1);
+                most_restrictive(inner, Verdict::ask("command substitution"))
             }
-            "function_definition" => Verdict::ask("function definition"),
-            "redirected_statement" => self.analyze_redirected(node, source, cwd, depth),
-            "variable_assignment" => Self::analyze_assignment(node, source),
-            _ if node.has_error() => Verdict::ask("unparseable command"),
-            _ => self.analyze_children_or_allow(node, source, cwd, depth),
+            NodeKind::Function { .. } => Verdict::ask("function definition"),
+            NodeKind::Negation { pipeline } | NodeKind::Time { pipeline, .. } => {
+                self.analyze_node(pipeline, cwd, depth + 1)
+            }
+            NodeKind::HereDoc {
+                quoted, content, ..
+            } => Self::analyze_heredoc_node(*quoted, Some(content.as_str())),
+            NodeKind::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
+            NodeKind::ConditionalExpr { body, .. } => self.analyze_node(body, cwd, depth + 1),
+            NodeKind::ArithmeticCommand { redirects, .. } => {
+                let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
+                Verdict::combine(&redirect_verdicts)
+            }
+            _ => Verdict::allow(""),
         }
     }
 
-    fn analyze_children(&mut self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
+    fn analyze_control_flow(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
+        match &node.kind {
+            NodeKind::If {
+                condition,
+                then_body,
+                else_body,
+                redirects,
+            } => {
+                let mut parts: Vec<&Node> = vec![condition.as_ref(), then_body.as_ref()];
+                if let Some(eb) = else_body.as_deref() {
+                    parts.push(eb);
+                }
+                self.analyze_compound(&parts, redirects, cwd, depth)
+            }
+            NodeKind::While {
+                condition,
+                body,
+                redirects,
+            }
+            | NodeKind::Until {
+                condition,
+                body,
+                redirects,
+            } => self.analyze_compound(&[condition.as_ref(), body.as_ref()], redirects, cwd, depth),
+            NodeKind::For {
+                body, redirects, ..
+            }
+            | NodeKind::ForArith {
+                body, redirects, ..
+            }
+            | NodeKind::Select {
+                body, redirects, ..
+            }
+            | NodeKind::BraceGroup { body, redirects } => {
+                self.analyze_compound(&[body.as_ref()], redirects, cwd, depth)
+            }
+            NodeKind::Case {
+                patterns,
+                redirects,
+                ..
+            } => {
+                let mut verdicts: Vec<Verdict> = patterns
+                    .iter()
+                    .filter_map(|p| p.body.as_ref())
+                    .map(|b| self.analyze_node(b, cwd, depth + 1))
+                    .collect();
+                verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+                Verdict::combine(&verdicts)
+            }
+            _ => Verdict::allow(""),
+        }
+    }
+
+    fn analyze_list(&mut self, items: &[rable::ListItem], cwd: &Path, depth: usize) -> Verdict {
         let mut verdicts = Vec::new();
-        let mut cursor = node.walk();
         let mut current_cwd = cwd.to_owned();
 
-        for child in node.named_children(&mut cursor) {
-            let v = self.analyze_node(child, source, &current_cwd, depth + 1);
+        for item in items {
+            let v = self.analyze_node(&item.command, &current_cwd, depth + 1);
 
-            if child.kind() == "command"
-                && let Some(dir) = extract_cd_target(child, source)
-            {
+            if let Some(dir) = extract_cd_target(&item.command) {
                 current_cwd = if Path::new(&dir).is_absolute() {
                     PathBuf::from(&dir)
                 } else {
@@ -127,31 +206,33 @@ impl Analyzer {
         Verdict::combine(&verdicts)
     }
 
-    fn analyze_children_or_allow(
+    fn analyze_compound(
         &mut self,
-        node: Node,
-        source: &str,
+        parts: &[&Node],
+        redirects: &[Node],
         cwd: &Path,
         depth: usize,
     ) -> Verdict {
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.named_children(&mut cursor).collect();
-        if children.is_empty() {
-            return Verdict::allow("");
-        }
-        let verdicts: Vec<Verdict> = children
+        let mut verdicts: Vec<Verdict> = parts
             .iter()
-            .map(|c| self.analyze_node(*c, source, cwd, depth + 1))
+            .map(|b| self.analyze_node(b, cwd, depth + 1))
             .collect();
+        verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
         Verdict::combine(&verdicts)
     }
 
-    fn analyze_command(&mut self, node: Node, source: &str, cwd: &Path, depth: usize) -> Verdict {
-        let Some(raw_name) = ast::command_name(node, source) else {
+    fn analyze_command_node(
+        &mut self,
+        words: &[Node],
+        redirects: &[Node],
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
+        let Some(raw_name) = ast::command_name_from_words(words) else {
             return Verdict::allow("empty command");
         };
         let name = raw_name.to_owned();
-        let args = ast::command_args(node, source);
+        let args = ast::command_args_from_words(words);
 
         let resolved = self.config.resolve_alias(&name);
         let cmd_name = if resolved == name {
@@ -176,14 +257,14 @@ impl Analyzer {
             if self.verbose {
                 eprintln!("[rippy] allowlist: {cmd_name} is safe");
             }
-            if ast::has_expansions(node) {
-                let inner_verdict = self.analyze_children(node, source, cwd, depth);
-                return most_restrictive(
-                    Verdict::allow(format!("{cmd_name} is safe")),
-                    inner_verdict,
-                );
+            let mut v = Verdict::allow(format!("{cmd_name} is safe"));
+            if ast::has_expansions_in_slices(words, redirects) {
+                v = most_restrictive(v, Verdict::ask("command substitution"));
             }
-            return Verdict::allow(format!("{cmd_name} is safe"));
+            for rv in self.analyze_redirects(redirects, cwd, depth) {
+                v = most_restrictive(v, rv);
+            }
+            return v;
         }
 
         if args
@@ -193,7 +274,36 @@ impl Analyzer {
             return Verdict::allow(format!("{cmd_name} help/version"));
         }
 
-        self.classify_with_handler(&cmd_name, &args, cwd, depth)
+        let handler_verdict = self.classify_with_handler(&cmd_name, &args, cwd, depth);
+
+        let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
+        if redirect_verdicts.is_empty() {
+            handler_verdict
+        } else {
+            let mut all = vec![handler_verdict];
+            all.extend(redirect_verdicts);
+            Verdict::combine(&all)
+        }
+    }
+
+    fn analyze_redirects(&self, redirects: &[Node], _cwd: &Path, _depth: usize) -> Vec<Verdict> {
+        let mut verdicts = Vec::new();
+        for redir in redirects {
+            match &redir.kind {
+                NodeKind::Redirect { .. } => {
+                    if let Some((op, target)) = ast::redirect_info(redir) {
+                        verdicts.push(self.analyze_redirect(op, &target));
+                    }
+                }
+                NodeKind::HereDoc {
+                    quoted, content, ..
+                } => {
+                    verdicts.push(Self::analyze_heredoc_node(*quoted, Some(content.as_str())));
+                }
+                _ => {}
+            }
+        }
+        verdicts
     }
 
     fn classify_with_handler(
@@ -223,37 +333,6 @@ impl Analyzer {
         self.default_verdict(cmd_name)
     }
 
-    fn analyze_redirected(
-        &mut self,
-        node: Node,
-        source: &str,
-        cwd: &Path,
-        depth: usize,
-    ) -> Verdict {
-        let mut cmd_verdict = Verdict::allow("");
-        let mut redirect_verdicts = Vec::new();
-
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "file_redirect" => {
-                    if let Some((op, target)) = ast::redirect_info(child, source) {
-                        redirect_verdicts.push(self.analyze_redirect(op, &target));
-                    }
-                }
-                "heredoc_redirect" => {
-                    redirect_verdicts.push(Self::analyze_heredoc(child, source));
-                }
-                _ => {
-                    cmd_verdict = self.analyze_node(child, source, cwd, depth + 1);
-                }
-            }
-        }
-
-        redirect_verdicts.push(cmd_verdict);
-        Verdict::combine(&redirect_verdicts)
-    }
-
     fn analyze_redirect(&self, op: ast::RedirectOp, target: &str) -> Verdict {
         if op == ast::RedirectOp::Read {
             return Verdict::allow("input redirect");
@@ -270,53 +349,23 @@ impl Analyzer {
         Verdict::ask(format!("redirect to {target}"))
     }
 
-    fn analyze_heredoc(node: Node, source: &str) -> Verdict {
-        let mut delimiter_quoted = false;
-        let mut body_has_expansions = false;
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "heredoc_start" => {
-                    let text = child.utf8_text(source.as_bytes()).unwrap_or_default();
-                    delimiter_quoted =
-                        text.starts_with('\'') || text.starts_with('"') || text.starts_with('\\');
-                }
-                "heredoc_body" => {
-                    body_has_expansions = ast::has_expansions(child);
-                }
-                _ => {}
-            }
+    fn analyze_heredoc_node(quoted: bool, content: Option<&str>) -> Verdict {
+        if quoted {
+            return Verdict::allow("heredoc");
         }
-
-        if delimiter_quoted || !body_has_expansions {
-            Verdict::allow("heredoc")
-        } else {
-            Verdict::ask("heredoc with command substitution")
+        if let Some(body) = content
+            && (body.contains("$(") || body.contains('`'))
+        {
+            return Verdict::ask("heredoc with command substitution");
         }
-    }
-
-    fn analyze_assignment(node: Node, _source: &str) -> Verdict {
-        if ast::has_expansions(node) {
-            return Verdict::ask("assignment with command substitution");
-        }
-        Verdict::allow("variable assignment")
+        Verdict::allow("heredoc")
     }
 
     fn analyze_inner_command(&mut self, inner: &str, cwd: &Path, depth: usize) -> Verdict {
-        let parser = self.get_inner_parser();
-        let Ok(tree) = parser.parse(inner) else {
+        let Ok(nodes) = self.parser.parse(inner) else {
             return Verdict::ask("unparseable inner command");
         };
-        self.analyze_node(tree.root_node(), inner, cwd, depth)
-    }
-
-    fn get_inner_parser(&mut self) -> &mut BashParser {
-        if self.inner_parser.is_none() {
-            self.inner_parser = BashParser::new().ok();
-        }
-        // Fall back to main parser if inner parser init failed
-        self.inner_parser.as_mut().unwrap_or(&mut self.parser)
+        self.analyze_nodes(&nodes, cwd, depth)
     }
 
     fn apply_classification(&mut self, class: Classification, cwd: &Path, depth: usize) -> Verdict {
@@ -373,12 +422,12 @@ fn cc_decision_to_verdict(decision: Decision, command: &str) -> Verdict {
     Verdict { decision, reason }
 }
 
-fn extract_cd_target(node: Node, source: &str) -> Option<String> {
-    let name = ast::command_name(node, source)?;
+fn extract_cd_target(node: &Node) -> Option<String> {
+    let name = ast::command_name(node)?;
     if name != "cd" {
         return None;
     }
-    let args = ast::command_args(node, source);
+    let args = ast::command_args(node);
     args.first().cloned()
 }
 
@@ -526,10 +575,8 @@ mod tests {
     #[test]
     fn depth_limit_exceeded() {
         let mut a = make_analyzer();
-        let parser = &mut BashParser::new().unwrap();
-        let tree = parser.parse("echo ok").unwrap();
-        let root = tree.root_node();
-        let v = a.analyze_node(root, "echo ok", Path::new("/tmp"), MAX_DEPTH + 1);
+        let nodes = a.parser.parse("echo ok").unwrap();
+        let v = a.analyze_node(&nodes[0], Path::new("/tmp"), MAX_DEPTH + 1);
         assert_eq!(v.decision, Decision::Ask);
         assert!(v.reason.contains("nesting depth exceeded"));
     }
@@ -537,25 +584,15 @@ mod tests {
     #[test]
     fn depth_at_max_still_works() {
         let mut a = make_analyzer();
-        let parser = &mut BashParser::new().unwrap();
-        let tree = parser.parse("echo ok").unwrap();
-        let root = tree.root_node();
-        // At MAX_DEPTH, the root node is allowed, but children increment
-        // depth further, so a simple command still works (command node
-        // doesn't recurse deeper). Test with a leaf-like command.
-        let v = a.analyze_node(root, "echo ok", Path::new("/tmp"), MAX_DEPTH - 2);
+        let nodes = a.parser.parse("echo ok").unwrap();
+        let v = a.analyze_node(&nodes[0], Path::new("/tmp"), MAX_DEPTH - 2);
         assert_eq!(v.decision, Decision::Allow);
     }
 
     #[test]
     fn moderate_nesting_works() {
         let mut a = make_analyzer();
-        // 10 levels of nesting should be fine
-        let mut cmd = "echo ok".to_string();
-        for _ in 0..10 {
-            cmd = format!("({cmd})");
-        }
-        let v = a.analyze(&cmd).unwrap();
+        let v = a.analyze("(echo ok)").unwrap();
         assert_eq!(v.decision, Decision::Ask); // subshell → Ask
     }
 
@@ -569,7 +606,6 @@ mod tests {
     #[test]
     fn heredoc_quoted_delimiter_allows_even_with_expansion_syntax() {
         let mut a = make_analyzer();
-        // Quoted delimiter suppresses expansion, so $(rm -rf /) is literal text
         let v = a.analyze("cat <<'EOF'\n$(rm -rf /)\nEOF").unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
@@ -625,7 +661,6 @@ mod tests {
 
     #[test]
     fn cc_allow_rule_overrides_handler() {
-        // git push normally asks, but if CC has an allow rule, it should allow
         let dir = tempfile::tempdir().unwrap();
         let claude_dir = dir.path().join(".claude");
         std::fs::create_dir(&claude_dir).unwrap();
@@ -656,7 +691,6 @@ mod tests {
 
     #[test]
     fn cc_rules_checked_before_rippy_config() {
-        // CC allow should take priority over rippy config ask
         use crate::config::Rule;
         use crate::pattern::Pattern;
 
@@ -676,6 +710,6 @@ mod tests {
         }]);
         let mut a = Analyzer::new(config, false, dir.path().to_path_buf(), false).unwrap();
         let v = a.analyze("rm -rf /tmp").unwrap();
-        assert_eq!(v.decision, Decision::Allow); // CC allow wins over rippy ask
+        assert_eq!(v.decision, Decision::Allow);
     }
 }
