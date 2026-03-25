@@ -97,7 +97,7 @@ impl Analyzer {
             Node::Command { words, redirects } => {
                 self.analyze_command_node(words, redirects, cwd, depth)
             }
-            Node::Pipeline { commands } => self.analyze_pipeline(commands, cwd, depth),
+            Node::Pipeline { commands } => self.analyze_nodes(commands, cwd, depth + 1),
             Node::List { parts } => self.analyze_list(parts, cwd, depth),
             Node::If { .. }
             | Node::While { .. }
@@ -123,6 +123,12 @@ impl Analyzer {
             Node::HereDoc {
                 quoted, content, ..
             } => Self::analyze_heredoc_node(*quoted, Some(content.as_str())),
+            Node::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
+            Node::ConditionalExpr { body, .. } => self.analyze_node(body, cwd, depth + 1),
+            Node::ArithmeticCommand { redirects, .. } => {
+                let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
+                Verdict::combine(&redirect_verdicts)
+            }
             _ => Verdict::allow(""),
         }
     }
@@ -174,22 +180,10 @@ impl Analyzer {
                 Verdict::combine(&verdicts)
             }
             Node::BraceGroup { body, redirects } => {
-                let mut v = self.analyze_node(body, cwd, depth + 1);
-                for rv in self.analyze_redirects(redirects, cwd, depth) {
-                    v = most_restrictive(v, rv);
-                }
-                v
+                self.analyze_compound(&[body.as_ref()], redirects, cwd, depth)
             }
             _ => Verdict::allow(""),
         }
-    }
-
-    fn analyze_pipeline(&mut self, commands: &[Node], cwd: &Path, depth: usize) -> Verdict {
-        let verdicts: Vec<Verdict> = commands
-            .iter()
-            .map(|c| self.analyze_node(c, cwd, depth + 1))
-            .collect();
-        Verdict::combine(&verdicts)
     }
 
     fn analyze_list(&mut self, parts: &[Node], cwd: &Path, depth: usize) -> Verdict {
@@ -235,15 +229,11 @@ impl Analyzer {
         cwd: &Path,
         depth: usize,
     ) -> Verdict {
-        let cmd_node = Node::Command {
-            words: words.to_vec(),
-            redirects: redirects.to_vec(),
-        };
-        let Some(raw_name) = ast::command_name(&cmd_node) else {
+        let Some(raw_name) = ast::command_name_from_words(words) else {
             return Verdict::allow("empty command");
         };
         let name = raw_name.to_owned();
-        let args = ast::command_args(&cmd_node);
+        let args = ast::command_args_from_words(words);
 
         let resolved = self.config.resolve_alias(&name);
         let cmd_name = if resolved == name {
@@ -269,10 +259,9 @@ impl Analyzer {
                 eprintln!("[rippy] allowlist: {cmd_name} is safe");
             }
             let mut v = Verdict::allow(format!("{cmd_name} is safe"));
-            if ast::has_expansions(&cmd_node) {
+            if ast::has_expansions_in_slices(words, redirects) {
                 v = most_restrictive(v, Verdict::ask("command substitution"));
             }
-            // Still check redirects on safe commands
             for rv in self.analyze_redirects(redirects, cwd, depth) {
                 v = most_restrictive(v, rv);
             }
@@ -288,7 +277,6 @@ impl Analyzer {
 
         let handler_verdict = self.classify_with_handler(&cmd_name, &args, cwd, depth);
 
-        // Analyze redirects separately
         let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
         if redirect_verdicts.is_empty() {
             handler_verdict

@@ -21,20 +21,28 @@ pub fn command_name(node: &Node) -> Option<&str> {
     let Node::Command { words, .. } = node else {
         return None;
     };
+    command_name_from_words(words)
+}
+
+/// Extract the command name from a word slice.
+#[must_use]
+pub fn command_name_from_words(words: &[Node]) -> Option<&str> {
     words.first().and_then(word_value)
 }
 
-/// Extract command arguments (all words after the command name) from a command node.
+/// Extract command arguments from a word slice (all words after the name).
+#[must_use]
+pub fn command_args_from_words(words: &[Node]) -> Vec<String> {
+    words.iter().skip(1).map(node_text).collect()
+}
+
+/// Extract command arguments from a `Command` node.
 #[must_use]
 pub fn command_args(node: &Node) -> Vec<String> {
     let Node::Command { words, .. } = node else {
         return Vec::new();
     };
-    words
-        .iter()
-        .skip(1) // skip command name
-        .map(node_text)
-        .collect()
+    command_args_from_words(words)
 }
 
 /// Extract the redirect operator and target from a `Redirect` node.
@@ -56,8 +64,7 @@ pub fn redirect_info(node: &Node) -> Option<(RedirectOp, String)> {
 /// Check whether a node's subtree contains command or process substitutions.
 ///
 /// Rable keeps `$(...)` and backtick substitutions as literal text in word values,
-/// so we check word values for expansion patterns rather than looking for
-/// `CommandSubstitution` AST nodes.
+/// so we check word values for expansion patterns.
 #[must_use]
 pub fn has_expansions(node: &Node) -> bool {
     match node {
@@ -65,9 +72,7 @@ pub fn has_expansions(node: &Node) -> bool {
         Node::Word { value, parts, .. } => {
             value.contains("$(") || value.contains('`') || parts.iter().any(has_expansions)
         }
-        Node::Command { words, redirects } => {
-            words.iter().any(has_expansions) || redirects.iter().any(has_expansions)
-        }
+        Node::Command { words, redirects } => has_expansions_in_slices(words, redirects),
         Node::Pipeline { commands } => commands.iter().any(has_expansions),
         Node::List { parts } => parts.iter().any(has_expansions),
         Node::Redirect { target, .. } => has_expansions(target),
@@ -89,13 +94,18 @@ pub fn has_expansions(node: &Node) -> bool {
     }
 }
 
+/// Check for expansions in word and redirect slices without requiring a full Node.
+#[must_use]
+pub fn has_expansions_in_slices(words: &[Node], redirects: &[Node]) -> bool {
+    words.iter().any(has_expansions) || redirects.iter().any(has_expansions)
+}
+
 /// Extract text from a node, stripping quotes.
 fn node_text(node: &Node) -> String {
     if let Node::Word { value, .. } = node {
         strip_quotes(value)
     } else {
-        let s = format!("{node}");
-        strip_quotes(&s)
+        String::new()
     }
 }
 
