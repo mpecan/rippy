@@ -3,6 +3,7 @@ use super::SubcommandHandler;
 pub static CARGO_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["cargo"],
     &[
+        // Built-in info/query commands
         "help",
         "version",
         "search",
@@ -13,28 +14,53 @@ pub static CARGO_HANDLER: SubcommandHandler = SubcommandHandler::new(
         "locate-project",
         "pkgid",
         "verify-project",
+        // Build/test/check (writes only to target/)
+        "build",
+        "test",
+        "bench",
         "check",
         "clippy",
         "fmt",
         "doc",
+        "clean",
+        "nextest",
+        // Dependency management (modifies Cargo.lock / vendor only)
         "fetch",
         "generate-lockfile",
         "update",
         "vendor",
+        // Registry auth
         "login",
         "logout",
         "owner",
+        // Third-party analysis tools (read-only)
+        "audit",
+        "deny",
+        "expand",
+        "outdated",
+        "bloat",
+        "machete",
+        "llvm-lines",
+        "udeps",
+        "depgraph",
+        "msrv",
     ],
     &[
-        "build",
+        // Executes arbitrary code
         "run",
-        "test",
-        "bench",
+        // Publishes / installs (side effects beyond project)
         "publish",
         "install",
         "uninstall",
+        // Creates files/directories
         "new",
         "init",
+        // Modifies source files
+        "fix",
+        "add",
+        "rm",
+        "remove",
+        "upgrade",
     ],
     "cargo",
 );

@@ -489,6 +489,108 @@ fn cc_ask_rule_prompts() {
     assert_eq!(code, 2);
 }
 
+// ---- Cargo handler tests ----
+
+#[test]
+fn cargo_test_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo test --all"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_build_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo build --release"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_nextest_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo nextest run"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_audit_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo audit"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_bench_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo bench"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_deny_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo deny check"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cargo_rm_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".claude")).unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo rm serde"}}"#;
+    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn cargo_run_asks() {
+    // Use isolated dir to avoid CC permission rules from ~/.claude/
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".claude")).unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo run"}}"#;
+    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn cargo_publish_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".claude")).unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo publish"}}"#;
+    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn cargo_fix_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".claude")).unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo fix"}}"#;
+    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn cargo_add_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".claude")).unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo add serde"}}"#;
+    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
 // ---- PostToolUse ----
 
 #[test]
