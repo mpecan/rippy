@@ -1,3 +1,7 @@
+mod claude_code;
+mod cursor;
+mod gemini;
+mod json_settings;
 mod tokf;
 
 use std::process::ExitCode;
@@ -13,6 +17,9 @@ use crate::error::RippyError;
 /// configuration cannot be written.
 pub fn run(args: &SetupArgs) -> Result<ExitCode, RippyError> {
     match &args.target {
-        SetupTarget::Tokf(tokf_args) => tokf::run(tokf_args),
+        SetupTarget::Tokf(a) => tokf::run(a),
+        SetupTarget::ClaudeCode(a) => claude_code::run(a),
+        SetupTarget::Gemini(a) => gemini::run(a),
+        SetupTarget::Cursor(a) => cursor::run(a),
     }
 }
