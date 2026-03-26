@@ -24,4 +24,7 @@ pub enum RippyError {
 
     #[error("missing field: {0}")]
     MissingField(String),
+
+    #[error("setup error: {0}")]
+    Setup(String),
 }

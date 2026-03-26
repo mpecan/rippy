@@ -5,17 +5,18 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use rippy_cli::analyzer::Analyzer;
-use rippy_cli::cli::Args;
+use rippy_cli::cli::{Cli, Command, HookArgs};
 use rippy_cli::config::Config;
 use rippy_cli::error::RippyError;
 use rippy_cli::mode::HookType;
 use rippy_cli::payload::Payload;
+use rippy_cli::setup;
 use rippy_cli::verdict::{Decision, Verdict};
 
 fn evaluate(
     payload: &Payload,
     config: Config,
-    args: &Args,
+    args: &HookArgs,
     cwd: PathBuf,
 ) -> Result<Verdict, RippyError> {
     match payload.hook_type {
@@ -52,9 +53,7 @@ fn evaluate(
 
 const MAX_INPUT_SIZE: usize = 1_048_576; // 1 MB
 
-fn run() -> Result<ExitCode, RippyError> {
-    let args = Args::parse();
-
+fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     let mut buffer = Vec::new();
     std::io::stdin()
         .take(MAX_INPUT_SIZE as u64 + 1)
@@ -84,7 +83,7 @@ fn run() -> Result<ExitCode, RippyError> {
         }
     }
 
-    let verdict = evaluate(&payload, config, &args, cwd)?;
+    let verdict = evaluate(&payload, config, args, cwd)?;
 
     log_verdict(log_file.as_ref(), log_full, &payload, &verdict);
 
@@ -107,6 +106,15 @@ fn log_verdict(log_file: Option<&PathBuf>, log_full: bool, payload: &Payload, ve
             mode: payload.mode,
             raw_payload: if log_full { Some(&payload.raw) } else { None },
         });
+    }
+}
+
+fn run() -> Result<ExitCode, RippyError> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Command::Setup(ref setup_args)) => setup::run(setup_args),
+        None => run_hook(&cli.hook_args),
     }
 }
 

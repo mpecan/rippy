@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::mode::Mode;
 
@@ -36,7 +36,52 @@ Exit codes: 0 = allow, 2 = ask/deny, 1 = error\n\n\
 Example:\n  \
 echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"}}' | rippy --mode claude"
 )]
-pub struct Args {
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
+    #[command(flatten)]
+    pub hook_args: HookArgs,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Configure rippy as the permission engine for another tool
+    Setup(SetupArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SetupArgs {
+    #[command(subcommand)]
+    pub target: SetupTarget,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SetupTarget {
+    /// Configure tokf to use rippy as its external permission engine
+    Tokf(TokfSetupArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TokfSetupArgs {
+    /// Install at user level (~/.config/tokf/) instead of project level (.tokf/)
+    #[arg(long)]
+    pub global: bool,
+
+    /// Also install tokf hooks for these AI tools (comma-separated).
+    /// Supported: claude-code, opencode, codex, gemini-cli, cursor, cline,
+    /// windsurf, copilot, aider
+    #[arg(long, value_delimiter = ',')]
+    pub install_hooks: Vec<String>,
+
+    /// Install tokf hooks for all supported AI tools
+    #[arg(long)]
+    pub all_hooks: bool,
+}
+
+/// Hook-mode arguments (the original rippy behavior).
+#[derive(Args, Debug)]
+pub struct HookArgs {
     /// Force a specific AI tool mode
     #[arg(long, value_enum)]
     pub mode: Option<ModeArg>,
@@ -54,7 +99,7 @@ pub struct Args {
     pub verbose: bool,
 }
 
-impl Args {
+impl HookArgs {
     /// Return the explicitly forced mode, if any.
     #[must_use]
     pub fn forced_mode(&self) -> Option<Mode> {
@@ -76,7 +121,7 @@ mod tests {
 
     #[test]
     fn forced_mode_claude() {
-        let args = Args {
+        let args = HookArgs {
             mode: Some(ModeArg::Claude),
             config: None,
             remote: false,
@@ -87,7 +132,7 @@ mod tests {
 
     #[test]
     fn no_forced_mode() {
-        let args = Args {
+        let args = HookArgs {
             mode: None,
             config: None,
             remote: false,
