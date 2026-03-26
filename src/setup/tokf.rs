@@ -151,7 +151,10 @@ fn write_permissions_config(target_dir: &Path) -> Result<(), RippyError> {
 /// Determine which tools to install hooks for.
 fn resolve_tools(args: &TokfSetupArgs) -> Vec<String> {
     if args.all_hooks {
-        ALL_SUPPORTED_TOOLS.iter().map(ToString::to_string).collect()
+        ALL_SUPPORTED_TOOLS
+            .iter()
+            .map(ToString::to_string)
+            .collect()
     } else {
         args.install_hooks.clone()
     }
