@@ -430,7 +430,9 @@ dependencies = [
 
 [[package]]
 name = "tokf-hook-types"
-version = "0.2.37"
+version = "0.2.39"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e626029c48f1c72dfb609f3d900687a5d606eead4ab81a7f33945c95769dc9a"
 dependencies = [
  "serde",
 ]
