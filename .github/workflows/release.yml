@@ -102,3 +102,104 @@ jobs:
             "${{ env.ARCHIVE }}" \
             "${{ env.ARCHIVE }}.sha256" \
             --clobber
+
+  update-homebrew:
+    name: Update Homebrew tap
+    needs: build-binaries
+    if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute version
+        id: version
+        run: |
+          TAG="${{ env.RELEASE_TAG }}"
+          echo "version=${TAG#rippy-cli-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download SHA256 checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          for TARGET in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu; do
+            gh release download "${{ env.RELEASE_TAG }}" \
+              --repo "${{ github.repository }}" \
+              --pattern "rippy-v${VERSION}-${TARGET}.tar.gz.sha256" \
+              --output "${TARGET}.sha256"
+          done
+          echo "SHA256_AARCH64=$(cat aarch64-apple-darwin.sha256)" >> "$GITHUB_ENV"
+          echo "SHA256_X86_64_DARWIN=$(cat x86_64-apple-darwin.sha256)" >> "$GITHUB_ENV"
+          echo "SHA256_LINUX=$(cat x86_64-unknown-linux-gnu.sha256)" >> "$GITHUB_ENV"
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.REPOSITORY_BUTLER_APP_ID }}
+          private-key: ${{ secrets.REPOSITORY_BUTLER_PEM }}
+          repositories: homebrew-tools
+
+      - name: Checkout homebrew-tools tap
+        uses: actions/checkout@v6
+        with:
+          repository: mpecan/homebrew-tools
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tools
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, textwrap
+          v = os.environ['VERSION']
+          sha_arm = os.environ['SHA256_AARCH64']
+          sha_intel = os.environ['SHA256_X86_64_DARWIN']
+          sha_linux = os.environ['SHA256_LINUX']
+          base = "https://github.com/mpecan/rippy/releases/download"
+          formula = textwrap.dedent(f"""\
+            class Rippy < Formula
+              desc "Shell command safety hook for AI coding tools (Claude Code, Cursor, Gemini CLI)"
+              homepage "https://github.com/mpecan/rippy"
+              version "{v}"
+              license "MIT"
+
+              on_macos do
+                on_arm do
+                  url "{base}/rippy-cli-v{v}/rippy-v{v}-aarch64-apple-darwin.tar.gz"
+                  sha256 "{sha_arm}"
+                end
+                on_intel do
+                  url "{base}/rippy-cli-v{v}/rippy-v{v}-x86_64-apple-darwin.tar.gz"
+                  sha256 "{sha_intel}"
+                end
+              end
+
+              on_linux do
+                on_intel do
+                  url "{base}/rippy-cli-v{v}/rippy-v{v}-x86_64-unknown-linux-gnu.tar.gz"
+                  sha256 "{sha_linux}"
+                end
+              end
+
+              def install
+                bin.install "rippy"
+              end
+
+              test do
+                assert_match "rippy", shell_output("#{{bin}}/rippy --version")
+              end
+            end
+          """)
+          os.makedirs("homebrew-tools/Formula", exist_ok=True)
+          with open("homebrew-tools/Formula/rippy.rb", "w") as f:
+              f.write(formula)
+          PYEOF
+
+      - name: Commit and push
+        working-directory: homebrew-tools
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/rippy.rb
+          git diff --cached --quiet || git commit -m "rippy ${{ steps.version.outputs.version }}"
+          git push
