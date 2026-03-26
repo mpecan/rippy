@@ -60,6 +60,19 @@ pub struct SetupArgs {
 pub enum SetupTarget {
     /// Configure tokf to use rippy as its external permission engine
     Tokf(TokfSetupArgs),
+    /// Install rippy as a direct hook for Claude Code
+    ClaudeCode(DirectHookArgs),
+    /// Install rippy as a direct hook for Gemini CLI
+    Gemini(DirectHookArgs),
+    /// Install rippy as a direct hook for Cursor
+    Cursor(DirectHookArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct DirectHookArgs {
+    /// Install at user level (~/.claude/ etc.) instead of project level (.claude/ etc.)
+    #[arg(long)]
+    pub global: bool,
 }
 
 #[derive(Args, Debug)]
