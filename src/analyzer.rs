@@ -21,6 +21,8 @@ pub struct Analyzer {
     pub working_directory: PathBuf,
     pub verbose: bool,
     cc_rules: CcRules,
+    /// Set to true when analyzing a command that receives piped input.
+    piped: bool,
 }
 
 impl Analyzer {
@@ -43,6 +45,7 @@ impl Analyzer {
             working_directory,
             verbose,
             cc_rules,
+            piped: false,
         })
     }
 
@@ -96,7 +99,7 @@ impl Analyzer {
             NodeKind::Command {
                 words, redirects, ..
             } => self.analyze_command_node(words, redirects, cwd, depth),
-            NodeKind::Pipeline { commands, .. } => self.analyze_nodes(commands, cwd, depth + 1),
+            NodeKind::Pipeline { commands, .. } => self.analyze_pipeline(commands, cwd, depth),
             NodeKind::List { items } => self.analyze_list(items, cwd, depth),
             NodeKind::If { .. }
             | NodeKind::While { .. }
@@ -106,9 +109,10 @@ impl Analyzer {
             | NodeKind::Select { .. }
             | NodeKind::Case { .. }
             | NodeKind::BraceGroup { .. } => self.analyze_control_flow(node, cwd, depth),
-            NodeKind::Subshell { body, .. } => {
-                let inner = self.analyze_node(body, cwd, depth + 1);
-                most_restrictive(inner, Verdict::ask("subshell"))
+            NodeKind::Subshell { body, redirects } => {
+                let mut verdicts = vec![self.analyze_node(body, cwd, depth + 1)];
+                verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+                Verdict::combine(&verdicts)
             }
             NodeKind::CommandSubstitution { command, .. }
             | NodeKind::ProcessSubstitution { command, .. } => {
@@ -185,11 +189,42 @@ impl Analyzer {
         }
     }
 
+    fn analyze_pipeline(&mut self, commands: &[Node], cwd: &Path, depth: usize) -> Verdict {
+        let has_unsafe_redirect = commands.iter().any(ast::has_unsafe_file_redirect);
+
+        let mut verdicts: Vec<Verdict> = commands
+            .iter()
+            .enumerate()
+            .map(|(i, cmd)| self.analyze_pipeline_command(cmd, i > 0, cwd, depth + 1))
+            .collect();
+
+        if has_unsafe_redirect {
+            verdicts.push(Verdict::ask("pipeline writes to file"));
+        }
+
+        Verdict::combine(&verdicts)
+    }
+
+    fn analyze_pipeline_command(
+        &mut self,
+        node: &Node,
+        piped: bool,
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
+        let prev_piped = self.piped;
+        self.piped = piped;
+        let v = self.analyze_node(node, cwd, depth);
+        self.piped = prev_piped;
+        v
+    }
+
     fn analyze_list(&mut self, items: &[rable::ListItem], cwd: &Path, depth: usize) -> Verdict {
         let mut verdicts = Vec::new();
         let mut current_cwd = cwd.to_owned();
+        let mut is_harmless_fallback = false;
 
-        for item in items {
+        for (i, item) in items.iter().enumerate() {
             let v = self.analyze_node(&item.command, &current_cwd, depth + 1);
 
             if let Some(dir) = extract_cd_target(&item.command) {
@@ -198,6 +233,21 @@ impl Analyzer {
                 } else {
                     current_cwd.join(&dir)
                 };
+            }
+
+            // In `|| true` patterns, only include the fallback if it's non-trivial
+            if is_harmless_fallback && v.decision == Decision::Allow {
+                is_harmless_fallback = false;
+                continue;
+            }
+            is_harmless_fallback = false;
+
+            if item.operator == Some(rable::ListOperator::Or)
+                && items
+                    .get(i + 1)
+                    .is_some_and(|next| ast::is_harmless_fallback(&next.command))
+            {
+                is_harmless_fallback = true;
             }
 
             verdicts.push(v);
@@ -319,6 +369,7 @@ impl Analyzer {
                 args,
                 working_directory: cwd,
                 remote: self.remote,
+                receives_piped_input: self.piped,
             };
             let classification = handler.classify(&ctx);
             if self.verbose {
@@ -337,7 +388,7 @@ impl Analyzer {
         if op == ast::RedirectOp::Read {
             return Verdict::allow("input redirect");
         }
-        if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
+        if ast::is_safe_redirect_target(target) {
             return Verdict::allow(format!("redirect to {target}"));
         }
         if op == ast::RedirectOp::FdDup {
@@ -590,10 +641,10 @@ mod tests {
     }
 
     #[test]
-    fn moderate_nesting_works() {
+    fn subshell_safe_allows() {
         let mut a = make_analyzer();
         let v = a.analyze("(echo ok)").unwrap();
-        assert_eq!(v.decision, Decision::Ask); // subshell → Ask
+        assert_eq!(v.decision, Decision::Allow); // subshell is transparent
     }
 
     #[test]
@@ -711,5 +762,90 @@ mod tests {
         let mut a = Analyzer::new(config, false, dir.path().to_path_buf(), false).unwrap();
         let v = a.analyze("rm -rf /tmp").unwrap();
         assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn pipeline_with_file_redirect_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat file | grep pattern > out.txt").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn pipeline_with_dev_null_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("ls | grep foo > /dev/null").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn pipeline_mid_redirect_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo hello > file.txt | cat").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn subshell_unsafe_propagates() {
+        let mut a = make_analyzer();
+        let v = a.analyze("(rm -rf /)").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn subshell_with_redirect_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("(echo ok) > file.txt").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn or_true_uses_cmd_verdict() {
+        let mut a = make_analyzer();
+        let v = a.analyze("git push || true").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn safe_cmd_or_true_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("ls || true").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn or_colon_uses_cmd_verdict() {
+        let mut a = make_analyzer();
+        let v = a.analyze("ls || :").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn or_with_unsafe_fallback_combines() {
+        let mut a = make_analyzer();
+        let v = a.analyze("ls || rm -rf /").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn and_combines_normally() {
+        let mut a = make_analyzer();
+        let v = a.analyze("ls && git push").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn command_substitution_floor_is_ask() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $(ls)").unwrap();
+        // Even though ls is safe, command substitution has an Ask floor
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn or_harmless_fallback_with_redirect_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("ls || echo fail > log.txt").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
     }
 }

@@ -29,6 +29,7 @@ pub struct HandlerContext<'a> {
     pub args: &'a [String],
     pub working_directory: &'a Path,
     pub remote: bool,
+    pub receives_piped_input: bool,
 }
 
 /// Maximum file size (64 KB) for `read_file` — prevents reading huge files.
@@ -265,6 +266,7 @@ mod tests {
             args: &[],
             working_directory: dir,
             remote,
+            receives_piped_input: false,
         }
     }
 

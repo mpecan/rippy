@@ -106,6 +106,36 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
     }
 }
 
+/// Check if a redirect target is inherently safe (e.g., /dev/null).
+#[must_use]
+pub fn is_safe_redirect_target(target: &str) -> bool {
+    matches!(target, "/dev/null" | "/dev/stdout" | "/dev/stderr")
+}
+
+/// Check if a command node has file output redirects (>, >>)
+/// to targets other than safe ones.
+#[must_use]
+pub fn has_unsafe_file_redirect(node: &Node) -> bool {
+    let NodeKind::Command { redirects, .. } = &node.kind else {
+        return false;
+    };
+    redirects.iter().any(|r| {
+        let Some((op, target)) = redirect_info(r) else {
+            return false;
+        };
+        matches!(op, RedirectOp::Write | RedirectOp::Append) && !is_safe_redirect_target(&target)
+    })
+}
+
+/// Check if a node is a harmless fallback command (for `|| true` patterns).
+#[must_use]
+pub fn is_harmless_fallback(node: &Node) -> bool {
+    let Some(name) = command_name(node) else {
+        return false;
+    };
+    matches!(name, "true" | "false" | ":" | "echo" | "printf")
+}
+
 /// Extract text from a node, stripping quotes.
 fn node_text(node: &Node) -> String {
     if let NodeKind::Word { value, .. } = &node.kind {
