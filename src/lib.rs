@@ -6,6 +6,7 @@ pub mod cli;
 pub mod config;
 pub mod error;
 pub mod handlers;
+pub mod inspect;
 pub mod logging;
 pub mod migrate;
 pub mod mode;
