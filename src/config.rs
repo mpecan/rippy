@@ -45,6 +45,7 @@ pub struct Config {
     pub default_action: Option<Decision>,
     pub log_file: Option<PathBuf>,
     pub log_full: bool,
+    pub tracking_db: Option<PathBuf>,
     aliases: Vec<(String, String)>,
 }
 
@@ -186,6 +187,16 @@ impl Config {
                     "default" => config.default_action = parse_action_word(&value),
                     "log" => config.log_file = Some(PathBuf::from(&value)),
                     "log-full" => config.log_full = true,
+                    "tracking" => {
+                        config.tracking_db = Some(if value == "on" || value.is_empty() {
+                            home_dir().map_or_else(
+                                || PathBuf::from(".rippy/tracking.db"),
+                                |h| h.join(".rippy/tracking.db"),
+                            )
+                        } else {
+                            PathBuf::from(&value)
+                        });
+                    }
                     _ => {}
                 },
                 Rule::Alias { source, target } => {

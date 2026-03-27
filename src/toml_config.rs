@@ -34,6 +34,7 @@ pub struct TomlSettings {
     pub log: Option<String>,
     #[serde(rename = "log-full")]
     pub log_full: Option<bool>,
+    pub tracking: Option<String>,
 }
 
 /// A single rule entry from the `[[rules]]` array.
@@ -119,6 +120,12 @@ fn settings_to_rules(settings: &TomlSettings, rules: &mut Vec<Rule>) {
         rules.push(Rule::Set {
             key: "log-full".to_string(),
             value: String::new(),
+        });
+    }
+    if let Some(tracking) = &settings.tracking {
+        rules.push(Rule::Set {
+            key: "tracking".to_string(),
+            value: tracking.clone(),
         });
     }
 }

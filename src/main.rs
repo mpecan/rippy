@@ -83,9 +83,11 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
         }
     }
 
+    let tracking_db = config.tracking_db.clone();
     let verdict = evaluate(&payload, config, args, cwd)?;
 
     log_verdict(log_file.as_ref(), log_full, &payload, &verdict);
+    track_verdict(tracking_db.as_deref(), &payload, &verdict);
 
     let json = verdict.to_json(payload.mode);
     println!("{json}");
@@ -109,6 +111,27 @@ fn log_verdict(log_file: Option<&PathBuf>, log_full: bool, payload: &Payload, ve
     }
 }
 
+fn track_verdict(db_path: Option<&std::path::Path>, payload: &Payload, verdict: &Verdict) {
+    if let Some(path) = db_path {
+        let session_id = payload
+            .raw
+            .get("session_id")
+            .and_then(serde_json::Value::as_str);
+        rippy_cli::tracking::record(
+            path,
+            &rippy_cli::tracking::TrackingEntry {
+                session_id,
+                mode: payload.mode,
+                tool_name: &payload.tool_name,
+                command: payload.command.as_deref(),
+                decision: verdict.decision,
+                reason: &verdict.reason,
+                payload_json: None,
+            },
+        );
+    }
+}
+
 fn run() -> Result<ExitCode, RippyError> {
     let cli = Cli::parse();
 
@@ -116,6 +139,7 @@ fn run() -> Result<ExitCode, RippyError> {
         Some(Command::Setup(ref setup_args)) => setup::run(setup_args),
         Some(Command::Migrate(ref migrate_args)) => rippy_cli::migrate::run(migrate_args),
         Some(Command::Inspect(ref inspect_args)) => rippy_cli::inspect::run(inspect_args),
+        Some(Command::Stats(ref stats_args)) => rippy_cli::stats::run(stats_args),
         None => run_hook(&cli.hook_args),
     }
 }

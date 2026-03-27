@@ -943,3 +943,41 @@ fn inspect_list_json_output() {
     assert!(parsed["handler_count"].is_number());
     assert!(parsed["simple_safe_count"].is_number());
 }
+
+// ---- Stats integration tests ----
+
+#[test]
+fn stats_json_from_populated_db() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let db_path = dir.path().join("test.db");
+
+    // Populate the DB directly.
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         CREATE TABLE decisions (
+             id INTEGER PRIMARY KEY,
+             timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+             session_id TEXT, mode TEXT, tool_name TEXT NOT NULL,
+             command TEXT, decision TEXT NOT NULL, reason TEXT, payload_json TEXT
+         );
+         INSERT INTO decisions (tool_name, command, decision, reason) VALUES ('Bash', 'git status', 'allow', 'safe');
+         INSERT INTO decisions (tool_name, command, decision, reason) VALUES ('Bash', 'git push', 'ask', 'review');
+         INSERT INTO decisions (tool_name, command, decision, reason) VALUES ('Bash', 'rm -rf /', 'deny', 'dangerous');",
+    )
+    .unwrap();
+    drop(conn);
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["stats", "--json", "--db"])
+        .arg(&db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "stats failed: {:?}", output.status);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["counts"]["total"], 3);
+    assert_eq!(parsed["counts"]["allow"], 1);
+    assert_eq!(parsed["counts"]["ask"], 1);
+    assert_eq!(parsed["counts"]["deny"], 1);
+}

@@ -52,6 +52,23 @@ pub enum Command {
     Migrate(MigrateArgs),
     /// Show configured rules and trace command decisions
     Inspect(InspectArgs),
+    /// Show aggregate decision tracking statistics
+    Stats(StatsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct StatsArgs {
+    /// Time filter, e.g. "7d", "30d", "1h", "30m"
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Output in JSON format
+    #[arg(long)]
+    pub json: bool,
+
+    /// Override tracking database path
+    #[arg(long)]
+    pub db: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
