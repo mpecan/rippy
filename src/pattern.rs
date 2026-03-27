@@ -29,6 +29,12 @@ impl Pattern {
         }
     }
 
+    /// Return the raw pattern string (without the trailing `|` if it was exact).
+    #[must_use]
+    pub fn raw(&self) -> &str {
+        &self.raw
+    }
+
     /// Test whether `input` matches this pattern.
     #[must_use]
     pub fn matches(&self, input: &str) -> bool {

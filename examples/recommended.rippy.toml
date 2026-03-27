@@ -1,0 +1,105 @@
+# Recommended rippy TOML configuration
+#
+# This file demonstrates the .rippy.toml format with effective rejection
+# messages that guide AI tools toward safe alternatives.
+#
+# Place as .rippy.toml in your project root, or ~/.rippy/config.toml for global.
+
+[settings]
+default = "ask"
+
+# --- Git safety ---
+
+[[rules]]
+action = "deny"
+pattern = "git push --force"
+message = "Use `git push --force-with-lease` instead — it checks for upstream changes before overwriting"
+
+[[rules]]
+action = "deny"
+pattern = "git reset --hard"
+message = "Use `git stash` to save changes, or `git reset --soft` to keep changes staged"
+
+[[rules]]
+action = "deny"
+pattern = "git checkout -- ."
+message = "This discards all unstaged changes. Use `git stash` to save them first"
+
+[[rules]]
+action = "allow"
+pattern = "git status"
+
+[[rules]]
+action = "allow"
+pattern = "git log"
+
+[[rules]]
+action = "allow"
+pattern = "git diff"
+
+[[rules]]
+action = "allow"
+pattern = "git branch"
+
+# --- File safety ---
+
+[[rules]]
+action = "deny-redirect"
+pattern = "**/.env*"
+message = "Do not write to environment files — they may contain secrets"
+
+[[rules]]
+action = "deny-redirect"
+pattern = "**/*.pem"
+message = "Do not write to PEM files — they contain private keys"
+
+# --- Package management ---
+
+[[rules]]
+action = "ask"
+pattern = "npm install"
+message = "Verify the package name is correct and from a trusted source"
+
+[[rules]]
+action = "ask"
+pattern = "pip install"
+message = "Verify the package name and consider using a virtual environment"
+
+# --- Destructive operations ---
+
+[[rules]]
+action = "deny"
+pattern = "rm -rf /"
+message = "Never delete the root filesystem. Use specific paths like `rm -rf ./build/`"
+
+[[rules]]
+action = "deny"
+pattern = "rm -rf ~"
+message = "Never delete the home directory. Use specific paths"
+
+# --- Container safety ---
+
+[[rules]]
+action = "ask"
+pattern = "docker run *"
+risk = "high"
+message = "Verify the image source and any volume mounts before running containers"
+
+# --- MCP tools ---
+
+[[rules]]
+action = "allow-mcp"
+pattern = "mcp__github__*"
+
+# --- Post-execution feedback ---
+
+[[rules]]
+action = "after"
+pattern = "git commit"
+message = "Changes committed locally. Don't forget to push when ready."
+
+# --- Aliases ---
+
+# [[aliases]]
+# source = "~/custom-git"
+# target = "git"
