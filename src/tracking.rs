@@ -119,17 +119,35 @@ const fn mode_str(mode: Mode) -> &'static str {
 ///
 /// Returns `RippyError::Tracking` if the database cannot be queried.
 pub fn query_counts(conn: &Connection, since: Option<&str>) -> Result<DecisionCounts, RippyError> {
-    let (where_clause, params) = build_since_filter(since);
-
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT decision, COUNT(*) FROM decisions {where_clause} GROUP BY decision"
-        ))
-        .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
-
     let mut counts = DecisionCounts::default();
+
+    if let Some(duration) = since {
+        let modifier = format!("-{duration}");
+        let mut stmt = conn
+            .prepare(
+                "SELECT decision, COUNT(*) FROM decisions \
+                 WHERE timestamp >= datetime('now', ?1) GROUP BY decision",
+            )
+            .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
+        collect_counts(&mut stmt, rusqlite::params![modifier], &mut counts)?;
+    } else {
+        let mut stmt = conn
+            .prepare("SELECT decision, COUNT(*) FROM decisions GROUP BY decision")
+            .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
+        collect_counts(&mut stmt, [], &mut counts)?;
+    }
+
+    counts.total = counts.allow + counts.ask + counts.deny;
+    Ok(counts)
+}
+
+fn collect_counts(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: impl rusqlite::Params,
+    counts: &mut DecisionCounts,
+) -> Result<(), RippyError> {
     let rows = stmt
-        .query_map(rusqlite::params_from_iter(&params), |row| {
+        .query_map(params, |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })
         .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
@@ -143,8 +161,7 @@ pub fn query_counts(conn: &Connection, since: Option<&str>) -> Result<DecisionCo
             _ => {}
         }
     }
-    counts.total = counts.allow + counts.ask + counts.deny;
-    Ok(counts)
+    Ok(())
 }
 
 /// Query top commands by decision type.
@@ -158,42 +175,44 @@ pub fn query_top_commands(
     since: Option<&str>,
     limit: usize,
 ) -> Result<Vec<(String, i64)>, RippyError> {
-    let (where_clause, params) = build_since_filter(since);
-
-    let decision_clause = if where_clause.is_empty() {
-        format!("WHERE decision = '{decision_filter}'")
+    if let Some(duration) = since {
+        let modifier = format!("-{duration}");
+        let mut stmt = conn
+            .prepare(
+                "SELECT command, COUNT(*) as cnt FROM decisions \
+                 WHERE timestamp >= datetime('now', ?1) AND decision = ?2 \
+                 AND command IS NOT NULL \
+                 GROUP BY command ORDER BY cnt DESC LIMIT ?3",
+            )
+            .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
+        collect_top(
+            &mut stmt,
+            rusqlite::params![modifier, decision_filter, limit],
+        )
     } else {
-        format!("{where_clause} AND decision = '{decision_filter}'")
-    };
+        let mut stmt = conn
+            .prepare(
+                "SELECT command, COUNT(*) as cnt FROM decisions \
+                 WHERE decision = ?1 AND command IS NOT NULL \
+                 GROUP BY command ORDER BY cnt DESC LIMIT ?2",
+            )
+            .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
+        collect_top(&mut stmt, rusqlite::params![decision_filter, limit])
+    }
+}
 
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT command, COUNT(*) as cnt FROM decisions \
-             {decision_clause} AND command IS NOT NULL \
-             GROUP BY command ORDER BY cnt DESC LIMIT {limit}"
-        ))
-        .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
-
+fn collect_top(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: impl rusqlite::Params,
+) -> Result<Vec<(String, i64)>, RippyError> {
     let rows = stmt
-        .query_map(rusqlite::params_from_iter(&params), |row| {
+        .query_map(params, |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })
         .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
 
     rows.map(|r| r.map_err(|e| RippyError::Tracking(format!("{e}"))))
         .collect()
-}
-
-fn build_since_filter(since: Option<&str>) -> (String, Vec<String>) {
-    since.map_or_else(
-        || (String::new(), vec![]),
-        |duration| {
-            (
-                format!("WHERE timestamp >= datetime('now', '-{duration}')"),
-                vec![],
-            )
-        },
-    )
 }
 
 /// Parse a duration string like `7d`, `30d`, `1h`, `30m` into a `SQLite` modifier format.
