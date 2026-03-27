@@ -50,6 +50,22 @@ pub enum Command {
     Setup(SetupArgs),
     /// Convert a .rippy config file to .rippy.toml format
     Migrate(MigrateArgs),
+    /// Show configured rules and trace command decisions
+    Inspect(InspectArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct InspectArgs {
+    /// Command to trace through the decision pipeline (omit to list all rules)
+    pub command: Option<String>,
+
+    /// Output in JSON format
+    #[arg(long)]
+    pub json: bool,
+
+    /// Override config file path
+    #[arg(long, env = "RIPPY_CONFIG")]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

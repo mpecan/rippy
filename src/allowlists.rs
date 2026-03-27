@@ -183,6 +183,18 @@ pub fn is_wrapper(cmd: &str) -> bool {
     WRAPPER_COMMANDS.contains(cmd)
 }
 
+/// Number of commands in the simple-safe allowlist.
+#[must_use]
+pub fn simple_safe_count() -> usize {
+    SIMPLE_SAFE.len()
+}
+
+/// Number of commands in the wrapper allowlist.
+#[must_use]
+pub fn wrapper_count() -> usize {
+    WRAPPER_COMMANDS.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

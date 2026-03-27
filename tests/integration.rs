@@ -852,3 +852,94 @@ fn migrate_stdout_produces_valid_toml() {
     assert!(toml_str.contains("action = \"deny\""));
     assert!(toml_str.contains("message = \"use trash\""));
 }
+
+// ---- Inspect integration tests ----
+
+#[test]
+fn inspect_list_with_config() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = dir.path().join("test.toml");
+    std::fs::write(
+        &config,
+        "[[rules]]\naction = \"deny\"\npattern = \"rm -rf *\"\nmessage = \"use trash\"\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["inspect", "--config"])
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("deny"));
+    assert!(stdout.contains("rm -rf *"));
+    assert!(stdout.contains("Handlers:"));
+    assert!(stdout.contains("Simple safe:"));
+}
+
+#[test]
+fn inspect_trace_safe_command() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["inspect", "cat /tmp/file"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("ALLOW"));
+    assert!(stdout.contains("Allowlist"));
+}
+
+#[test]
+fn inspect_trace_with_config_rule() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = dir.path().join("test.toml");
+    std::fs::write(
+        &config,
+        "[[rules]]\naction = \"deny\"\npattern = \"echo evil\"\nmessage = \"no evil allowed\"\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["inspect", "--config"])
+        .arg(&config)
+        .arg("echo evil")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("DENY"));
+    assert!(stdout.contains("no evil allowed"));
+}
+
+#[test]
+fn inspect_json_output() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["inspect", "--json", "cat /tmp/file"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["decision"], "allow");
+    assert!(parsed["steps"].is_array());
+}
+
+#[test]
+fn inspect_list_json_output() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = dir.path().join("test.toml");
+    std::fs::write(&config, "[[rules]]\naction = \"allow\"\npattern = \"ls\"\n").unwrap();
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["inspect", "--json", "--config"])
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(parsed["config_sources"].is_array());
+    assert!(parsed["handler_count"].is_number());
+    assert!(parsed["simple_safe_count"].is_number());
+}

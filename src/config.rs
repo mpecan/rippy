@@ -209,7 +209,7 @@ fn load_first_existing(paths: &[PathBuf], rules: &mut Vec<Rule>) -> Result<(), R
 }
 
 /// Parse a single config file and append rules to the list.
-fn load_file(path: &Path, rules: &mut Vec<Rule>) -> Result<(), RippyError> {
+pub(crate) fn load_file(path: &Path, rules: &mut Vec<Rule>) -> Result<(), RippyError> {
     let content = std::fs::read_to_string(path).map_err(|e| RippyError::Config {
         path: path.to_owned(),
         line: 0,
@@ -431,7 +431,7 @@ fn parse_action_word(word: &str) -> Option<Decision> {
 }
 
 /// Walk up from `start` looking for `.rippy` or `.dippy` config files.
-fn find_project_config(start: &Path) -> Option<PathBuf> {
+pub(crate) fn find_project_config(start: &Path) -> Option<PathBuf> {
     let mut dir = start;
     loop {
         let toml = dir.join(".rippy.toml");
@@ -450,7 +450,7 @@ fn find_project_config(start: &Path) -> Option<PathBuf> {
     }
 }
 
-fn home_dir() -> Option<PathBuf> {
+pub(crate) fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 

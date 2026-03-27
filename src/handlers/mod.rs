@@ -151,6 +151,12 @@ pub fn get_handler(command_name: &str) -> Option<&'static dyn Handler> {
     HANDLER_REGISTRY.get(command_name).copied()
 }
 
+/// Return the number of registered handler command names.
+#[must_use]
+pub fn handler_count() -> usize {
+    HANDLER_REGISTRY.len()
+}
+
 static HANDLER_REGISTRY: LazyLock<HashMap<&'static str, &'static dyn Handler>> =
     LazyLock::new(build_registry);
 

@@ -53,6 +53,22 @@ impl CcRules {
     pub const fn is_empty(&self) -> bool {
         self.allow.is_empty() && self.deny.is_empty() && self.ask.is_empty()
     }
+
+    /// Return all rules as (decision, pattern) pairs for inspection.
+    #[must_use]
+    pub fn all_rules(&self) -> Vec<(Decision, &str)> {
+        let mut rules = Vec::new();
+        for p in &self.allow {
+            rules.push((Decision::Allow, p.as_str()));
+        }
+        for p in &self.deny {
+            rules.push((Decision::Deny, p.as_str()));
+        }
+        for p in &self.ask {
+            rules.push((Decision::Ask, p.as_str()));
+        }
+        rules
+    }
 }
 
 /// Load CC permission rules from all settings file paths.
@@ -68,7 +84,7 @@ pub fn load_cc_rules(working_dir: &Path) -> CcRules {
     load_rules_from_paths(&get_settings_paths(working_dir))
 }
 
-fn get_settings_paths(working_dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn get_settings_paths(working_dir: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     // Walk up from working_dir to find .claude/ directory
