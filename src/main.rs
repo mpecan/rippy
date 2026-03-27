@@ -46,6 +46,17 @@ fn evaluate_pre_tool(
         return Ok(Some(v));
     }
 
+    // Self-protection: deny Write/Edit to rippy's own config files.
+    if config.self_protect
+        && let Some(file_path) = &payload.file_path
+        && matches!(payload.file_operation(), Some(FileOp::Write | FileOp::Edit))
+        && rippy_cli::self_protect::is_protected_path(file_path)
+    {
+        return Ok(Some(Verdict::deny(
+            rippy_cli::self_protect::PROTECTION_MESSAGE,
+        )));
+    }
+
     if let Some(verdict) = evaluate_file_access(payload, &config, args.verbose) {
         return Ok(Some(verdict));
     }
