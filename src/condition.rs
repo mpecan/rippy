@@ -386,10 +386,29 @@ mod tests {
     }
 
     #[test]
-    fn detect_git_branch_returns_something_or_none() {
-        // In CI, the repo may be in detached HEAD state (no branch).
-        // Just verify the function doesn't panic.
-        let cwd = std::env::current_dir().unwrap();
-        let _branch = detect_git_branch(&cwd);
+    fn detect_git_branch_in_fresh_repo() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Initialize a git repo with a branch.
+        std::process::Command::new("git")
+            .args(["init", "-b", "test-branch"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        // Need at least one commit for symbolic-ref to work.
+        std::process::Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+
+        let branch = detect_git_branch(dir.path());
+        assert_eq!(branch.as_deref(), Some("test-branch"));
+    }
+
+    #[test]
+    fn detect_git_branch_not_a_repo() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let branch = detect_git_branch(dir.path());
+        assert!(branch.is_none());
     }
 }
