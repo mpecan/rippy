@@ -25,6 +25,21 @@ pub enum Rule {
         kind: Decision,
         pattern: Pattern,
     },
+    FileRead {
+        kind: Decision,
+        pattern: Pattern,
+        message: Option<String>,
+    },
+    FileWrite {
+        kind: Decision,
+        pattern: Pattern,
+        message: Option<String>,
+    },
+    FileEdit {
+        kind: Decision,
+        pattern: Pattern,
+        message: Option<String>,
+    },
     Set {
         key: String,
         value: String,
@@ -41,6 +56,9 @@ pub struct Config {
     command_rules: Vec<(Decision, Pattern, Option<String>)>,
     redirect_rules: Vec<(Decision, Pattern, Option<String>)>,
     mcp_rules: Vec<(Decision, Pattern)>,
+    file_read_rules: Vec<(Decision, Pattern, Option<String>)>,
+    file_write_rules: Vec<(Decision, Pattern, Option<String>)>,
+    file_edit_rules: Vec<(Decision, Pattern, Option<String>)>,
     after_rules: Vec<(Pattern, String)>,
     pub default_action: Option<Decision>,
     pub log_file: Option<PathBuf>,
@@ -136,6 +154,24 @@ impl Config {
         result
     }
 
+    /// Match a file path against file-read rules.
+    #[must_use]
+    pub fn match_file_read(&self, path: &str) -> Option<Verdict> {
+        match_file_rules(&self.file_read_rules, path, "file-read")
+    }
+
+    /// Match a file path against file-write rules.
+    #[must_use]
+    pub fn match_file_write(&self, path: &str) -> Option<Verdict> {
+        match_file_rules(&self.file_write_rules, path, "file-write")
+    }
+
+    /// Match a file path against file-edit rules.
+    #[must_use]
+    pub fn match_file_edit(&self, path: &str) -> Option<Verdict> {
+        match_file_rules(&self.file_edit_rules, path, "file-edit")
+    }
+
     /// Match a command for `after` rules (post-execution feedback).
     #[must_use]
     pub fn match_after(&self, command: &str) -> Option<String> {
@@ -180,6 +216,21 @@ impl Config {
                     message,
                 } => config.redirect_rules.push((kind, pattern, message)),
                 Rule::Mcp { kind, pattern } => config.mcp_rules.push((kind, pattern)),
+                Rule::FileRead {
+                    kind,
+                    pattern,
+                    message,
+                } => config.file_read_rules.push((kind, pattern, message)),
+                Rule::FileWrite {
+                    kind,
+                    pattern,
+                    message,
+                } => config.file_write_rules.push((kind, pattern, message)),
+                Rule::FileEdit {
+                    kind,
+                    pattern,
+                    message,
+                } => config.file_edit_rules.push((kind, pattern, message)),
                 Rule::After { pattern, message } => {
                     config.after_rules.push((pattern, message));
                 }
@@ -207,6 +258,27 @@ impl Config {
 
         config
     }
+}
+
+/// Shared matching logic for file-access rules (read/write/edit).
+fn match_file_rules(
+    rules: &[(Decision, Pattern, Option<String>)],
+    path: &str,
+    rule_type: &str,
+) -> Option<Verdict> {
+    let mut result = None;
+    for (kind, pattern, message) in rules {
+        if pattern.matches(path) {
+            result = Some(Verdict {
+                decision: *kind,
+                reason: message.as_deref().map_or_else(
+                    || format!("{rule_type} rule: {}", pattern.as_str()),
+                    String::from,
+                ),
+            });
+        }
+    }
+    result
 }
 
 /// Load the first file that exists from a list of candidates.
@@ -335,6 +407,9 @@ pub fn parse_rule(line: &str) -> Result<Rule, String> {
         "allow-redirect" | "ask-redirect" | "deny-redirect" => parse_redirect_rule(keyword, rest),
         "after" => parse_after_rule(rest),
         "allow-mcp" | "ask-mcp" | "deny-mcp" => parse_mcp_rule(keyword, rest),
+        "allow-read" | "ask-read" | "deny-read" => parse_file_rule(keyword, rest, "read"),
+        "allow-write" | "ask-write" | "deny-write" => parse_file_rule(keyword, rest, "write"),
+        "allow-edit" | "ask-edit" | "deny-edit" => parse_file_rule(keyword, rest, "edit"),
         "set" => parse_set_rule(rest),
         "alias" => parse_alias_rule(rest),
         _ => Err(format!("unknown directive: {keyword}")),
@@ -388,6 +463,34 @@ fn parse_mcp_rule(keyword: &str, rest: &[Token]) -> Result<Rule, String> {
         kind: parse_rule_kind(base_kind),
         pattern: Pattern::new(&pattern_str),
     })
+}
+
+fn parse_file_rule(keyword: &str, rest: &[Token], op: &str) -> Result<Rule, String> {
+    let (pattern_str, message) = extract_pattern_and_message(rest);
+    if pattern_str.is_empty() {
+        return Err(format!("{keyword} requires a file path pattern"));
+    }
+    let base_kind = keyword.split('-').next().unwrap_or("ask");
+    let kind = parse_rule_kind(base_kind);
+    let pattern = Pattern::new(&pattern_str);
+    match op {
+        "read" => Ok(Rule::FileRead {
+            kind,
+            pattern,
+            message,
+        }),
+        "write" => Ok(Rule::FileWrite {
+            kind,
+            pattern,
+            message,
+        }),
+        "edit" => Ok(Rule::FileEdit {
+            kind,
+            pattern,
+            message,
+        }),
+        _ => Err(format!("unknown file operation: {op}")),
+    }
 }
 
 fn parse_set_rule(rest: &[Token]) -> Result<Rule, String> {
@@ -713,6 +816,105 @@ mod tests {
         let v = config.match_command("python foo.py").unwrap();
         assert_eq!(v.decision, Decision::Deny);
         let v = config.match_command("uv run python -c 'print(1)'").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn match_file_read_rules() {
+        let config = Config::from_rules(vec![
+            Rule::FileRead {
+                kind: Decision::Deny,
+                pattern: Pattern::new("**/.env*"),
+                message: Some("no env".to_string()),
+            },
+            Rule::FileRead {
+                kind: Decision::Allow,
+                pattern: Pattern::new("/tmp/**"),
+                message: None,
+            },
+        ]);
+        let v = config.match_file_read(".env.local").unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        assert_eq!(v.reason, "no env");
+
+        let v = config.match_file_read("/tmp/safe.txt").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+
+        assert!(config.match_file_read("main.rs").is_none());
+    }
+
+    #[test]
+    fn match_file_write_rules() {
+        let config = Config::from_rules(vec![Rule::FileWrite {
+            kind: Decision::Deny,
+            pattern: Pattern::new("**/.rippy*"),
+            message: Some("config protected".to_string()),
+        }]);
+        let v = config.match_file_write(".rippy.toml").unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        assert!(config.match_file_write("other.txt").is_none());
+    }
+
+    #[test]
+    fn match_file_edit_rules() {
+        let config = Config::from_rules(vec![Rule::FileEdit {
+            kind: Decision::Ask,
+            pattern: Pattern::new("**/node_modules/**"),
+            message: Some("vendor".to_string()),
+        }]);
+        let v = config.match_file_edit("node_modules/pkg/index.js").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+        assert!(config.match_file_edit("src/main.rs").is_none());
+    }
+
+    #[test]
+    fn parse_file_read_rule() {
+        let rule = parse_rule(r#"deny-read **/.env* "no env files""#).unwrap();
+        match rule {
+            Rule::FileRead {
+                kind: Decision::Deny,
+                pattern,
+                message,
+            } => {
+                assert!(pattern.matches(".env"));
+                assert!(pattern.matches("foo/.env.local"));
+                assert_eq!(message.as_deref(), Some("no env files"));
+            }
+            _ => panic!("expected FileRead"),
+        }
+    }
+
+    #[test]
+    fn parse_file_write_rule() {
+        let rule = parse_rule("allow-write /tmp/**").unwrap();
+        match rule {
+            Rule::FileWrite {
+                kind: Decision::Allow,
+                ..
+            } => {}
+            _ => panic!("expected FileWrite"),
+        }
+    }
+
+    #[test]
+    fn file_rules_last_match_wins() {
+        let config = Config::from_rules(vec![
+            Rule::FileRead {
+                kind: Decision::Allow,
+                pattern: Pattern::new("**"),
+                message: None,
+            },
+            Rule::FileRead {
+                kind: Decision::Deny,
+                pattern: Pattern::new("**/.env*"),
+                message: Some("blocked".to_string()),
+            },
+        ]);
+        // .env matches both rules, last match (deny) wins.
+        let v = config.match_file_read(".env").unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        // Other files match only the allow rule.
+        let v = config.match_file_read("main.rs").unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
 }

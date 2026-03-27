@@ -13,6 +13,11 @@ use super::json_settings::{install_matcher_hook, resolve_tool_path};
 /// or if tokf is already installed as a hook.
 pub fn run(args: &DirectHookArgs) -> Result<ExitCode, RippyError> {
     let path = resolve_tool_path(args.global, ".gemini", "settings.json")?;
-    install_matcher_hook(&path, "BeforeTool", "run_shell_command", "Gemini CLI")?;
+    install_matcher_hook(
+        &path,
+        "BeforeTool",
+        "run_shell_command|read_file|write_file|replace",
+        "Gemini CLI",
+    )?;
     Ok(ExitCode::SUCCESS)
 }

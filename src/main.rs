@@ -9,46 +9,67 @@ use rippy_cli::cli::{Cli, Command, HookArgs};
 use rippy_cli::config::Config;
 use rippy_cli::error::RippyError;
 use rippy_cli::mode::HookType;
-use rippy_cli::payload::Payload;
+use rippy_cli::payload::{FileOp, Payload};
 use rippy_cli::setup;
 use rippy_cli::verdict::{Decision, Verdict};
 
+/// Evaluate a payload. Returns `None` for passthrough (file tools with no matching rule).
 fn evaluate(
     payload: &Payload,
     config: Config,
     args: &HookArgs,
     cwd: PathBuf,
-) -> Result<Verdict, RippyError> {
+) -> Result<Option<Verdict>, RippyError> {
     match payload.hook_type {
-        HookType::PreToolUse => {
-            if payload.is_mcp() {
-                let v = config
-                    .match_mcp(&payload.tool_name)
-                    .unwrap_or_else(|| Verdict::ask(format!("MCP tool: {}", payload.tool_name)));
-                if args.verbose {
-                    eprintln!(
-                        "[rippy] mcp: {} -> {}",
-                        payload.tool_name,
-                        v.decision.as_str()
-                    );
-                }
-                Ok(v)
-            } else if let Some(command) = &payload.command {
-                let mut analyzer = Analyzer::new(config, args.remote, cwd, args.verbose)?;
-                Ok(analyzer.analyze(command)?)
-            } else {
-                Ok(Verdict::ask("no command found in payload"))
-            }
-        }
-        HookType::PostToolUse => Ok(payload.command.as_ref().map_or_else(
-            || Verdict::allow(""),
-            |command| {
-                config
-                    .match_after(command)
-                    .map_or_else(|| Verdict::allow(""), Verdict::allow)
-            },
-        )),
+        HookType::PreToolUse => evaluate_pre_tool(payload, config, args, cwd),
+        HookType::PostToolUse => Ok(Some(evaluate_post_tool(payload, &config))),
     }
+}
+
+fn evaluate_pre_tool(
+    payload: &Payload,
+    config: Config,
+    args: &HookArgs,
+    cwd: PathBuf,
+) -> Result<Option<Verdict>, RippyError> {
+    if payload.is_mcp() {
+        let v = config
+            .match_mcp(&payload.tool_name)
+            .unwrap_or_else(|| Verdict::ask(format!("MCP tool: {}", payload.tool_name)));
+        if args.verbose {
+            eprintln!(
+                "[rippy] mcp: {} -> {}",
+                payload.tool_name,
+                v.decision.as_str()
+            );
+        }
+        return Ok(Some(v));
+    }
+
+    if let Some(verdict) = evaluate_file_access(payload, &config, args.verbose) {
+        return Ok(Some(verdict));
+    }
+    if payload.file_operation().is_some() && payload.command.is_none() {
+        return Ok(None); // passthrough — no rule matched, let the tool decide
+    }
+
+    if let Some(command) = &payload.command {
+        let mut analyzer = Analyzer::new(config, args.remote, cwd, args.verbose)?;
+        return Ok(Some(analyzer.analyze(command)?));
+    }
+
+    Ok(Some(Verdict::ask("no command found in payload")))
+}
+
+fn evaluate_post_tool(payload: &Payload, config: &Config) -> Verdict {
+    payload.command.as_ref().map_or_else(
+        || Verdict::allow(""),
+        |command| {
+            config
+                .match_after(command)
+                .map_or_else(|| Verdict::allow(""), Verdict::allow)
+        },
+    )
 }
 
 const MAX_INPUT_SIZE: usize = 1_048_576; // 1 MB
@@ -84,7 +105,13 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     }
 
     let tracking_db = config.tracking_db.clone();
-    let verdict = evaluate(&payload, config, args, cwd)?;
+    let maybe_verdict = evaluate(&payload, config, args, cwd)?;
+
+    let Some(verdict) = maybe_verdict else {
+        // Passthrough: no opinion. Output empty JSON, exit 0.
+        println!("{{}}");
+        return Ok(ExitCode::SUCCESS);
+    };
 
     log_verdict(log_file.as_ref(), log_full, &payload, &verdict);
     track_verdict(tracking_db.as_deref(), &payload, &verdict);
@@ -96,6 +123,34 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
         Decision::Allow => ExitCode::SUCCESS,
         Decision::Ask | Decision::Deny => ExitCode::from(2),
     })
+}
+
+/// Evaluate file-access tools (Read/Write/Edit) against config rules.
+/// Returns `Some(verdict)` if a rule matched, `None` for passthrough.
+fn evaluate_file_access(payload: &Payload, config: &Config, verbose: bool) -> Option<Verdict> {
+    let file_path = payload.file_path.as_deref()?;
+    let op = payload.file_operation()?;
+
+    let verdict = match op {
+        FileOp::Read => config.match_file_read(file_path),
+        FileOp::Write => config.match_file_write(file_path),
+        FileOp::Edit => config.match_file_edit(file_path),
+    };
+
+    if verbose && let Some(v) = &verdict {
+        eprintln!(
+            "[rippy] file {}: {} -> {}",
+            match op {
+                FileOp::Read => "read",
+                FileOp::Write => "write",
+                FileOp::Edit => "edit",
+            },
+            file_path,
+            v.decision.as_str()
+        );
+    }
+
+    verdict
 }
 
 fn log_verdict(log_file: Option<&PathBuf>, log_full: bool, payload: &Payload, verdict: &Verdict) {

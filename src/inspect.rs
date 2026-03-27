@@ -154,6 +154,33 @@ fn rule_to_display(rule: &Rule) -> Option<RuleDisplay> {
             pattern: pattern.raw().to_string(),
             message: Some(message.clone()),
         }),
+        Rule::FileRead {
+            kind,
+            pattern,
+            message,
+        } => Some(RuleDisplay {
+            action: format!("{}-read", kind.as_str()),
+            pattern: pattern.raw().to_string(),
+            message: message.clone(),
+        }),
+        Rule::FileWrite {
+            kind,
+            pattern,
+            message,
+        } => Some(RuleDisplay {
+            action: format!("{}-write", kind.as_str()),
+            pattern: pattern.raw().to_string(),
+            message: message.clone(),
+        }),
+        Rule::FileEdit {
+            kind,
+            pattern,
+            message,
+        } => Some(RuleDisplay {
+            action: format!("{}-edit", kind.as_str()),
+            pattern: pattern.raw().to_string(),
+            message: message.clone(),
+        }),
         Rule::Set { .. } | Rule::Alias { .. } => None,
     }
 }

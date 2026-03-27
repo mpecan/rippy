@@ -3,6 +3,14 @@ use serde_json::Value;
 use crate::error::RippyError;
 use crate::mode::{HookType, Mode};
 
+/// Type of file operation detected from the tool name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileOp {
+    Read,
+    Write,
+    Edit,
+}
+
 /// Parsed input from stdin — the hook payload from an AI coding tool.
 #[derive(Debug)]
 pub struct Payload {
@@ -10,6 +18,7 @@ pub struct Payload {
     pub hook_type: HookType,
     pub tool_name: String,
     pub command: Option<String>,
+    pub file_path: Option<String>,
     pub raw: Value,
 }
 
@@ -33,12 +42,14 @@ impl Payload {
         let hook_type = detect_hook_type(&raw);
         let mode = forced_mode.map_or_else(|| detect_mode(&raw), Ok)?;
         let command = extract_command(&raw, mode);
+        let file_path = extract_file_path(&raw);
 
         Ok(Self {
             mode,
             hook_type,
             tool_name,
             command,
+            file_path,
             raw,
         })
     }
@@ -47,6 +58,17 @@ impl Payload {
     #[must_use]
     pub fn is_mcp(&self) -> bool {
         self.tool_name.starts_with("mcp__")
+    }
+
+    /// Determine the file operation type from the tool name, if applicable.
+    #[must_use]
+    pub fn file_operation(&self) -> Option<FileOp> {
+        match self.tool_name.as_str() {
+            "Read" | "read_file" | "Glob" | "Grep" => Some(FileOp::Read),
+            "Write" | "write_file" => Some(FileOp::Write),
+            "Edit" | "replace" => Some(FileOp::Edit),
+            _ => None,
+        }
     }
 }
 
@@ -110,6 +132,14 @@ fn extract_command(raw: &Value, mode: Mode) -> Option<String> {
     }
 }
 
+/// Extract a file path from the `tool_input`, if present.
+fn extract_file_path(raw: &Value) -> Option<String> {
+    raw.get("tool_input")
+        .and_then(|ti| ti.get("file_path"))
+        .and_then(Value::as_str)
+        .map(String::from)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -123,6 +153,7 @@ mod tests {
         assert_eq!(payload.command.as_deref(), Some("git status"));
         assert_eq!(payload.tool_name, "Bash");
         assert_eq!(payload.hook_type, HookType::PreToolUse);
+        assert!(payload.file_path.is_none());
     }
 
     #[test]
@@ -167,5 +198,53 @@ mod tests {
         let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
         let payload = Payload::parse(json, None).unwrap();
         assert!(!payload.is_mcp());
+    }
+
+    #[test]
+    fn read_tool_extracts_file_path() {
+        let json = r#"{"tool_name":"Read","tool_input":{"file_path":"/tmp/.env"}}"#;
+        let payload = Payload::parse(json, Some(Mode::Claude)).unwrap();
+        assert_eq!(payload.file_path.as_deref(), Some("/tmp/.env"));
+        assert_eq!(payload.file_operation(), Some(FileOp::Read));
+        assert!(payload.command.is_none());
+    }
+
+    #[test]
+    fn write_tool_extracts_file_path() {
+        let json =
+            r#"{"tool_name":"Write","tool_input":{"file_path":"/tmp/out.txt","content":"hi"}}"#;
+        let payload = Payload::parse(json, Some(Mode::Claude)).unwrap();
+        assert_eq!(payload.file_path.as_deref(), Some("/tmp/out.txt"));
+        assert_eq!(payload.file_operation(), Some(FileOp::Write));
+    }
+
+    #[test]
+    fn edit_tool_extracts_file_path() {
+        let json = r#"{"tool_name":"Edit","tool_input":{"file_path":"main.rs","old_string":"a","new_string":"b"}}"#;
+        let payload = Payload::parse(json, Some(Mode::Claude)).unwrap();
+        assert_eq!(payload.file_path.as_deref(), Some("main.rs"));
+        assert_eq!(payload.file_operation(), Some(FileOp::Edit));
+    }
+
+    #[test]
+    fn gemini_read_file() {
+        let json = r#"{"tool_name":"read_file","tool_input":{"file_path":".env"}}"#;
+        let payload = Payload::parse(json, Some(Mode::Gemini)).unwrap();
+        assert_eq!(payload.file_operation(), Some(FileOp::Read));
+        assert_eq!(payload.file_path.as_deref(), Some(".env"));
+    }
+
+    #[test]
+    fn bash_tool_no_file_operation() {
+        let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+        let payload = Payload::parse(json, None).unwrap();
+        assert_eq!(payload.file_operation(), None);
+    }
+
+    #[test]
+    fn glob_is_read_operation() {
+        let json = r#"{"tool_name":"Glob","tool_input":{"pattern":"**/*.rs"}}"#;
+        let payload = Payload::parse(json, Some(Mode::Claude)).unwrap();
+        assert_eq!(payload.file_operation(), Some(FileOp::Read));
     }
 }
