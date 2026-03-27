@@ -13,6 +13,6 @@ use super::json_settings::{install_matcher_hook, resolve_tool_path};
 /// or if tokf is already installed as a hook.
 pub fn run(args: &DirectHookArgs) -> Result<ExitCode, RippyError> {
     let path = resolve_tool_path(args.global, ".claude", "settings.json")?;
-    install_matcher_hook(&path, "PreToolUse", "Bash", "Claude Code")?;
+    install_matcher_hook(&path, "PreToolUse", "Bash|Read|Write|Edit", "Claude Code")?;
     Ok(ExitCode::SUCCESS)
 }

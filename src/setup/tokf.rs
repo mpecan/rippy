@@ -160,28 +160,67 @@ fn resolve_tools(args: &TokfSetupArgs) -> Vec<String> {
     }
 }
 
-/// Run `tokf hook install --tool <tool>` for each tool. Non-fatal on failure.
+/// Run `tokf hook install --tool <tool>` for each tool, then install
+/// rippy's own file-access hook alongside tokf's Bash hook. Non-fatal on failure.
 fn install_hooks(tools: &[String]) {
     eprintln!("[rippy] Installing tokf hooks...");
     for tool in tools {
-        let result = process::Command::new("tokf")
-            .args(["hook", "install", "--tool", tool])
-            .stdout(process::Stdio::inherit())
-            .stderr(process::Stdio::inherit())
-            .status();
+        install_tokf_hook(tool);
+        install_file_access_hook(tool);
+    }
+}
 
-        match result {
-            Ok(status) if status.success() => {
-                eprintln!("[rippy]   {tool}: installed");
-            }
-            Ok(status) => {
-                eprintln!("[rippy]   {tool}: failed (tokf hook install exited with {status})");
-            }
-            Err(e) => {
-                eprintln!("[rippy]   {tool}: failed ({e})");
-            }
+fn install_tokf_hook(tool: &str) {
+    let result = process::Command::new("tokf")
+        .args(["hook", "install", "--tool", tool])
+        .stdout(process::Stdio::inherit())
+        .stderr(process::Stdio::inherit())
+        .status();
+
+    match result {
+        Ok(status) if status.success() => {
+            eprintln!("[rippy]   {tool}: tokf hook installed");
+        }
+        Ok(status) => {
+            eprintln!("[rippy]   {tool}: tokf hook failed ({status})");
+        }
+        Err(e) => {
+            eprintln!("[rippy]   {tool}: tokf hook failed ({e})");
         }
     }
+}
+
+/// Install rippy's own file-access hook for tools that support it.
+fn install_file_access_hook(tool: &str) {
+    let result = match tool {
+        "claude-code" => install_file_hook_for_claude(false),
+        "gemini-cli" => install_file_hook_for_gemini(false),
+        _ => return, // Other tools don't support file hooks via rippy
+    };
+    match result {
+        Ok(()) => eprintln!("[rippy]   {tool}: file-access hook installed"),
+        Err(e) => eprintln!("[rippy]   {tool}: file-access hook failed ({e})"),
+    }
+}
+
+fn install_file_hook_for_claude(global: bool) -> Result<(), crate::error::RippyError> {
+    let path = super::json_settings::resolve_tool_path(global, ".claude", "settings.json")?;
+    super::json_settings::install_matcher_hook(
+        &path,
+        "PreToolUse",
+        "Read|Write|Edit",
+        "Claude Code (file access)",
+    )
+}
+
+fn install_file_hook_for_gemini(global: bool) -> Result<(), crate::error::RippyError> {
+    let path = super::json_settings::resolve_tool_path(global, ".gemini", "settings.json")?;
+    super::json_settings::install_matcher_hook(
+        &path,
+        "BeforeTool",
+        "read_file|write_file|replace",
+        "Gemini CLI (file access)",
+    )
 }
 
 #[cfg(test)]
