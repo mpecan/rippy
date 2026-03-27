@@ -86,6 +86,7 @@ mod tests {
             args,
             working_directory: Path::new("/tmp"),
             remote: false,
+            receives_piped_input: false,
         }
     }
 
@@ -166,6 +167,7 @@ mod tests {
             args: &args,
             working_directory: dir.path(),
             remote: false,
+            receives_piped_input: false,
         };
         let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Allow(_)));
@@ -185,6 +187,7 @@ mod tests {
             args: &args,
             working_directory: dir.path(),
             remote: false,
+            receives_piped_input: false,
         };
         let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
@@ -199,6 +202,7 @@ mod tests {
             args: &args,
             working_directory: dir.path(),
             remote: false,
+            receives_piped_input: false,
         };
         let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));

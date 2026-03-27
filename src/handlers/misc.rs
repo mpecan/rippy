@@ -371,6 +371,7 @@ mod tests {
             args,
             working_directory: Path::new("/tmp"),
             remote: false,
+            receives_piped_input: false,
         }
     }
 
