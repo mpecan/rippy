@@ -64,6 +64,7 @@ pub struct Config {
     pub log_file: Option<PathBuf>,
     pub log_full: bool,
     pub tracking_db: Option<PathBuf>,
+    pub self_protect: bool,
     aliases: Vec<(String, String)>,
 }
 
@@ -201,7 +202,10 @@ impl Config {
 
     /// Build a `Config` from a list of rules (for testing and programmatic use).
     pub fn from_rules(rules: Vec<Rule>) -> Self {
-        let mut config = Self::default();
+        let mut config = Self {
+            self_protect: true, // default on — can be disabled via `set self-protect off`
+            ..Self::default()
+        };
 
         for rule in rules {
             match rule {
@@ -247,6 +251,9 @@ impl Config {
                         } else {
                             PathBuf::from(&value)
                         });
+                    }
+                    "self-protect" => {
+                        config.self_protect = value != "off";
                     }
                     _ => {}
                 },

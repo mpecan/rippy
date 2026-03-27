@@ -35,6 +35,8 @@ pub struct TomlSettings {
     #[serde(rename = "log-full")]
     pub log_full: Option<bool>,
     pub tracking: Option<String>,
+    #[serde(rename = "self-protect")]
+    pub self_protect: Option<bool>,
 }
 
 /// A single rule entry from the `[[rules]]` array.
@@ -126,6 +128,12 @@ fn settings_to_rules(settings: &TomlSettings, rules: &mut Vec<Rule>) {
         rules.push(Rule::Set {
             key: "tracking".to_string(),
             value: tracking.clone(),
+        });
+    }
+    if settings.self_protect == Some(false) {
+        rules.push(Rule::Set {
+            key: "self-protect".to_string(),
+            value: "off".to_string(),
         });
     }
 }
