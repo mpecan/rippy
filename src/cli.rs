@@ -48,6 +48,18 @@ pub struct Cli {
 pub enum Command {
     /// Configure rippy as the permission engine for another tool
     Setup(SetupArgs),
+    /// Convert a .rippy config file to .rippy.toml format
+    Migrate(MigrateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct MigrateArgs {
+    /// Path to the config file to convert (defaults to .rippy in current directory)
+    pub path: Option<PathBuf>,
+
+    /// Write to stdout instead of creating .rippy.toml
+    #[arg(long)]
+    pub stdout: bool,
 }
 
 #[derive(Args, Debug)]

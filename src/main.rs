@@ -114,6 +114,7 @@ fn run() -> Result<ExitCode, RippyError> {
 
     match cli.command {
         Some(Command::Setup(ref setup_args)) => setup::run(setup_args),
+        Some(Command::Migrate(ref migrate_args)) => rippy_cli::migrate::run(migrate_args),
         None => run_hook(&cli.hook_args),
     }
 }

@@ -59,7 +59,11 @@ impl Config {
 
         if let Some(home) = home_dir() {
             load_first_existing(
-                &[home.join(".rippy/config"), home.join(".dippy/config")],
+                &[
+                    home.join(".rippy/config.toml"),
+                    home.join(".rippy/config"),
+                    home.join(".dippy/config"),
+                ],
                 &mut rules,
             )?;
         }
@@ -212,6 +216,12 @@ fn load_file(path: &Path, rules: &mut Vec<Rule>) -> Result<(), RippyError> {
         message: format!("could not read: {e}"),
     })?;
 
+    if path.extension().is_some_and(|ext| ext == "toml") {
+        let parsed = crate::toml_config::parse_toml_config(&content, path)?;
+        rules.extend(parsed);
+        return Ok(());
+    }
+
     for (line_num, line) in content.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -295,7 +305,12 @@ fn extract_pattern_and_message(tokens: &[Token]) -> (String, Option<String>) {
 }
 
 /// Parse a single config line into a Rule.
-fn parse_rule(line: &str) -> Result<Rule, String> {
+///
+/// # Errors
+///
+/// Returns an error string if the line contains an unknown directive or
+/// invalid syntax.
+pub fn parse_rule(line: &str) -> Result<Rule, String> {
     let tokens = tokenize_config_line(line);
     let keyword = match tokens.first() {
         Some(Token::Bare(k)) => k.as_str(),
@@ -419,6 +434,10 @@ fn parse_action_word(word: &str) -> Option<Decision> {
 fn find_project_config(start: &Path) -> Option<PathBuf> {
     let mut dir = start;
     loop {
+        let toml = dir.join(".rippy.toml");
+        if toml.is_file() {
+            return Some(toml);
+        }
         let rippy = dir.join(".rippy");
         if rippy.is_file() {
             return Some(rippy);
