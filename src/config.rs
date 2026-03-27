@@ -54,6 +54,21 @@ impl Rule {
         self.conditions = c;
         self
     }
+
+    /// Return the action string for this rule (e.g. "allow", "deny-redirect", "ask-read").
+    #[must_use]
+    pub fn action_str(&self) -> String {
+        let base = self.decision.as_str();
+        match self.target {
+            RuleTarget::Command => base.to_string(),
+            RuleTarget::Redirect => format!("{base}-redirect"),
+            RuleTarget::Mcp => format!("{base}-mcp"),
+            RuleTarget::FileRead => format!("{base}-read"),
+            RuleTarget::FileWrite => format!("{base}-write"),
+            RuleTarget::FileEdit => format!("{base}-edit"),
+            RuleTarget::After => "after".to_string(),
+        }
+    }
 }
 
 /// A parsed config directive — either a Rule, a Set key/value, or an Alias.

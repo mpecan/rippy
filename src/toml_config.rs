@@ -229,22 +229,9 @@ fn emit_settings(directives: &[ConfigDirective], out: &mut String) {
 fn emit_rules(directives: &[ConfigDirective], out: &mut String) {
     for d in directives {
         if let ConfigDirective::Rule(rule) = d {
-            let action = rule_action_str(rule);
+            let action = rule.action_str();
             emit_rule_entry(out, &action, rule.pattern.raw(), rule.message.as_deref());
         }
-    }
-}
-
-fn rule_action_str(rule: &Rule) -> String {
-    let base = decision_str(rule.decision);
-    match rule.target {
-        RuleTarget::Command => base.to_string(),
-        RuleTarget::Redirect => format!("{base}-redirect"),
-        RuleTarget::Mcp => format!("{base}-mcp"),
-        RuleTarget::FileRead => format!("{base}-read"),
-        RuleTarget::FileWrite => format!("{base}-write"),
-        RuleTarget::FileEdit => format!("{base}-edit"),
-        RuleTarget::After => "after".to_string(),
     }
 }
 
@@ -266,14 +253,6 @@ fn emit_aliases(directives: &[ConfigDirective], out: &mut String) {
             let _ = writeln!(out, "target = {target:?}");
             out.push('\n');
         }
-    }
-}
-
-const fn decision_str(d: Decision) -> &'static str {
-    match d {
-        Decision::Allow => "allow",
-        Decision::Ask => "ask",
-        Decision::Deny => "deny",
     }
 }
 

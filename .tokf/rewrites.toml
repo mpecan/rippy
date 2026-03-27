@@ -1,0 +1,9 @@
+[permissions]
+engine = "external"
+
+[permissions.external]
+command = "rippy"
+args = ["--mode", "{format}"]
+timeout_ms = 3000
+on_error = "builtin"
+format_map = { "claude-code" = "claude" }

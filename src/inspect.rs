@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::allowlists;
 use crate::cc_permissions;
 use crate::cli::InspectArgs;
-use crate::config::{self, Config, ConfigDirective, Rule, RuleTarget};
+use crate::config::{self, Config, ConfigDirective, Rule};
 use crate::error::RippyError;
 use crate::handlers;
 use crate::parser::BashParser;
@@ -132,17 +132,8 @@ fn directive_to_display(directive: &ConfigDirective) -> Option<RuleDisplay> {
 }
 
 fn rule_to_display(rule: &Rule) -> RuleDisplay {
-    let action = match rule.target {
-        RuleTarget::Command => rule.decision.as_str().to_string(),
-        RuleTarget::Redirect => format!("{}-redirect", rule.decision.as_str()),
-        RuleTarget::Mcp => format!("{}-mcp", rule.decision.as_str()),
-        RuleTarget::After => "after".to_string(),
-        RuleTarget::FileRead => format!("{}-read", rule.decision.as_str()),
-        RuleTarget::FileWrite => format!("{}-write", rule.decision.as_str()),
-        RuleTarget::FileEdit => format!("{}-edit", rule.decision.as_str()),
-    };
     RuleDisplay {
-        action,
+        action: rule.action_str(),
         pattern: rule.pattern.raw().to_string(),
         message: rule.message.clone(),
     }
@@ -420,6 +411,8 @@ fn print_trace_text(output: &TraceOutput) {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use crate::config::RuleTarget;
+
     use super::*;
 
     #[test]
