@@ -394,6 +394,9 @@ impl Analyzer {
         if op == ast::RedirectOp::FdDup {
             return Verdict::allow("fd redirect");
         }
+        if self.config.self_protect && crate::self_protect::is_protected_path(target) {
+            return Verdict::deny(crate::self_protect::PROTECTION_MESSAGE);
+        }
         if let Some(verdict) = self.config.match_redirect(target) {
             return verdict;
         }

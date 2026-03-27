@@ -14,6 +14,7 @@ pub mod parser;
 pub mod pattern;
 pub mod payload;
 pub mod python_safety;
+pub mod self_protect;
 pub mod setup;
 pub mod sql;
 pub mod stats;
