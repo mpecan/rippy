@@ -1,64 +1,77 @@
 use std::path::{Path, PathBuf};
 
+use crate::condition::{Condition, MatchContext, evaluate_all};
 use crate::error::RippyError;
 use crate::pattern::Pattern;
 use crate::verdict::{Decision, Verdict};
 
-/// A single rule parsed from a config file.
-#[derive(Debug, Clone)]
-pub enum Rule {
-    Command {
-        kind: Decision,
-        pattern: Pattern,
-        message: Option<String>,
-    },
-    Redirect {
-        kind: Decision,
-        pattern: Pattern,
-        message: Option<String>,
-    },
-    After {
-        pattern: Pattern,
-        message: String,
-    },
-    Mcp {
-        kind: Decision,
-        pattern: Pattern,
-    },
-    FileRead {
-        kind: Decision,
-        pattern: Pattern,
-        message: Option<String>,
-    },
-    FileWrite {
-        kind: Decision,
-        pattern: Pattern,
-        message: Option<String>,
-    },
-    FileEdit {
-        kind: Decision,
-        pattern: Pattern,
-        message: Option<String>,
-    },
-    Set {
-        key: String,
-        value: String,
-    },
-    Alias {
-        source: String,
-        target: String,
-    },
+// ---------------------------------------------------------------------------
+// New Rule types
+// ---------------------------------------------------------------------------
+
+/// What kind of entity a rule targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleTarget {
+    Command,
+    Redirect,
+    Mcp,
+    FileRead,
+    FileWrite,
+    FileEdit,
+    After,
 }
+
+/// A single rule: target + decision + pattern + optional message + conditions.
+#[derive(Debug, Clone)]
+pub struct Rule {
+    pub target: RuleTarget,
+    pub decision: Decision,
+    pub pattern: Pattern,
+    pub message: Option<String>,
+    pub conditions: Vec<Condition>,
+}
+
+impl Rule {
+    #[must_use]
+    pub fn new(target: RuleTarget, decision: Decision, pattern: &str) -> Self {
+        Self {
+            target,
+            decision,
+            pattern: Pattern::new(pattern),
+            message: None,
+            conditions: vec![],
+        }
+    }
+
+    #[must_use]
+    pub fn with_message(mut self, msg: impl Into<String>) -> Self {
+        self.message = Some(msg.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_conditions(mut self, c: Vec<Condition>) -> Self {
+        self.conditions = c;
+        self
+    }
+}
+
+/// A parsed config directive — either a Rule, a Set key/value, or an Alias.
+#[derive(Debug, Clone)]
+pub enum ConfigDirective {
+    Rule(Rule),
+    Set { key: String, value: String },
+    Alias { source: String, target: String },
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
 
 /// Loaded and merged configuration with rules partitioned by type.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    command_rules: Vec<(Decision, Pattern, Option<String>)>,
-    redirect_rules: Vec<(Decision, Pattern, Option<String>)>,
-    mcp_rules: Vec<(Decision, Pattern)>,
-    file_read_rules: Vec<(Decision, Pattern, Option<String>)>,
-    file_write_rules: Vec<(Decision, Pattern, Option<String>)>,
-    file_edit_rules: Vec<(Decision, Pattern, Option<String>)>,
+    rules: Vec<Rule>,
     after_rules: Vec<(Pattern, String)>,
     pub default_action: Option<Decision>,
     pub log_file: Option<PathBuf>,
@@ -75,7 +88,7 @@ impl Config {
     ///
     /// Returns `RippyError::Config` if a config file exists but contains invalid syntax.
     pub fn load(cwd: &Path, env_config: Option<&Path>) -> Result<Self, RippyError> {
-        let mut rules = Vec::new();
+        let mut directives = Vec::new();
 
         if let Some(home) = home_dir() {
             load_first_existing(
@@ -84,19 +97,19 @@ impl Config {
                     home.join(".rippy/config"),
                     home.join(".dippy/config"),
                 ],
-                &mut rules,
+                &mut directives,
             )?;
         }
 
         if let Some(project_config) = find_project_config(cwd) {
-            load_file(&project_config, &mut rules)?;
+            load_file(&project_config, &mut directives)?;
         }
 
         if let Some(env_path) = env_config {
-            load_file(env_path, &mut rules)?;
+            load_file(env_path, &mut directives)?;
         }
 
-        Ok(Self::from_rules(rules))
+        Ok(Self::from_directives(directives))
     }
 
     #[must_use]
@@ -106,71 +119,38 @@ impl Config {
 
     /// Match a command string against command rules (last-match-wins).
     #[must_use]
-    pub fn match_command(&self, command: &str) -> Option<Verdict> {
-        let mut result = None;
-        for (kind, pattern, message) in &self.command_rules {
-            if pattern.matches(command) {
-                result = Some(Verdict {
-                    decision: *kind,
-                    reason: message.as_deref().map_or_else(
-                        || format!("matched rule: {}", pattern.as_str()),
-                        String::from,
-                    ),
-                });
-            }
-        }
-        result
+    pub fn match_command(&self, command: &str, ctx: Option<&MatchContext>) -> Option<Verdict> {
+        self.match_rules(RuleTarget::Command, command, "matched rule", ctx)
     }
 
     /// Match a redirect target path against redirect rules.
     #[must_use]
-    pub fn match_redirect(&self, path: &str) -> Option<Verdict> {
-        let mut result = None;
-        for (kind, pattern, message) in &self.redirect_rules {
-            if pattern.matches(path) {
-                result = Some(Verdict {
-                    decision: *kind,
-                    reason: message.as_deref().map_or_else(
-                        || format!("redirect rule: {}", pattern.as_str()),
-                        String::from,
-                    ),
-                });
-            }
-        }
-        result
+    pub fn match_redirect(&self, path: &str, ctx: Option<&MatchContext>) -> Option<Verdict> {
+        self.match_rules(RuleTarget::Redirect, path, "redirect rule", ctx)
     }
 
     /// Match an MCP tool name against MCP rules.
     #[must_use]
     pub fn match_mcp(&self, tool_name: &str) -> Option<Verdict> {
-        let mut result = None;
-        for (kind, pattern) in &self.mcp_rules {
-            if pattern.matches(tool_name) {
-                result = Some(Verdict {
-                    decision: *kind,
-                    reason: format!("MCP rule: {}", pattern.as_str()),
-                });
-            }
-        }
-        result
+        self.match_rules(RuleTarget::Mcp, tool_name, "MCP rule", None)
     }
 
     /// Match a file path against file-read rules.
     #[must_use]
-    pub fn match_file_read(&self, path: &str) -> Option<Verdict> {
-        match_file_rules(&self.file_read_rules, path, "file-read")
+    pub fn match_file_read(&self, path: &str, ctx: Option<&MatchContext>) -> Option<Verdict> {
+        self.match_rules(RuleTarget::FileRead, path, "file-read rule", ctx)
     }
 
     /// Match a file path against file-write rules.
     #[must_use]
-    pub fn match_file_write(&self, path: &str) -> Option<Verdict> {
-        match_file_rules(&self.file_write_rules, path, "file-write")
+    pub fn match_file_write(&self, path: &str, ctx: Option<&MatchContext>) -> Option<Verdict> {
+        self.match_rules(RuleTarget::FileWrite, path, "file-write rule", ctx)
     }
 
     /// Match a file path against file-edit rules.
     #[must_use]
-    pub fn match_file_edit(&self, path: &str) -> Option<Verdict> {
-        match_file_rules(&self.file_edit_rules, path, "file-edit")
+    pub fn match_file_edit(&self, path: &str, ctx: Option<&MatchContext>) -> Option<Verdict> {
+        self.match_rules(RuleTarget::FileEdit, path, "file-edit rule", ctx)
     }
 
     /// Match a command for `after` rules (post-execution feedback).
@@ -200,64 +180,58 @@ impl Config {
         command
     }
 
-    /// Build a `Config` from a list of rules (for testing and programmatic use).
-    pub fn from_rules(rules: Vec<Rule>) -> Self {
+    /// Shared matching logic for all rule targets (last-match-wins).
+    fn match_rules(
+        &self,
+        target: RuleTarget,
+        input: &str,
+        label: &str,
+        ctx: Option<&MatchContext>,
+    ) -> Option<Verdict> {
+        let mut result = None;
+        for rule in &self.rules {
+            if rule.target != target || !rule.pattern.matches(input) {
+                continue;
+            }
+            if !rule.conditions.is_empty() {
+                match ctx {
+                    Some(c) if evaluate_all(&rule.conditions, c) => {}
+                    _ => continue,
+                }
+            }
+            result = Some(Verdict {
+                decision: rule.decision,
+                reason: rule.message.as_deref().map_or_else(
+                    || format!("{label}: {}", rule.pattern.as_str()),
+                    String::from,
+                ),
+            });
+        }
+        result
+    }
+
+    /// Build a `Config` from a list of directives.
+    pub fn from_directives(directives: Vec<ConfigDirective>) -> Self {
         let mut config = Self {
-            self_protect: true, // default on — can be disabled via `set self-protect off`
+            self_protect: true,
             ..Self::default()
         };
 
-        for rule in rules {
-            match rule {
-                Rule::Command {
-                    kind,
-                    pattern,
-                    message,
-                } => config.command_rules.push((kind, pattern, message)),
-                Rule::Redirect {
-                    kind,
-                    pattern,
-                    message,
-                } => config.redirect_rules.push((kind, pattern, message)),
-                Rule::Mcp { kind, pattern } => config.mcp_rules.push((kind, pattern)),
-                Rule::FileRead {
-                    kind,
-                    pattern,
-                    message,
-                } => config.file_read_rules.push((kind, pattern, message)),
-                Rule::FileWrite {
-                    kind,
-                    pattern,
-                    message,
-                } => config.file_write_rules.push((kind, pattern, message)),
-                Rule::FileEdit {
-                    kind,
-                    pattern,
-                    message,
-                } => config.file_edit_rules.push((kind, pattern, message)),
-                Rule::After { pattern, message } => {
-                    config.after_rules.push((pattern, message));
+        for directive in directives {
+            match directive {
+                ConfigDirective::Rule(r) => {
+                    if r.target == RuleTarget::After {
+                        if let Some(msg) = &r.message {
+                            config.after_rules.push((r.pattern, msg.clone()));
+                        }
+                    } else {
+                        config.rules.push(r);
+                    }
                 }
-                Rule::Set { key, value } => match key.as_str() {
-                    "default" => config.default_action = parse_action_word(&value),
-                    "log" => config.log_file = Some(PathBuf::from(&value)),
-                    "log-full" => config.log_full = true,
-                    "tracking" => {
-                        config.tracking_db = Some(if value == "on" || value.is_empty() {
-                            home_dir().map_or_else(
-                                || PathBuf::from(".rippy/tracking.db"),
-                                |h| h.join(".rippy/tracking.db"),
-                            )
-                        } else {
-                            PathBuf::from(&value)
-                        });
-                    }
-                    "self-protect" => {
-                        config.self_protect = value != "off";
-                    }
-                    _ => {}
-                },
-                Rule::Alias { source, target } => {
+                ConfigDirective::Set { key, value } => {
+                    apply_setting(&mut config, &key, &value);
+                }
+                ConfigDirective::Alias { source, target } => {
                     config.aliases.push((source, target));
                 }
             }
@@ -267,39 +241,50 @@ impl Config {
     }
 }
 
-/// Shared matching logic for file-access rules (read/write/edit).
-fn match_file_rules(
-    rules: &[(Decision, Pattern, Option<String>)],
-    path: &str,
-    rule_type: &str,
-) -> Option<Verdict> {
-    let mut result = None;
-    for (kind, pattern, message) in rules {
-        if pattern.matches(path) {
-            result = Some(Verdict {
-                decision: *kind,
-                reason: message.as_deref().map_or_else(
-                    || format!("{rule_type} rule: {}", pattern.as_str()),
-                    String::from,
-                ),
+fn apply_setting(config: &mut Config, key: &str, value: &str) {
+    match key {
+        "default" => config.default_action = parse_action_word(value),
+        "log" => config.log_file = Some(PathBuf::from(value)),
+        "log-full" => config.log_full = true,
+        "tracking" => {
+            config.tracking_db = Some(if value == "on" || value.is_empty() {
+                home_dir().map_or_else(
+                    || PathBuf::from(".rippy/tracking.db"),
+                    |h| h.join(".rippy/tracking.db"),
+                )
+            } else {
+                PathBuf::from(value)
             });
         }
+        "self-protect" => {
+            config.self_protect = value != "off";
+        }
+        _ => {}
     }
-    result
 }
 
+// ---------------------------------------------------------------------------
+// File loading
+// ---------------------------------------------------------------------------
+
 /// Load the first file that exists from a list of candidates.
-fn load_first_existing(paths: &[PathBuf], rules: &mut Vec<Rule>) -> Result<(), RippyError> {
+fn load_first_existing(
+    paths: &[PathBuf],
+    directives: &mut Vec<ConfigDirective>,
+) -> Result<(), RippyError> {
     for path in paths {
         if path.is_file() {
-            return load_file(path, rules);
+            return load_file(path, directives);
         }
     }
     Ok(())
 }
 
-/// Parse a single config file and append rules to the list.
-pub(crate) fn load_file(path: &Path, rules: &mut Vec<Rule>) -> Result<(), RippyError> {
+/// Parse a single config file and append directives to the list.
+pub(crate) fn load_file(
+    path: &Path,
+    directives: &mut Vec<ConfigDirective>,
+) -> Result<(), RippyError> {
     let content = std::fs::read_to_string(path).map_err(|e| RippyError::Config {
         path: path.to_owned(),
         line: 0,
@@ -308,7 +293,7 @@ pub(crate) fn load_file(path: &Path, rules: &mut Vec<Rule>) -> Result<(), RippyE
 
     if path.extension().is_some_and(|ext| ext == "toml") {
         let parsed = crate::toml_config::parse_toml_config(&content, path)?;
-        rules.extend(parsed);
+        directives.extend(parsed);
         return Ok(());
     }
 
@@ -317,16 +302,20 @@ pub(crate) fn load_file(path: &Path, rules: &mut Vec<Rule>) -> Result<(), RippyE
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let rule = parse_rule(line).map_err(|msg| RippyError::Config {
+        let directive = parse_rule(line).map_err(|msg| RippyError::Config {
             path: path.to_owned(),
             line: line_num + 1,
             message: msg,
         })?;
-        rules.push(rule);
+        directives.push(directive);
     }
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Legacy line parser
+// ---------------------------------------------------------------------------
 
 /// A token from a config line, tagged as quoted or unquoted.
 #[derive(Debug)]
@@ -394,13 +383,13 @@ fn extract_pattern_and_message(tokens: &[Token]) -> (String, Option<String>) {
     (bare_parts.join(" "), message)
 }
 
-/// Parse a single config line into a Rule.
+/// Parse a single config line into a `ConfigDirective`.
 ///
 /// # Errors
 ///
 /// Returns an error string if the line contains an unknown directive or
 /// invalid syntax.
-pub fn parse_rule(line: &str) -> Result<Rule, String> {
+pub fn parse_rule(line: &str) -> Result<ConfigDirective, String> {
     let tokens = tokenize_config_line(line);
     let keyword = match tokens.first() {
         Some(Token::Bare(k)) => k.as_str(),
@@ -417,90 +406,81 @@ pub fn parse_rule(line: &str) -> Result<Rule, String> {
         "allow-read" | "ask-read" | "deny-read" => parse_file_rule(keyword, rest, "read"),
         "allow-write" | "ask-write" | "deny-write" => parse_file_rule(keyword, rest, "write"),
         "allow-edit" | "ask-edit" | "deny-edit" => parse_file_rule(keyword, rest, "edit"),
-        "set" => parse_set_rule(rest),
-        "alias" => parse_alias_rule(rest),
+        "set" => parse_set_directive(rest),
+        "alias" => parse_alias_directive(rest),
         _ => Err(format!("unknown directive: {keyword}")),
     }
 }
 
-fn parse_command_rule(keyword: &str, rest: &[Token]) -> Result<Rule, String> {
+fn parse_command_rule(keyword: &str, rest: &[Token]) -> Result<ConfigDirective, String> {
     let (pattern_str, message) = extract_pattern_and_message(rest);
     if pattern_str.is_empty() {
         return Err(format!("{keyword} requires a pattern"));
     }
-    Ok(Rule::Command {
-        kind: parse_rule_kind(keyword),
-        pattern: Pattern::new(&pattern_str),
-        message,
-    })
+    let mut rule = Rule::new(RuleTarget::Command, parse_rule_kind(keyword), &pattern_str);
+    if let Some(msg) = message {
+        rule = rule.with_message(msg);
+    }
+    Ok(ConfigDirective::Rule(rule))
 }
 
-fn parse_redirect_rule(keyword: &str, rest: &[Token]) -> Result<Rule, String> {
+fn parse_redirect_rule(keyword: &str, rest: &[Token]) -> Result<ConfigDirective, String> {
     let (pattern_str, message) = extract_pattern_and_message(rest);
     if pattern_str.is_empty() {
         return Err(format!("{keyword} requires a path pattern"));
     }
     let base_kind = keyword.split('-').next().unwrap_or("ask");
-    Ok(Rule::Redirect {
-        kind: parse_rule_kind(base_kind),
-        pattern: Pattern::new(&pattern_str),
-        message,
-    })
+    let mut rule = Rule::new(
+        RuleTarget::Redirect,
+        parse_rule_kind(base_kind),
+        &pattern_str,
+    );
+    if let Some(msg) = message {
+        rule = rule.with_message(msg);
+    }
+    Ok(ConfigDirective::Rule(rule))
 }
 
-fn parse_after_rule(rest: &[Token]) -> Result<Rule, String> {
+fn parse_after_rule(rest: &[Token]) -> Result<ConfigDirective, String> {
     let (pattern_str, message) = extract_pattern_and_message(rest);
     let message = message.ok_or("after requires a pattern and quoted message")?;
     if pattern_str.is_empty() {
         return Err("after requires a pattern".into());
     }
-    Ok(Rule::After {
-        pattern: Pattern::new(&pattern_str),
-        message,
-    })
+    let rule = Rule::new(RuleTarget::After, Decision::Allow, &pattern_str).with_message(message);
+    Ok(ConfigDirective::Rule(rule))
 }
 
-fn parse_mcp_rule(keyword: &str, rest: &[Token]) -> Result<Rule, String> {
+fn parse_mcp_rule(keyword: &str, rest: &[Token]) -> Result<ConfigDirective, String> {
     let (pattern_str, _) = extract_pattern_and_message(rest);
     if pattern_str.is_empty() {
         return Err(format!("{keyword} requires a tool pattern"));
     }
     let base_kind = keyword.split('-').next().unwrap_or("ask");
-    Ok(Rule::Mcp {
-        kind: parse_rule_kind(base_kind),
-        pattern: Pattern::new(&pattern_str),
-    })
+    let rule = Rule::new(RuleTarget::Mcp, parse_rule_kind(base_kind), &pattern_str);
+    Ok(ConfigDirective::Rule(rule))
 }
 
-fn parse_file_rule(keyword: &str, rest: &[Token], op: &str) -> Result<Rule, String> {
+fn parse_file_rule(keyword: &str, rest: &[Token], op: &str) -> Result<ConfigDirective, String> {
     let (pattern_str, message) = extract_pattern_and_message(rest);
     if pattern_str.is_empty() {
         return Err(format!("{keyword} requires a file path pattern"));
     }
     let base_kind = keyword.split('-').next().unwrap_or("ask");
-    let kind = parse_rule_kind(base_kind);
-    let pattern = Pattern::new(&pattern_str);
-    match op {
-        "read" => Ok(Rule::FileRead {
-            kind,
-            pattern,
-            message,
-        }),
-        "write" => Ok(Rule::FileWrite {
-            kind,
-            pattern,
-            message,
-        }),
-        "edit" => Ok(Rule::FileEdit {
-            kind,
-            pattern,
-            message,
-        }),
-        _ => Err(format!("unknown file operation: {op}")),
+    let target = match op {
+        "read" => RuleTarget::FileRead,
+        "write" => RuleTarget::FileWrite,
+        "edit" => RuleTarget::FileEdit,
+        _ => return Err(format!("unknown file operation: {op}")),
+    };
+    let mut rule = Rule::new(target, parse_rule_kind(base_kind), &pattern_str);
+    if let Some(msg) = message {
+        rule = rule.with_message(msg);
     }
+    Ok(ConfigDirective::Rule(rule))
 }
 
-fn parse_set_rule(rest: &[Token]) -> Result<Rule, String> {
+fn parse_set_directive(rest: &[Token]) -> Result<ConfigDirective, String> {
     let bare: Vec<&str> = rest
         .iter()
         .filter_map(|t| match t {
@@ -511,13 +491,13 @@ fn parse_set_rule(rest: &[Token]) -> Result<Rule, String> {
     if bare.is_empty() {
         return Err("set requires a key".into());
     }
-    Ok(Rule::Set {
+    Ok(ConfigDirective::Set {
         key: bare[0].to_owned(),
         value: bare.get(1).copied().unwrap_or_default().to_owned(),
     })
 }
 
-fn parse_alias_rule(rest: &[Token]) -> Result<Rule, String> {
+fn parse_alias_directive(rest: &[Token]) -> Result<ConfigDirective, String> {
     let bare: Vec<&str> = rest
         .iter()
         .filter_map(|t| match t {
@@ -528,7 +508,7 @@ fn parse_alias_rule(rest: &[Token]) -> Result<Rule, String> {
     if bare.len() < 2 {
         return Err("alias requires source and target".into());
     }
-    Ok(Rule::Alias {
+    Ok(ConfigDirective::Alias {
         source: bare[0].to_owned(),
         target: bare[1].to_owned(),
     })
@@ -582,132 +562,121 @@ mod tests {
 
     #[test]
     fn parse_allow_rule() {
-        let rule = parse_rule("allow git status").unwrap();
-        match rule {
-            Rule::Command {
-                kind: Decision::Allow,
-                pattern,
-                message,
-            } => {
-                assert_eq!(pattern.as_str(), "git status");
-                assert!(message.is_none());
+        let d = parse_rule("allow git status").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Command);
+                assert_eq!(r.decision, Decision::Allow);
+                assert_eq!(r.pattern.as_str(), "git status");
+                assert!(r.message.is_none());
             }
-            _ => panic!("expected Command rule"),
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn parse_deny_with_message() {
-        let rule = parse_rule(r#"deny python "Use uv run python""#).unwrap();
-        match rule {
-            Rule::Command {
-                kind: Decision::Deny,
-                pattern,
-                message,
-            } => {
-                assert_eq!(pattern.as_str(), "python");
-                assert_eq!(message.as_deref(), Some("Use uv run python"));
+        let d = parse_rule(r#"deny python "Use uv run python""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Command);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "python");
+                assert_eq!(r.message.as_deref(), Some("Use uv run python"));
             }
-            _ => panic!("expected Command rule"),
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn parse_deny_multi_word_pattern_with_message() {
-        let rule = parse_rule(r#"deny rm -rf "use trash instead""#).unwrap();
-        match rule {
-            Rule::Command {
-                kind: Decision::Deny,
-                pattern,
-                message,
-            } => {
-                assert_eq!(pattern.as_str(), "rm -rf");
-                assert_eq!(message.as_deref(), Some("use trash instead"));
+        let d = parse_rule(r#"deny rm -rf "use trash instead""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Command);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "rm -rf");
+                assert_eq!(r.message.as_deref(), Some("use trash instead"));
             }
-            _ => panic!("expected Command rule"),
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn parse_redirect_rule() {
-        let rule = parse_rule("deny-redirect **/.env*").unwrap();
-        match rule {
-            Rule::Redirect {
-                kind: Decision::Deny,
-                pattern,
-                ..
-            } => {
-                assert_eq!(pattern.as_str(), "**/.env*");
+        let d = parse_rule("deny-redirect **/.env*").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Redirect);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "**/.env*");
             }
-            _ => panic!("expected Redirect rule"),
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn parse_after_rule() {
-        let rule = parse_rule(r#"after git "committed successfully""#).unwrap();
-        match rule {
-            Rule::After { pattern, message } => {
-                assert_eq!(pattern.as_str(), "git");
-                assert_eq!(message, "committed successfully");
+        let d = parse_rule(r#"after git "committed successfully""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::After);
+                assert_eq!(r.pattern.as_str(), "git");
+                assert_eq!(r.message.as_deref(), Some("committed successfully"));
             }
-            _ => panic!("expected After rule"),
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn parse_set_rule() {
-        let rule = parse_rule("set default ask").unwrap();
-        match rule {
-            Rule::Set { key, value } => {
+        let d = parse_rule("set default ask").unwrap();
+        match d {
+            ConfigDirective::Set { key, value } => {
                 assert_eq!(key, "default");
                 assert_eq!(value, "ask");
             }
-            _ => panic!("expected Set rule"),
+            _ => panic!("expected Set"),
         }
     }
 
     #[test]
     fn parse_alias_rule() {
-        let rule = parse_rule("alias ~/custom-git git").unwrap();
-        match rule {
-            Rule::Alias { source, target } => {
+        let d = parse_rule("alias ~/custom-git git").unwrap();
+        match d {
+            ConfigDirective::Alias { source, target } => {
                 assert_eq!(source, "~/custom-git");
                 assert_eq!(target, "git");
             }
-            _ => panic!("expected Alias rule"),
+            _ => panic!("expected Alias"),
         }
     }
 
     #[test]
     fn parse_mcp_rule() {
-        let rule = parse_rule("deny-mcp dangerous_tool").unwrap();
-        match rule {
-            Rule::Mcp {
-                kind: Decision::Deny,
-                pattern,
-            } => {
-                assert_eq!(pattern.as_str(), "dangerous_tool");
+        let d = parse_rule("deny-mcp dangerous_tool").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Mcp);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "dangerous_tool");
             }
-            _ => panic!("expected Mcp rule"),
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn last_match_wins() {
-        let config = Config::from_rules(vec![
-            Rule::Command {
-                kind: Decision::Deny,
-                pattern: Pattern::new("rm"),
-                message: Some("blocked".into()),
-            },
-            Rule::Command {
-                kind: Decision::Allow,
-                pattern: Pattern::new("rm --help"),
-                message: Some("help is fine".into()),
-            },
+        let config = Config::from_directives(vec![
+            ConfigDirective::Rule(
+                Rule::new(RuleTarget::Command, Decision::Deny, "rm").with_message("blocked"),
+            ),
+            ConfigDirective::Rule(
+                Rule::new(RuleTarget::Command, Decision::Allow, "rm --help")
+                    .with_message("help is fine"),
+            ),
         ]);
-        let v = config.match_command("rm --help").unwrap();
+        let v = config.match_command("rm --help", None).unwrap();
         assert_eq!(v.decision, Decision::Allow);
         assert_eq!(v.reason, "help is fine");
     }
@@ -745,34 +714,32 @@ mod tests {
 
     #[test]
     fn match_redirect_last_wins() {
-        let config = Config::from_rules(vec![
-            Rule::Redirect {
-                kind: Decision::Deny,
-                pattern: Pattern::new("/etc/*"),
-                message: Some("no writes to /etc".into()),
-            },
-            Rule::Redirect {
-                kind: Decision::Allow,
-                pattern: Pattern::new("/etc/hosts"),
-                message: Some("hosts ok".into()),
-            },
+        let config = Config::from_directives(vec![
+            ConfigDirective::Rule(
+                Rule::new(RuleTarget::Redirect, Decision::Deny, "/etc/*")
+                    .with_message("no writes to /etc"),
+            ),
+            ConfigDirective::Rule(
+                Rule::new(RuleTarget::Redirect, Decision::Allow, "/etc/hosts")
+                    .with_message("hosts ok"),
+            ),
         ]);
-        let v = config.match_redirect("/etc/hosts").unwrap();
+        let v = config.match_redirect("/etc/hosts", None).unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
 
     #[test]
     fn settings_extracted() {
-        let config = Config::from_rules(vec![
-            Rule::Set {
+        let config = Config::from_directives(vec![
+            ConfigDirective::Set {
                 key: "default".into(),
                 value: "deny".into(),
             },
-            Rule::Set {
+            ConfigDirective::Set {
                 key: "log".into(),
                 value: "~/.rippy/audit.log".into(),
             },
-            Rule::Set {
+            ConfigDirective::Set {
                 key: "log-full".into(),
                 value: String::new(),
             },
@@ -784,10 +751,11 @@ mod tests {
 
     #[test]
     fn match_mcp_rule() {
-        let config = Config::from_rules(vec![Rule::Mcp {
-            kind: Decision::Deny,
-            pattern: Pattern::new("dangerous*"),
-        }]);
+        let config = Config::from_directives(vec![ConfigDirective::Rule(Rule::new(
+            RuleTarget::Mcp,
+            Decision::Deny,
+            "dangerous*",
+        ))]);
         let v = config.match_mcp("dangerous_tool").unwrap();
         assert_eq!(v.decision, Decision::Deny);
         assert!(config.match_mcp("safe_tool").is_none());
@@ -795,10 +763,9 @@ mod tests {
 
     #[test]
     fn match_after_rule() {
-        let config = Config::from_rules(vec![Rule::After {
-            pattern: Pattern::new("git commit"),
-            message: "committed!".into(),
-        }]);
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::After, Decision::Allow, "git commit").with_message("committed!"),
+        )]);
         assert_eq!(
             config.match_after("git commit -m foo"),
             Some("committed!".into())
@@ -808,120 +775,147 @@ mod tests {
 
     #[test]
     fn allow_uv_run_python_c() {
-        let config = Config::from_rules(vec![
-            Rule::Command {
-                kind: Decision::Deny,
-                pattern: Pattern::new("python"),
-                message: Some("Use uv run python".into()),
-            },
-            Rule::Command {
-                kind: Decision::Allow,
-                pattern: Pattern::new("uv run python -c"),
-                message: None,
-            },
+        let config = Config::from_directives(vec![
+            ConfigDirective::Rule(
+                Rule::new(RuleTarget::Command, Decision::Deny, "python")
+                    .with_message("Use uv run python"),
+            ),
+            ConfigDirective::Rule(Rule::new(
+                RuleTarget::Command,
+                Decision::Allow,
+                "uv run python -c",
+            )),
         ]);
-        let v = config.match_command("python foo.py").unwrap();
+        let v = config.match_command("python foo.py", None).unwrap();
         assert_eq!(v.decision, Decision::Deny);
-        let v = config.match_command("uv run python -c 'print(1)'").unwrap();
+        let v = config
+            .match_command("uv run python -c 'print(1)'", None)
+            .unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
 
     #[test]
     fn match_file_read_rules() {
-        let config = Config::from_rules(vec![
-            Rule::FileRead {
-                kind: Decision::Deny,
-                pattern: Pattern::new("**/.env*"),
-                message: Some("no env".to_string()),
-            },
-            Rule::FileRead {
-                kind: Decision::Allow,
-                pattern: Pattern::new("/tmp/**"),
-                message: None,
-            },
+        let config = Config::from_directives(vec![
+            ConfigDirective::Rule(
+                Rule::new(RuleTarget::FileRead, Decision::Deny, "**/.env*").with_message("no env"),
+            ),
+            ConfigDirective::Rule(Rule::new(RuleTarget::FileRead, Decision::Allow, "/tmp/**")),
         ]);
-        let v = config.match_file_read(".env.local").unwrap();
+        let v = config.match_file_read(".env.local", None).unwrap();
         assert_eq!(v.decision, Decision::Deny);
         assert_eq!(v.reason, "no env");
 
-        let v = config.match_file_read("/tmp/safe.txt").unwrap();
+        let v = config.match_file_read("/tmp/safe.txt", None).unwrap();
         assert_eq!(v.decision, Decision::Allow);
 
-        assert!(config.match_file_read("main.rs").is_none());
+        assert!(config.match_file_read("main.rs", None).is_none());
     }
 
     #[test]
     fn match_file_write_rules() {
-        let config = Config::from_rules(vec![Rule::FileWrite {
-            kind: Decision::Deny,
-            pattern: Pattern::new("**/.rippy*"),
-            message: Some("config protected".to_string()),
-        }]);
-        let v = config.match_file_write(".rippy.toml").unwrap();
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::FileWrite, Decision::Deny, "**/.rippy*")
+                .with_message("config protected"),
+        )]);
+        let v = config.match_file_write(".rippy.toml", None).unwrap();
         assert_eq!(v.decision, Decision::Deny);
-        assert!(config.match_file_write("other.txt").is_none());
+        assert!(config.match_file_write("other.txt", None).is_none());
     }
 
     #[test]
     fn match_file_edit_rules() {
-        let config = Config::from_rules(vec![Rule::FileEdit {
-            kind: Decision::Ask,
-            pattern: Pattern::new("**/node_modules/**"),
-            message: Some("vendor".to_string()),
-        }]);
-        let v = config.match_file_edit("node_modules/pkg/index.js").unwrap();
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::FileEdit, Decision::Ask, "**/node_modules/**")
+                .with_message("vendor"),
+        )]);
+        let v = config
+            .match_file_edit("node_modules/pkg/index.js", None)
+            .unwrap();
         assert_eq!(v.decision, Decision::Ask);
-        assert!(config.match_file_edit("src/main.rs").is_none());
+        assert!(config.match_file_edit("src/main.rs", None).is_none());
     }
 
     #[test]
     fn parse_file_read_rule() {
-        let rule = parse_rule(r#"deny-read **/.env* "no env files""#).unwrap();
-        match rule {
-            Rule::FileRead {
-                kind: Decision::Deny,
-                pattern,
-                message,
-            } => {
-                assert!(pattern.matches(".env"));
-                assert!(pattern.matches("foo/.env.local"));
-                assert_eq!(message.as_deref(), Some("no env files"));
+        let d = parse_rule(r#"deny-read **/.env* "no env files""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::FileRead);
+                assert_eq!(r.decision, Decision::Deny);
+                assert!(r.pattern.matches(".env"));
+                assert!(r.pattern.matches("foo/.env.local"));
+                assert_eq!(r.message.as_deref(), Some("no env files"));
             }
-            _ => panic!("expected FileRead"),
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn parse_file_write_rule() {
-        let rule = parse_rule("allow-write /tmp/**").unwrap();
-        match rule {
-            Rule::FileWrite {
-                kind: Decision::Allow,
-                ..
-            } => {}
-            _ => panic!("expected FileWrite"),
+        let d = parse_rule("allow-write /tmp/**").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::FileWrite);
+                assert_eq!(r.decision, Decision::Allow);
+            }
+            _ => panic!("expected Rule"),
         }
     }
 
     #[test]
     fn file_rules_last_match_wins() {
-        let config = Config::from_rules(vec![
-            Rule::FileRead {
-                kind: Decision::Allow,
-                pattern: Pattern::new("**"),
-                message: None,
-            },
-            Rule::FileRead {
-                kind: Decision::Deny,
-                pattern: Pattern::new("**/.env*"),
-                message: Some("blocked".to_string()),
-            },
+        let config = Config::from_directives(vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::FileRead, Decision::Allow, "**")),
+            ConfigDirective::Rule(
+                Rule::new(RuleTarget::FileRead, Decision::Deny, "**/.env*").with_message("blocked"),
+            ),
         ]);
-        // .env matches both rules, last match (deny) wins.
-        let v = config.match_file_read(".env").unwrap();
+        let v = config.match_file_read(".env", None).unwrap();
         assert_eq!(v.decision, Decision::Deny);
-        // Other files match only the allow rule.
-        let v = config.match_file_read("main.rs").unwrap();
+        let v = config.match_file_read("main.rs", None).unwrap();
         assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn conditional_rule_skipped_when_condition_fails() {
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::Command, Decision::Deny, "echo *")
+                .with_message("blocked on main")
+                .with_conditions(vec![Condition::BranchEq("main".into())]),
+        )]);
+        // Provide a context where branch is NOT main
+        let ctx = MatchContext {
+            branch: Some("develop"),
+            cwd: std::path::Path::new("/tmp"),
+        };
+        // Rule should be skipped
+        assert!(config.match_command("echo hello", Some(&ctx)).is_none());
+    }
+
+    #[test]
+    fn conditional_rule_applies_when_condition_passes() {
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::Command, Decision::Deny, "echo *")
+                .with_message("blocked on main")
+                .with_conditions(vec![Condition::BranchEq("main".into())]),
+        )]);
+        let ctx = MatchContext {
+            branch: Some("main"),
+            cwd: std::path::Path::new("/tmp"),
+        };
+        let v = config.match_command("echo hello", Some(&ctx)).unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        assert_eq!(v.reason, "blocked on main");
+    }
+
+    #[test]
+    fn conditional_rule_skipped_without_context() {
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::Command, Decision::Deny, "echo *")
+                .with_conditions(vec![Condition::BranchEq("main".into())]),
+        )]);
+        // No context provided — rule should be skipped
+        assert!(config.match_command("echo hello", None).is_none());
     }
 }

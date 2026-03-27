@@ -5,6 +5,7 @@ use rable::{Node, NodeKind};
 use crate::allowlists;
 use crate::ast;
 use crate::cc_permissions::{self, CcRules};
+use crate::condition::MatchContext;
 use crate::config::Config;
 use crate::error::RippyError;
 use crate::handlers::{self, Classification, HandlerContext};
@@ -21,6 +22,8 @@ pub struct Analyzer {
     pub working_directory: PathBuf,
     pub verbose: bool,
     cc_rules: CcRules,
+    /// Cached current git branch name.
+    git_branch: Option<String>,
     /// Set to true when analyzing a command that receives piped input.
     piped: bool,
 }
@@ -38,6 +41,7 @@ impl Analyzer {
         verbose: bool,
     ) -> Result<Self, RippyError> {
         let cc_rules = cc_permissions::load_cc_rules(&working_directory);
+        let git_branch = crate::condition::detect_git_branch(&working_directory);
         Ok(Self {
             parser: BashParser::new()?,
             config,
@@ -45,8 +49,17 @@ impl Analyzer {
             working_directory,
             verbose,
             cc_rules,
+            git_branch,
             piped: false,
         })
+    }
+
+    /// Build a `MatchContext` for condition evaluation.
+    fn match_ctx(&self) -> MatchContext<'_> {
+        MatchContext {
+            branch: self.git_branch.as_deref(),
+            cwd: &self.working_directory,
+        }
     }
 
     /// Analyze a shell command string and return a safety verdict.
@@ -65,7 +78,7 @@ impl Analyzer {
             return Ok(cc_decision_to_verdict(decision, command));
         }
 
-        if let Some(verdict) = self.config.match_command(command) {
+        if let Some(verdict) = self.config.match_command(command, Some(&self.match_ctx())) {
             if self.verbose {
                 eprintln!(
                     "[rippy] config rule matched: {command} -> {}",
@@ -397,7 +410,7 @@ impl Analyzer {
         if self.config.self_protect && crate::self_protect::is_protected_path(target) {
             return Verdict::deny(crate::self_protect::PROTECTION_MESSAGE);
         }
-        if let Some(verdict) = self.config.match_redirect(target) {
+        if let Some(verdict) = self.config.match_redirect(target, Some(&self.match_ctx())) {
             return verdict;
         }
         Verdict::ask(format!("redirect to {target}"))
@@ -592,14 +605,12 @@ mod tests {
 
     #[test]
     fn config_override_allows() {
-        use crate::config::Rule;
-        use crate::pattern::Pattern;
+        use crate::config::{ConfigDirective, Rule, RuleTarget};
 
-        let config = Config::from_rules(vec![Rule::Command {
-            kind: Decision::Allow,
-            pattern: Pattern::new("rm -rf /tmp"),
-            message: Some("cleanup allowed".into()),
-        }]);
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::Command, Decision::Allow, "rm -rf /tmp")
+                .with_message("cleanup allowed"),
+        )]);
         let mut a = Analyzer::new(config, false, PathBuf::from("/tmp"), false).unwrap();
         let v = a.analyze("rm -rf /tmp").unwrap();
         assert_eq!(v.decision, Decision::Allow);
@@ -745,8 +756,7 @@ mod tests {
 
     #[test]
     fn cc_rules_checked_before_rippy_config() {
-        use crate::config::Rule;
-        use crate::pattern::Pattern;
+        use crate::config::{ConfigDirective, Rule, RuleTarget};
 
         let dir = tempfile::tempdir().unwrap();
         let claude_dir = dir.path().join(".claude");
@@ -757,11 +767,9 @@ mod tests {
         )
         .unwrap();
 
-        let config = Config::from_rules(vec![Rule::Command {
-            kind: Decision::Ask,
-            pattern: Pattern::new("rm -rf /tmp"),
-            message: Some("dangerous".into()),
-        }]);
+        let config = Config::from_directives(vec![ConfigDirective::Rule(
+            Rule::new(RuleTarget::Command, Decision::Ask, "rm -rf /tmp").with_message("dangerous"),
+        )]);
         let mut a = Analyzer::new(config, false, dir.path().to_path_buf(), false).unwrap();
         let v = a.analyze("rm -rf /tmp").unwrap();
         assert_eq!(v.decision, Decision::Allow);

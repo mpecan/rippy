@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::allowlists;
 use crate::cc_permissions;
 use crate::cli::InspectArgs;
-use crate::config::{self, Config, Rule};
+use crate::config::{self, Config, ConfigDirective, Rule, RuleTarget};
 use crate::error::RippyError;
 use crate::handlers;
 use crate::parser::BashParser;
@@ -114,74 +114,37 @@ fn collect_list_data(cwd: &Path, config_override: Option<&Path>) -> Result<ListO
 }
 
 fn load_source_rules(path: &Path) -> Result<SourceRules, RippyError> {
-    let mut rules = Vec::new();
-    config::load_file(path, &mut rules)?;
+    let mut directives = Vec::new();
+    config::load_file(path, &mut directives)?;
 
-    let displays: Vec<RuleDisplay> = rules.iter().filter_map(rule_to_display).collect();
+    let displays: Vec<RuleDisplay> = directives.iter().filter_map(directive_to_display).collect();
     Ok(SourceRules {
         path: path.display().to_string(),
         rules: displays,
     })
 }
 
-fn rule_to_display(rule: &Rule) -> Option<RuleDisplay> {
-    match rule {
-        Rule::Command {
-            kind,
-            pattern,
-            message,
-        } => Some(RuleDisplay {
-            action: kind.as_str().to_string(),
-            pattern: pattern.raw().to_string(),
-            message: message.clone(),
-        }),
-        Rule::Redirect {
-            kind,
-            pattern,
-            message,
-        } => Some(RuleDisplay {
-            action: format!("{}-redirect", kind.as_str()),
-            pattern: pattern.raw().to_string(),
-            message: message.clone(),
-        }),
-        Rule::Mcp { kind, pattern } => Some(RuleDisplay {
-            action: format!("{}-mcp", kind.as_str()),
-            pattern: pattern.raw().to_string(),
-            message: None,
-        }),
-        Rule::After { pattern, message } => Some(RuleDisplay {
-            action: "after".to_string(),
-            pattern: pattern.raw().to_string(),
-            message: Some(message.clone()),
-        }),
-        Rule::FileRead {
-            kind,
-            pattern,
-            message,
-        } => Some(RuleDisplay {
-            action: format!("{}-read", kind.as_str()),
-            pattern: pattern.raw().to_string(),
-            message: message.clone(),
-        }),
-        Rule::FileWrite {
-            kind,
-            pattern,
-            message,
-        } => Some(RuleDisplay {
-            action: format!("{}-write", kind.as_str()),
-            pattern: pattern.raw().to_string(),
-            message: message.clone(),
-        }),
-        Rule::FileEdit {
-            kind,
-            pattern,
-            message,
-        } => Some(RuleDisplay {
-            action: format!("{}-edit", kind.as_str()),
-            pattern: pattern.raw().to_string(),
-            message: message.clone(),
-        }),
-        Rule::Set { .. } | Rule::Alias { .. } => None,
+fn directive_to_display(directive: &ConfigDirective) -> Option<RuleDisplay> {
+    match directive {
+        ConfigDirective::Rule(rule) => Some(rule_to_display(rule)),
+        ConfigDirective::Set { .. } | ConfigDirective::Alias { .. } => None,
+    }
+}
+
+fn rule_to_display(rule: &Rule) -> RuleDisplay {
+    let action = match rule.target {
+        RuleTarget::Command => rule.decision.as_str().to_string(),
+        RuleTarget::Redirect => format!("{}-redirect", rule.decision.as_str()),
+        RuleTarget::Mcp => format!("{}-mcp", rule.decision.as_str()),
+        RuleTarget::After => "after".to_string(),
+        RuleTarget::FileRead => format!("{}-read", rule.decision.as_str()),
+        RuleTarget::FileWrite => format!("{}-write", rule.decision.as_str()),
+        RuleTarget::FileEdit => format!("{}-edit", rule.decision.as_str()),
+    };
+    RuleDisplay {
+        action,
+        pattern: rule.pattern.raw().to_string(),
+        message: rule.message.clone(),
     }
 }
 
@@ -326,7 +289,7 @@ fn trace_config_step(
     config: &Config,
     steps: &mut Vec<TraceStep>,
 ) -> Option<TraceOutput> {
-    let result = config.match_command(command);
+    let result = config.match_command(command, None);
     steps.push(TraceStep {
         stage: "Config rules".to_string(),
         matched: result.is_some(),
@@ -461,12 +424,8 @@ mod tests {
 
     #[test]
     fn rule_to_display_command() {
-        let rule = Rule::Command {
-            kind: Decision::Allow,
-            pattern: crate::pattern::Pattern::new("git status"),
-            message: None,
-        };
-        let d = rule_to_display(&rule).unwrap();
+        let rule = Rule::new(RuleTarget::Command, Decision::Allow, "git status");
+        let d = rule_to_display(&rule);
         assert_eq!(d.action, "allow");
         assert_eq!(d.pattern, "git status");
         assert!(d.message.is_none());
@@ -474,56 +433,45 @@ mod tests {
 
     #[test]
     fn rule_to_display_with_message() {
-        let rule = Rule::Command {
-            kind: Decision::Deny,
-            pattern: crate::pattern::Pattern::new("rm -rf *"),
-            message: Some("use trash".to_string()),
-        };
-        let d = rule_to_display(&rule).unwrap();
+        let rule =
+            Rule::new(RuleTarget::Command, Decision::Deny, "rm -rf *").with_message("use trash");
+        let d = rule_to_display(&rule);
         assert_eq!(d.action, "deny");
         assert_eq!(d.message.as_deref(), Some("use trash"));
     }
 
     #[test]
     fn rule_to_display_redirect() {
-        let rule = Rule::Redirect {
-            kind: Decision::Deny,
-            pattern: crate::pattern::Pattern::new("**/.env*"),
-            message: Some("protected".to_string()),
-        };
-        let d = rule_to_display(&rule).unwrap();
+        let rule =
+            Rule::new(RuleTarget::Redirect, Decision::Deny, "**/.env*").with_message("protected");
+        let d = rule_to_display(&rule);
         assert_eq!(d.action, "deny-redirect");
     }
 
     #[test]
     fn rule_to_display_mcp() {
-        let rule = Rule::Mcp {
-            kind: Decision::Allow,
-            pattern: crate::pattern::Pattern::new("mcp__github__*"),
-        };
-        let d = rule_to_display(&rule).unwrap();
+        let rule = Rule::new(RuleTarget::Mcp, Decision::Allow, "mcp__github__*");
+        let d = rule_to_display(&rule);
         assert_eq!(d.action, "allow-mcp");
         assert_eq!(d.pattern, "mcp__github__*");
     }
 
     #[test]
     fn rule_to_display_after() {
-        let rule = Rule::After {
-            pattern: crate::pattern::Pattern::new("git commit"),
-            message: "don't forget to push".to_string(),
-        };
-        let d = rule_to_display(&rule).unwrap();
+        let rule = Rule::new(RuleTarget::After, Decision::Allow, "git commit")
+            .with_message("don't forget to push");
+        let d = rule_to_display(&rule);
         assert_eq!(d.action, "after");
         assert_eq!(d.message.as_deref(), Some("don't forget to push"));
     }
 
     #[test]
-    fn rule_to_display_skips_set() {
-        let rule = Rule::Set {
+    fn directive_to_display_skips_set() {
+        let d = ConfigDirective::Set {
             key: "default".to_string(),
             value: "ask".to_string(),
         };
-        assert!(rule_to_display(&rule).is_none());
+        assert!(directive_to_display(&d).is_none());
     }
 
     #[test]

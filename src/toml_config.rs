@@ -1,16 +1,15 @@
 //! TOML-based config parser for `.rippy.toml` files.
 //!
-//! Parses structured TOML config into `Vec<Rule>` that feeds into the same
-//! `Config::from_rules()` path as the legacy line-based parser.
+//! Parses structured TOML config into `Vec<ConfigDirective>` that feeds into the same
+//! `Config::from_directives()` path as the legacy line-based parser.
 
 use std::fmt::Write as _;
 use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::config::Rule;
+use crate::config::{ConfigDirective, Rule, RuleTarget};
 use crate::error::RippyError;
-use crate::pattern::Pattern;
 use crate::verdict::Decision;
 
 // ---------------------------------------------------------------------------
@@ -47,7 +46,7 @@ pub struct TomlRule {
     pub message: Option<String>,
     /// Risk annotation — stored for future use by `rippy suggest` (#48).
     pub risk: Option<String>,
-    /// Condition clause — stored for future use by conditional rules (#46).
+    /// Condition clause — parsed into `Condition` list for conditional rules (#46).
     pub when: Option<toml::Value>,
 }
 
@@ -59,169 +58,134 @@ pub struct TomlAlias {
 }
 
 // ---------------------------------------------------------------------------
-// TOML → Vec<Rule> conversion
+// TOML → Vec<ConfigDirective> conversion
 // ---------------------------------------------------------------------------
 
-/// Parse a TOML config string into a list of rules.
+/// Parse a TOML config string into a list of directives.
 ///
 /// # Errors
 ///
 /// Returns `RippyError::Config` if the TOML is malformed or contains
 /// invalid rule definitions.
-pub fn parse_toml_config(content: &str, path: &Path) -> Result<Vec<Rule>, RippyError> {
+pub fn parse_toml_config(content: &str, path: &Path) -> Result<Vec<ConfigDirective>, RippyError> {
     let config: TomlConfig = toml::from_str(content).map_err(|e| RippyError::Config {
         path: path.to_owned(),
         line: 0,
         message: e.to_string(),
     })?;
 
-    toml_to_rules(&config).map_err(|msg| RippyError::Config {
+    toml_to_directives(&config).map_err(|msg| RippyError::Config {
         path: path.to_owned(),
         line: 0,
         message: msg,
     })
 }
 
-/// Convert parsed TOML structs into the internal `Rule` enum list.
-fn toml_to_rules(config: &TomlConfig) -> Result<Vec<Rule>, String> {
-    let mut rules = Vec::new();
+/// Convert parsed TOML structs into the internal directive list.
+fn toml_to_directives(config: &TomlConfig) -> Result<Vec<ConfigDirective>, String> {
+    let mut directives = Vec::new();
 
     if let Some(settings) = &config.settings {
-        settings_to_rules(settings, &mut rules);
+        settings_to_directives(settings, &mut directives);
     }
 
     for rule in &config.rules {
-        rules.push(convert_rule(rule)?);
+        directives.push(convert_rule(rule)?);
     }
 
     for alias in &config.aliases {
-        rules.push(Rule::Alias {
+        directives.push(ConfigDirective::Alias {
             source: alias.source.clone(),
             target: alias.target.clone(),
         });
     }
 
-    Ok(rules)
+    Ok(directives)
 }
 
-/// Convert settings into `Rule::Set` entries.
-fn settings_to_rules(settings: &TomlSettings, rules: &mut Vec<Rule>) {
+/// Convert settings into `ConfigDirective::Set` entries.
+fn settings_to_directives(settings: &TomlSettings, out: &mut Vec<ConfigDirective>) {
     if let Some(default) = &settings.default {
-        rules.push(Rule::Set {
+        out.push(ConfigDirective::Set {
             key: "default".to_string(),
             value: default.clone(),
         });
     }
     if let Some(log) = &settings.log {
-        rules.push(Rule::Set {
+        out.push(ConfigDirective::Set {
             key: "log".to_string(),
             value: log.clone(),
         });
     }
     if settings.log_full == Some(true) {
-        rules.push(Rule::Set {
+        out.push(ConfigDirective::Set {
             key: "log-full".to_string(),
             value: String::new(),
         });
     }
     if let Some(tracking) = &settings.tracking {
-        rules.push(Rule::Set {
+        out.push(ConfigDirective::Set {
             key: "tracking".to_string(),
             value: tracking.clone(),
         });
     }
     if settings.self_protect == Some(false) {
-        rules.push(Rule::Set {
+        out.push(ConfigDirective::Set {
             key: "self-protect".to_string(),
             value: "off".to_string(),
         });
     }
 }
 
-/// Convert a single TOML rule into the internal `Rule` enum.
-fn convert_rule(rule: &TomlRule) -> Result<Rule, String> {
-    let pattern = Pattern::new(&rule.pattern);
-    let action = rule.action.as_str();
+/// Convert a single TOML rule into a `ConfigDirective::Rule`.
+fn convert_rule(toml_rule: &TomlRule) -> Result<ConfigDirective, String> {
+    let action = toml_rule.action.as_str();
+    let (target, decision) = parse_action_to_target(action)?;
 
+    let mut rule = Rule::new(target, decision, &toml_rule.pattern);
+    if let Some(msg) = &toml_rule.message {
+        rule = rule.with_message(msg.clone());
+    }
+
+    // After rules require a message.
+    if target == RuleTarget::After && rule.message.is_none() {
+        return Err("'after' rules require a message field".to_string());
+    }
+
+    // Parse conditions from the `when` clause.
+    if let Some(when_value) = &toml_rule.when {
+        let conditions = crate::condition::parse_conditions(when_value)?;
+        rule = rule.with_conditions(conditions);
+    }
+
+    Ok(ConfigDirective::Rule(rule))
+}
+
+/// Map an action string (e.g. "deny-redirect") to `(RuleTarget, Decision)`.
+fn parse_action_to_target(action: &str) -> Result<(RuleTarget, Decision), String> {
     match action {
-        "allow" | "ask" | "deny" => {
-            Ok(convert_command_rule(action, pattern, rule.message.as_ref()))
-        }
-        "after" => convert_after_rule(pattern, rule.message.as_ref()),
-        _ if action.ends_with("-redirect") => {
-            convert_compound_rule(action, pattern, rule.message.as_ref())
-        }
-        _ if action.ends_with("-mcp") => {
-            convert_compound_rule(action, pattern, rule.message.as_ref())
-        }
-        _ if action.ends_with("-read") => {
-            convert_compound_rule(action, pattern, rule.message.as_ref())
-        }
-        _ if action.ends_with("-write") => {
-            convert_compound_rule(action, pattern, rule.message.as_ref())
-        }
-        _ if action.ends_with("-edit") => {
-            convert_compound_rule(action, pattern, rule.message.as_ref())
-        }
-        other => Err(format!("unknown action: {other}")),
+        "allow" | "ask" | "deny" => Ok((RuleTarget::Command, parse_decision(action))),
+        "after" => Ok((RuleTarget::After, Decision::Allow)),
+        _ => parse_compound_action(action),
     }
 }
 
-fn convert_command_rule(action: &str, pattern: Pattern, message: Option<&String>) -> Rule {
-    let kind = parse_file_action_kind(action);
-    Rule::Command {
-        kind,
-        pattern,
-        message: message.cloned(),
-    }
+fn parse_compound_action(action: &str) -> Result<(RuleTarget, Decision), String> {
+    let suffix = action.rsplit('-').next().unwrap_or("");
+    let target = match suffix {
+        "redirect" => RuleTarget::Redirect,
+        "mcp" => RuleTarget::Mcp,
+        "read" => RuleTarget::FileRead,
+        "write" => RuleTarget::FileWrite,
+        "edit" => RuleTarget::FileEdit,
+        _ => return Err(format!("unknown action: {action}")),
+    };
+    let base = action.split('-').next().unwrap_or("ask");
+    Ok((target, parse_decision(base)))
 }
 
-fn convert_after_rule(pattern: Pattern, message: Option<&String>) -> Result<Rule, String> {
-    let msg = message
-        .cloned()
-        .ok_or("'after' rules require a message field")?;
-    Ok(Rule::After {
-        pattern,
-        message: msg,
-    })
-}
-
-fn convert_compound_rule(
-    action: &str,
-    pattern: Pattern,
-    message: Option<&String>,
-) -> Result<Rule, String> {
-    let kind = parse_file_action_kind(action);
-    let msg = message.cloned();
-    match action.rsplit('-').next().unwrap_or("") {
-        "redirect" => Ok(Rule::Redirect {
-            kind,
-            pattern,
-            message: msg,
-        }),
-        "mcp" => Ok(Rule::Mcp { kind, pattern }),
-        "read" => Ok(Rule::FileRead {
-            kind,
-            pattern,
-            message: msg,
-        }),
-        "write" => Ok(Rule::FileWrite {
-            kind,
-            pattern,
-            message: msg,
-        }),
-        "edit" => Ok(Rule::FileEdit {
-            kind,
-            pattern,
-            message: msg,
-        }),
-        _ => Err(format!("unknown action: {action}")),
-    }
-}
-
-/// Extract the decision kind from a compound action like `"deny-read"`.
-fn parse_file_action_kind(action: &str) -> Decision {
-    match action.split('-').next().unwrap_or("ask") {
+fn parse_decision(word: &str) -> Decision {
+    match word {
         "allow" => Decision::Allow,
         "deny" => Decision::Deny,
         _ => Decision::Ask,
@@ -229,23 +193,23 @@ fn parse_file_action_kind(action: &str) -> Decision {
 }
 
 // ---------------------------------------------------------------------------
-// Vec<Rule> → TOML serialization (for `rippy migrate`)
+// Vec<ConfigDirective> → TOML serialization (for `rippy migrate`)
 // ---------------------------------------------------------------------------
 
-/// Serialize a list of rules into TOML format.
+/// Serialize a list of directives into TOML format.
 #[must_use]
-pub fn rules_to_toml(rules: &[Rule]) -> String {
+pub fn rules_to_toml(directives: &[ConfigDirective]) -> String {
     let mut out = String::new();
-    emit_settings(rules, &mut out);
-    emit_rules(rules, &mut out);
-    emit_aliases(rules, &mut out);
+    emit_settings(directives, &mut out);
+    emit_rules(directives, &mut out);
+    emit_aliases(directives, &mut out);
     out
 }
 
-fn emit_settings(rules: &[Rule], out: &mut String) {
+fn emit_settings(directives: &[ConfigDirective], out: &mut String) {
     let mut has_header = false;
-    for rule in rules {
-        if let Rule::Set { key, value } = rule {
+    for d in directives {
+        if let ConfigDirective::Set { key, value } = d {
             if !has_header {
                 let _ = writeln!(out, "[settings]");
                 has_header = true;
@@ -262,55 +226,25 @@ fn emit_settings(rules: &[Rule], out: &mut String) {
     }
 }
 
-fn emit_rules(rules: &[Rule], out: &mut String) {
-    for rule in rules {
-        match rule {
-            Rule::Command {
-                kind,
-                pattern,
-                message,
-            } => emit_rule_entry(out, decision_str(*kind), pattern.raw(), message.as_deref()),
-            Rule::Redirect {
-                kind,
-                pattern,
-                message,
-            } => {
-                let action = format!("{}-redirect", decision_str(*kind));
-                emit_rule_entry(out, &action, pattern.raw(), message.as_deref());
-            }
-            Rule::Mcp { kind, pattern } => {
-                let action = format!("{}-mcp", decision_str(*kind));
-                emit_rule_entry(out, &action, pattern.raw(), None);
-            }
-            Rule::After { pattern, message } => {
-                emit_rule_entry(out, "after", pattern.raw(), Some(message));
-            }
-            Rule::FileRead {
-                kind,
-                pattern,
-                message,
-            } => {
-                let action = format!("{}-read", decision_str(*kind));
-                emit_rule_entry(out, &action, pattern.raw(), message.as_deref());
-            }
-            Rule::FileWrite {
-                kind,
-                pattern,
-                message,
-            } => {
-                let action = format!("{}-write", decision_str(*kind));
-                emit_rule_entry(out, &action, pattern.raw(), message.as_deref());
-            }
-            Rule::FileEdit {
-                kind,
-                pattern,
-                message,
-            } => {
-                let action = format!("{}-edit", decision_str(*kind));
-                emit_rule_entry(out, &action, pattern.raw(), message.as_deref());
-            }
-            Rule::Alias { .. } | Rule::Set { .. } => {}
+fn emit_rules(directives: &[ConfigDirective], out: &mut String) {
+    for d in directives {
+        if let ConfigDirective::Rule(rule) = d {
+            let action = rule_action_str(rule);
+            emit_rule_entry(out, &action, rule.pattern.raw(), rule.message.as_deref());
         }
+    }
+}
+
+fn rule_action_str(rule: &Rule) -> String {
+    let base = decision_str(rule.decision);
+    match rule.target {
+        RuleTarget::Command => base.to_string(),
+        RuleTarget::Redirect => format!("{base}-redirect"),
+        RuleTarget::Mcp => format!("{base}-mcp"),
+        RuleTarget::FileRead => format!("{base}-read"),
+        RuleTarget::FileWrite => format!("{base}-write"),
+        RuleTarget::FileEdit => format!("{base}-edit"),
+        RuleTarget::After => "after".to_string(),
     }
 }
 
@@ -324,9 +258,9 @@ fn emit_rule_entry(out: &mut String, action: &str, pattern: &str, message: Optio
     out.push('\n');
 }
 
-fn emit_aliases(rules: &[Rule], out: &mut String) {
-    for rule in rules {
-        if let Rule::Alias { source, target } = rule {
+fn emit_aliases(directives: &[ConfigDirective], out: &mut String) {
+    for d in directives {
+        if let ConfigDirective::Alias { source, target } = d {
             let _ = writeln!(out, "[[aliases]]");
             let _ = writeln!(out, "source = {source:?}");
             let _ = writeln!(out, "target = {target:?}");
@@ -348,7 +282,7 @@ const fn decision_str(d: Decision) -> &'static str {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::config::Config;
@@ -361,8 +295,8 @@ default = "deny"
 log = "/tmp/rippy.log"
 log-full = true
 "#;
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        let config = Config::from_rules(rules);
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
         assert_eq!(config.default_action, Some(Decision::Deny));
         assert!(config.log_file.is_some());
         assert!(config.log_full);
@@ -380,14 +314,14 @@ action = "deny"
 pattern = "rm -rf *"
 message = "Use trash instead"
 "#;
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        assert_eq!(rules.len(), 2);
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        assert_eq!(directives.len(), 2);
 
-        let config = Config::from_rules(rules);
-        let v = config.match_command("git status").unwrap();
+        let config = Config::from_directives(directives);
+        let v = config.match_command("git status", None).unwrap();
         assert_eq!(v.decision, Decision::Allow);
 
-        let v = config.match_command("rm -rf /tmp").unwrap();
+        let v = config.match_command("rm -rf /tmp", None).unwrap();
         assert_eq!(v.decision, Decision::Deny);
         assert_eq!(v.reason, "Use trash instead");
     }
@@ -400,9 +334,9 @@ action = "deny-redirect"
 pattern = "**/.env*"
 message = "Do not write to env files"
 "#;
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        let config = Config::from_rules(rules);
-        let v = config.match_redirect(".env").unwrap();
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
+        let v = config.match_redirect(".env", None).unwrap();
         assert_eq!(v.decision, Decision::Deny);
         assert_eq!(v.reason, "Do not write to env files");
     }
@@ -414,8 +348,8 @@ message = "Do not write to env files"
 action = "allow-mcp"
 pattern = "mcp__github__*"
 "#;
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        let config = Config::from_rules(rules);
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
         let v = config.match_mcp("mcp__github__create_issue").unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
@@ -428,8 +362,8 @@ action = "after"
 pattern = "git commit"
 message = "Don't forget to push"
 "#;
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        let config = Config::from_rules(rules);
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
         let msg = config.match_after("git commit -m test").unwrap();
         assert_eq!(msg, "Don't forget to push");
     }
@@ -463,13 +397,13 @@ pattern = "rm -rf /"
 source = "~/custom-git"
 target = "git"
 "#;
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        let config = Config::from_rules(rules);
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
         assert_eq!(config.resolve_alias("~/custom-git"), "git");
     }
 
     #[test]
-    fn risk_and_when_stored_without_error() {
+    fn when_clause_parsed_into_conditions() {
         let toml = r#"
 [[rules]]
 action = "ask"
@@ -480,8 +414,15 @@ message = "Container execution"
 [rules.when]
 branch = { not = "main" }
 "#;
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        assert_eq!(rules.len(), 1);
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        // Should parse without error and have 1 rule with 1 condition
+        assert_eq!(directives.len(), 1);
+        match &directives[0] {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.conditions.len(), 1);
+            }
+            _ => panic!("expected Rule"),
+        }
     }
 
     #[test]
@@ -519,21 +460,20 @@ message = "push please"
 source = "~/bin/git"
 target = "git"
 "#;
-        let rules = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
-        let serialized = rules_to_toml(&rules);
+        let directives = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
+        let serialized = rules_to_toml(&directives);
         let re_parsed = parse_toml_config(&serialized, Path::new("test.toml")).unwrap();
 
-        let config1 = Config::from_rules(rules);
-        let config2 = Config::from_rules(re_parsed);
+        let config1 = Config::from_directives(directives);
+        let config2 = Config::from_directives(re_parsed);
 
-        // Verify behavior is equivalent.
         assert_eq!(
-            config1.match_command("git status").unwrap().decision,
-            config2.match_command("git status").unwrap().decision,
+            config1.match_command("git status", None).unwrap().decision,
+            config2.match_command("git status", None).unwrap().decision,
         );
         assert_eq!(
-            config1.match_command("rm -rf /tmp").unwrap().decision,
-            config2.match_command("rm -rf /tmp").unwrap().decision,
+            config1.match_command("rm -rf /tmp", None).unwrap().decision,
+            config2.match_command("rm -rf /tmp", None).unwrap().decision,
         );
         assert_eq!(config1.default_action, config2.default_action);
         assert_eq!(
@@ -553,11 +493,11 @@ pattern = "mcp__github__*"
 action = "deny-mcp"
 pattern = "mcp__dangerous__*"
 "#;
-        let rules = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
-        let serialized = rules_to_toml(&rules);
+        let directives = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
+        let serialized = rules_to_toml(&directives);
         let re_parsed = parse_toml_config(&serialized, Path::new("test.toml")).unwrap();
 
-        let config = Config::from_rules(re_parsed);
+        let config = Config::from_directives(re_parsed);
         assert_eq!(
             config
                 .match_mcp("mcp__github__create_issue")
@@ -588,22 +528,25 @@ action = "ask-edit"
 pattern = "**/vendor/**"
 message = "vendor files"
 "#;
-        let rules = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
-        let serialized = rules_to_toml(&rules);
+        let directives = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
+        let serialized = rules_to_toml(&directives);
         let re_parsed = parse_toml_config(&serialized, Path::new("test.toml")).unwrap();
 
-        let config = Config::from_rules(re_parsed);
+        let config = Config::from_directives(re_parsed);
         assert_eq!(
-            config.match_file_read(".env").unwrap().decision,
+            config.match_file_read(".env", None).unwrap().decision,
             Decision::Deny,
         );
         assert_eq!(
-            config.match_file_write("/tmp/out.txt").unwrap().decision,
+            config
+                .match_file_write("/tmp/out.txt", None)
+                .unwrap()
+                .decision,
             Decision::Allow,
         );
         assert_eq!(
             config
-                .match_file_edit("vendor/pkg/lib.rs")
+                .match_file_edit("vendor/pkg/lib.rs", None)
                 .unwrap()
                 .decision,
             Decision::Ask,
@@ -630,19 +573,25 @@ pattern = "/var/**"
 action = "ask-mcp"
 pattern = "mcp__unknown__*"
 "#;
-        let rules = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
-        let config = Config::from_rules(rules);
+        let directives = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
 
-        let v = config.match_command("docker run -it ubuntu").unwrap();
+        let v = config.match_command("docker run -it ubuntu", None).unwrap();
         assert_eq!(v.decision, Decision::Ask);
         assert_eq!(v.reason, "confirm container");
 
         assert_eq!(
-            config.match_redirect("/tmp/out.txt").unwrap().decision,
+            config
+                .match_redirect("/tmp/out.txt", None)
+                .unwrap()
+                .decision,
             Decision::Allow,
         );
         assert_eq!(
-            config.match_redirect("/var/log/out").unwrap().decision,
+            config
+                .match_redirect("/var/log/out", None)
+                .unwrap()
+                .decision,
             Decision::Ask,
         );
         assert_eq!(
@@ -653,17 +602,17 @@ pattern = "mcp__unknown__*"
 
     #[test]
     fn empty_toml_produces_empty_config() {
-        let rules = parse_toml_config("", Path::new("test.toml")).unwrap();
-        assert!(rules.is_empty());
-        let config = Config::from_rules(rules);
-        assert!(config.match_command("anything").is_none());
+        let directives = parse_toml_config("", Path::new("test.toml")).unwrap();
+        assert!(directives.is_empty());
+        let config = Config::from_directives(directives);
+        assert!(config.match_command("anything", None).is_none());
     }
 
     #[test]
     fn log_full_false_not_emitted() {
         let toml = "[settings]\nlog-full = false\n";
-        let rules = parse_toml_config(toml, Path::new("test.toml")).unwrap();
-        let config = Config::from_rules(rules);
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
         assert!(!config.log_full);
     }
 }

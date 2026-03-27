@@ -143,9 +143,9 @@ fn evaluate_file_access(payload: &Payload, config: &Config, verbose: bool) -> Op
     let op = payload.file_operation()?;
 
     let verdict = match op {
-        FileOp::Read => config.match_file_read(file_path),
-        FileOp::Write => config.match_file_write(file_path),
-        FileOp::Edit => config.match_file_edit(file_path),
+        FileOp::Read => config.match_file_read(file_path, None),
+        FileOp::Write => config.match_file_write(file_path, None),
+        FileOp::Edit => config.match_file_edit(file_path, None),
     };
 
     if verbose && let Some(v) = &verdict {

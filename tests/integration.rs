@@ -1131,3 +1131,76 @@ fn self_protect_disabled_allows_write() {
     // With self-protect off and no deny-write rule, this should passthrough (exit 0).
     assert_eq!(code, 0);
 }
+
+// ---- Conditional rule tests ----
+
+#[test]
+fn conditional_rule_file_exists_skipped_when_missing() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        r#"
+[[rules]]
+action = "deny"
+pattern = "echo *"
+message = "blocked"
+
+[rules.when]
+file-exists = "Cargo.toml"
+"#,
+    )
+    .unwrap();
+    // Cargo.toml does NOT exist in tmpdir, so condition fails and rule is skipped.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    // echo is in simple_safe → allowed
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn conditional_rule_file_exists_applies_when_present() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // Create the sentinel file so the condition passes.
+    std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        r#"
+[[rules]]
+action = "deny"
+pattern = "echo *"
+message = "blocked"
+
+[rules.when]
+file-exists = "Cargo.toml"
+"#,
+    )
+    .unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    // Cargo.toml exists → condition passes → deny rule applies
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
+}
+
+#[test]
+fn conditional_rule_branch_not_main() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        r#"
+[[rules]]
+action = "deny"
+pattern = "echo *"
+message = "only blocked on main"
+
+[rules.when]
+branch = { eq = "main" }
+"#,
+    )
+    .unwrap();
+    // tmpdir is not a git repo → no branch → condition fails → rule skipped
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+}
