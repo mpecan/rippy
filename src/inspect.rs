@@ -469,12 +469,47 @@ mod tests {
     }
 
     #[test]
+    fn rule_to_display_mcp() {
+        let rule = Rule::Mcp {
+            kind: Decision::Allow,
+            pattern: crate::pattern::Pattern::new("mcp__github__*"),
+        };
+        let d = rule_to_display(&rule).unwrap();
+        assert_eq!(d.action, "allow-mcp");
+        assert_eq!(d.pattern, "mcp__github__*");
+    }
+
+    #[test]
+    fn rule_to_display_after() {
+        let rule = Rule::After {
+            pattern: crate::pattern::Pattern::new("git commit"),
+            message: "don't forget to push".to_string(),
+        };
+        let d = rule_to_display(&rule).unwrap();
+        assert_eq!(d.action, "after");
+        assert_eq!(d.message.as_deref(), Some("don't forget to push"));
+    }
+
+    #[test]
     fn rule_to_display_skips_set() {
         let rule = Rule::Set {
             key: "default".to_string(),
             value: "ask".to_string(),
         };
         assert!(rule_to_display(&rule).is_none());
+    }
+
+    #[test]
+    fn trace_handler_command() {
+        let cwd = std::env::current_dir().unwrap();
+        let output = collect_trace_data("git push origin main", &cwd, None).unwrap();
+        assert_eq!(output.decision, "ask");
+        assert!(
+            output
+                .steps
+                .iter()
+                .any(|s| s.stage == "Handler" && s.matched)
+        );
     }
 
     #[test]
