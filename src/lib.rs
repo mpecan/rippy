@@ -16,5 +16,7 @@ pub mod payload;
 pub mod python_safety;
 pub mod setup;
 pub mod sql;
+pub mod stats;
 pub mod toml_config;
+pub mod tracking;
 pub mod verdict;

@@ -27,4 +27,7 @@ pub enum RippyError {
 
     #[error("setup error: {0}")]
     Setup(String),
+
+    #[error("tracking error: {0}")]
+    Tracking(String),
 }
