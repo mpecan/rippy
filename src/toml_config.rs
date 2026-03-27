@@ -564,6 +564,45 @@ pattern = "mcp__dangerous__*"
     }
 
     #[test]
+    fn roundtrip_file_rules() {
+        let toml_input = r#"
+[[rules]]
+action = "deny-read"
+pattern = "**/.env*"
+message = "no env"
+
+[[rules]]
+action = "allow-write"
+pattern = "/tmp/**"
+
+[[rules]]
+action = "ask-edit"
+pattern = "**/vendor/**"
+message = "vendor files"
+"#;
+        let rules = parse_toml_config(toml_input, Path::new("test.toml")).unwrap();
+        let serialized = rules_to_toml(&rules);
+        let re_parsed = parse_toml_config(&serialized, Path::new("test.toml")).unwrap();
+
+        let config = Config::from_rules(re_parsed);
+        assert_eq!(
+            config.match_file_read(".env").unwrap().decision,
+            Decision::Deny,
+        );
+        assert_eq!(
+            config.match_file_write("/tmp/out.txt").unwrap().decision,
+            Decision::Allow,
+        );
+        assert_eq!(
+            config
+                .match_file_edit("vendor/pkg/lib.rs")
+                .unwrap()
+                .decision,
+            Decision::Ask,
+        );
+    }
+
+    #[test]
     fn all_action_variants() {
         let toml_input = r#"
 [[rules]]

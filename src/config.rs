@@ -818,4 +818,103 @@ mod tests {
         let v = config.match_command("uv run python -c 'print(1)'").unwrap();
         assert_eq!(v.decision, Decision::Allow);
     }
+
+    #[test]
+    fn match_file_read_rules() {
+        let config = Config::from_rules(vec![
+            Rule::FileRead {
+                kind: Decision::Deny,
+                pattern: Pattern::new("**/.env*"),
+                message: Some("no env".to_string()),
+            },
+            Rule::FileRead {
+                kind: Decision::Allow,
+                pattern: Pattern::new("/tmp/**"),
+                message: None,
+            },
+        ]);
+        let v = config.match_file_read(".env.local").unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        assert_eq!(v.reason, "no env");
+
+        let v = config.match_file_read("/tmp/safe.txt").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+
+        assert!(config.match_file_read("main.rs").is_none());
+    }
+
+    #[test]
+    fn match_file_write_rules() {
+        let config = Config::from_rules(vec![Rule::FileWrite {
+            kind: Decision::Deny,
+            pattern: Pattern::new("**/.rippy*"),
+            message: Some("config protected".to_string()),
+        }]);
+        let v = config.match_file_write(".rippy.toml").unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        assert!(config.match_file_write("other.txt").is_none());
+    }
+
+    #[test]
+    fn match_file_edit_rules() {
+        let config = Config::from_rules(vec![Rule::FileEdit {
+            kind: Decision::Ask,
+            pattern: Pattern::new("**/node_modules/**"),
+            message: Some("vendor".to_string()),
+        }]);
+        let v = config.match_file_edit("node_modules/pkg/index.js").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+        assert!(config.match_file_edit("src/main.rs").is_none());
+    }
+
+    #[test]
+    fn parse_file_read_rule() {
+        let rule = parse_rule(r#"deny-read **/.env* "no env files""#).unwrap();
+        match rule {
+            Rule::FileRead {
+                kind: Decision::Deny,
+                pattern,
+                message,
+            } => {
+                assert!(pattern.matches(".env"));
+                assert!(pattern.matches("foo/.env.local"));
+                assert_eq!(message.as_deref(), Some("no env files"));
+            }
+            _ => panic!("expected FileRead"),
+        }
+    }
+
+    #[test]
+    fn parse_file_write_rule() {
+        let rule = parse_rule("allow-write /tmp/**").unwrap();
+        match rule {
+            Rule::FileWrite {
+                kind: Decision::Allow,
+                ..
+            } => {}
+            _ => panic!("expected FileWrite"),
+        }
+    }
+
+    #[test]
+    fn file_rules_last_match_wins() {
+        let config = Config::from_rules(vec![
+            Rule::FileRead {
+                kind: Decision::Allow,
+                pattern: Pattern::new("**"),
+                message: None,
+            },
+            Rule::FileRead {
+                kind: Decision::Deny,
+                pattern: Pattern::new("**/.env*"),
+                message: Some("blocked".to_string()),
+            },
+        ]);
+        // .env matches both rules, last match (deny) wins.
+        let v = config.match_file_read(".env").unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        // Other files match only the allow rule.
+        let v = config.match_file_read("main.rs").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
 }
