@@ -133,58 +133,90 @@ fn settings_to_rules(settings: &TomlSettings, rules: &mut Vec<Rule>) {
 /// Convert a single TOML rule into the internal `Rule` enum.
 fn convert_rule(rule: &TomlRule) -> Result<Rule, String> {
     let pattern = Pattern::new(&rule.pattern);
+    let action = rule.action.as_str();
 
-    match rule.action.as_str() {
-        "allow" => Ok(Rule::Command {
-            kind: Decision::Allow,
-            pattern,
-            message: rule.message.clone(),
-        }),
-        "ask" => Ok(Rule::Command {
-            kind: Decision::Ask,
-            pattern,
-            message: rule.message.clone(),
-        }),
-        "deny" => Ok(Rule::Command {
-            kind: Decision::Deny,
-            pattern,
-            message: rule.message.clone(),
-        }),
-        "allow-redirect" => Ok(Rule::Redirect {
-            kind: Decision::Allow,
-            pattern,
-            message: rule.message.clone(),
-        }),
-        "ask-redirect" => Ok(Rule::Redirect {
-            kind: Decision::Ask,
-            pattern,
-            message: rule.message.clone(),
-        }),
-        "deny-redirect" => Ok(Rule::Redirect {
-            kind: Decision::Deny,
-            pattern,
-            message: rule.message.clone(),
-        }),
-        "allow-mcp" => Ok(Rule::Mcp {
-            kind: Decision::Allow,
-            pattern,
-        }),
-        "ask-mcp" => Ok(Rule::Mcp {
-            kind: Decision::Ask,
-            pattern,
-        }),
-        "deny-mcp" => Ok(Rule::Mcp {
-            kind: Decision::Deny,
-            pattern,
-        }),
-        "after" => {
-            let message = rule
-                .message
-                .clone()
-                .ok_or("'after' rules require a message field")?;
-            Ok(Rule::After { pattern, message })
+    match action {
+        "allow" | "ask" | "deny" => {
+            Ok(convert_command_rule(action, pattern, rule.message.as_ref()))
+        }
+        "after" => convert_after_rule(pattern, rule.message.as_ref()),
+        _ if action.ends_with("-redirect") => {
+            convert_compound_rule(action, pattern, rule.message.as_ref())
+        }
+        _ if action.ends_with("-mcp") => {
+            convert_compound_rule(action, pattern, rule.message.as_ref())
+        }
+        _ if action.ends_with("-read") => {
+            convert_compound_rule(action, pattern, rule.message.as_ref())
+        }
+        _ if action.ends_with("-write") => {
+            convert_compound_rule(action, pattern, rule.message.as_ref())
+        }
+        _ if action.ends_with("-edit") => {
+            convert_compound_rule(action, pattern, rule.message.as_ref())
         }
         other => Err(format!("unknown action: {other}")),
+    }
+}
+
+fn convert_command_rule(action: &str, pattern: Pattern, message: Option<&String>) -> Rule {
+    let kind = parse_file_action_kind(action);
+    Rule::Command {
+        kind,
+        pattern,
+        message: message.cloned(),
+    }
+}
+
+fn convert_after_rule(pattern: Pattern, message: Option<&String>) -> Result<Rule, String> {
+    let msg = message
+        .cloned()
+        .ok_or("'after' rules require a message field")?;
+    Ok(Rule::After {
+        pattern,
+        message: msg,
+    })
+}
+
+fn convert_compound_rule(
+    action: &str,
+    pattern: Pattern,
+    message: Option<&String>,
+) -> Result<Rule, String> {
+    let kind = parse_file_action_kind(action);
+    let msg = message.cloned();
+    match action.rsplit('-').next().unwrap_or("") {
+        "redirect" => Ok(Rule::Redirect {
+            kind,
+            pattern,
+            message: msg,
+        }),
+        "mcp" => Ok(Rule::Mcp { kind, pattern }),
+        "read" => Ok(Rule::FileRead {
+            kind,
+            pattern,
+            message: msg,
+        }),
+        "write" => Ok(Rule::FileWrite {
+            kind,
+            pattern,
+            message: msg,
+        }),
+        "edit" => Ok(Rule::FileEdit {
+            kind,
+            pattern,
+            message: msg,
+        }),
+        _ => Err(format!("unknown action: {action}")),
+    }
+}
+
+/// Extract the decision kind from a compound action like `"deny-read"`.
+fn parse_file_action_kind(action: &str) -> Decision {
+    match action.split('-').next().unwrap_or("ask") {
+        "allow" => Decision::Allow,
+        "deny" => Decision::Deny,
+        _ => Decision::Ask,
     }
 }
 
@@ -244,6 +276,30 @@ fn emit_rules(rules: &[Rule], out: &mut String) {
             }
             Rule::After { pattern, message } => {
                 emit_rule_entry(out, "after", pattern.raw(), Some(message));
+            }
+            Rule::FileRead {
+                kind,
+                pattern,
+                message,
+            } => {
+                let action = format!("{}-read", decision_str(*kind));
+                emit_rule_entry(out, &action, pattern.raw(), message.as_deref());
+            }
+            Rule::FileWrite {
+                kind,
+                pattern,
+                message,
+            } => {
+                let action = format!("{}-write", decision_str(*kind));
+                emit_rule_entry(out, &action, pattern.raw(), message.as_deref());
+            }
+            Rule::FileEdit {
+                kind,
+                pattern,
+                message,
+            } => {
+                let action = format!("{}-edit", decision_str(*kind));
+                emit_rule_entry(out, &action, pattern.raw(), message.as_deref());
             }
             Rule::Alias { .. } | Rule::Set { .. } => {}
         }
