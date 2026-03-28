@@ -3,6 +3,7 @@ pub mod analyzer;
 pub mod ast;
 pub mod cc_permissions;
 pub mod cli;
+pub mod condition;
 pub mod config;
 pub mod error;
 pub mod handlers;

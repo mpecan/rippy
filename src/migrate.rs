@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::cli::MigrateArgs;
-use crate::config::Rule;
+use crate::config::ConfigDirective;
 use crate::error::RippyError;
 use crate::toml_config::rules_to_toml;
 
@@ -68,29 +68,29 @@ fn derive_output_path(input: &Path) -> PathBuf {
         .join(".rippy.toml")
 }
 
-/// Parse a legacy line-based config file into rules.
-fn parse_legacy_file(path: &Path) -> Result<Vec<Rule>, RippyError> {
+/// Parse a legacy line-based config file into directives.
+fn parse_legacy_file(path: &Path) -> Result<Vec<ConfigDirective>, RippyError> {
     let content = std::fs::read_to_string(path).map_err(|e| RippyError::Config {
         path: path.to_owned(),
         line: 0,
         message: format!("could not read: {e}"),
     })?;
 
-    let mut rules = Vec::new();
+    let mut directives = Vec::new();
     for (line_num, line) in content.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let rule = crate::config::parse_rule(line).map_err(|msg| RippyError::Config {
+        let directive = crate::config::parse_rule(line).map_err(|msg| RippyError::Config {
             path: path.to_owned(),
             line: line_num + 1,
             message: msg,
         })?;
-        rules.push(rule);
+        directives.push(directive);
     }
 
-    Ok(rules)
+    Ok(directives)
 }
 
 #[cfg(test)]
@@ -108,19 +108,19 @@ mod tests {
         )
         .unwrap();
 
-        let rules = parse_legacy_file(&input).unwrap();
-        let toml = rules_to_toml(&rules);
+        let directives = parse_legacy_file(&input).unwrap();
+        let toml = rules_to_toml(&directives);
 
         // Verify the TOML is valid and round-trips.
         let re_parsed =
             crate::toml_config::parse_toml_config(&toml, Path::new("test.toml")).unwrap();
-        let config = crate::config::Config::from_rules(re_parsed);
+        let config = crate::config::Config::from_directives(re_parsed);
         assert_eq!(
-            config.match_command("git status").unwrap().decision,
+            config.match_command("git status", None).unwrap().decision,
             crate::verdict::Decision::Allow,
         );
         assert_eq!(
-            config.match_command("rm -rf /tmp").unwrap().decision,
+            config.match_command("rm -rf /tmp", None).unwrap().decision,
             crate::verdict::Decision::Deny,
         );
         assert_eq!(config.default_action, Some(crate::verdict::Decision::Ask));
