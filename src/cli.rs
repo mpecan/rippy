@@ -54,6 +54,12 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Show aggregate decision tracking statistics
     Stats(StatsArgs),
+    /// Add an allow rule to the config
+    Allow(RuleArgs),
+    /// Add a deny rule to the config
+    Deny(RuleArgs),
+    /// Add an ask rule to the config
+    Ask(RuleArgs),
 }
 
 #[derive(Args, Debug)]
@@ -69,6 +75,20 @@ pub struct StatsArgs {
     /// Override tracking database path
     #[arg(long)]
     pub db: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct RuleArgs {
+    /// Pattern to match (e.g. "git push *")
+    pub pattern: String,
+    /// Optional rejection/guidance message
+    pub message: Option<String>,
+    /// Write to global config (~/.rippy/config.toml) instead of project .rippy.toml
+    #[arg(long)]
+    pub global: bool,
+    /// Show suggested patterns from a command string instead of adding a rule
+    #[arg(long)]
+    pub suggest: Option<String>,
 }
 
 #[derive(Args, Debug)]
