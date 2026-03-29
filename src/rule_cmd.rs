@@ -4,20 +4,10 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::cli::{RuleArgs, SuggestArgs};
+use crate::cli::RuleArgs;
 use crate::config;
 use crate::error::RippyError;
 use crate::verdict::Decision;
-
-/// Run the suggest subcommand — print pattern suggestions for a command.
-///
-/// # Errors
-///
-/// This function is infallible but returns `Result` for consistency with other subcommands.
-pub fn run_suggest(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
-    print_suggestions(&args.command);
-    Ok(ExitCode::SUCCESS)
-}
 
 /// Run the allow/deny/ask subcommand.
 ///
@@ -146,21 +136,6 @@ pub fn suggest_patterns(command: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     suggestions.retain(|s| seen.insert(s.clone()));
     suggestions
-}
-
-fn print_suggestions(command: &str) {
-    let patterns = suggest_patterns(command);
-    if patterns.is_empty() {
-        eprintln!("[rippy] No patterns to suggest for empty command");
-        return;
-    }
-    println!("Suggested patterns for: {command}\n");
-    for (i, pattern) in patterns.iter().enumerate() {
-        println!("  {}. {pattern}", i + 1);
-    }
-    let last = patterns.last().map_or("", String::as_str);
-    let first = patterns.first().map_or("", String::as_str);
-    println!("\nUsage: rippy allow \"{last}\"\n       rippy deny \"{first}\"");
 }
 
 #[cfg(test)]

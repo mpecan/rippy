@@ -60,7 +60,7 @@ pub enum Command {
     Deny(RuleArgs),
     /// Add an ask rule to the config
     Ask(RuleArgs),
-    /// Show suggested patterns from a command string
+    /// Analyze tracking data and suggest config rules
     Suggest(SuggestArgs),
 }
 
@@ -92,8 +92,33 @@ pub struct RuleArgs {
 
 #[derive(Args, Debug)]
 pub struct SuggestArgs {
-    /// Command string to generate patterns from (e.g. "git push origin main")
-    pub command: String,
+    /// Generate patterns from a command string instead of analyzing the DB
+    #[arg(long)]
+    pub from_command: Option<String>,
+
+    /// Time filter, e.g. "7d", "30d", "1h", "30m"
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Output in JSON format
+    #[arg(long)]
+    pub json: bool,
+
+    /// Override tracking database path
+    #[arg(long)]
+    pub db: Option<PathBuf>,
+
+    /// Apply all suggestions to config
+    #[arg(long)]
+    pub apply: bool,
+
+    /// Write to global config (~/.rippy/config.toml) instead of project .rippy.toml
+    #[arg(long)]
+    pub global: bool,
+
+    /// Minimum number of occurrences to generate a suggestion
+    #[arg(long, default_value = "3")]
+    pub min_count: i64,
 }
 
 #[derive(Args, Debug)]

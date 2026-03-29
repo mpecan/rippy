@@ -236,6 +236,28 @@ pub fn parse_duration(input: &str) -> Option<String> {
     Some(format!("{num} {sqlite_unit}"))
 }
 
+/// Resolve the tracking database path from an explicit override or config.
+///
+/// # Errors
+///
+/// Returns `RippyError::Tracking` if no database is configured.
+pub fn resolve_db_path(
+    explicit: Option<&std::path::Path>,
+) -> Result<std::path::PathBuf, RippyError> {
+    if let Some(db) = explicit {
+        return Ok(db.to_path_buf());
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let cfg = crate::config::Config::load(&cwd, None)?;
+    cfg.tracking_db.ok_or_else(|| {
+        RippyError::Tracking(
+            "no tracking database configured. Enable with `set tracking on` in \
+             .rippy config, or use --db <path>"
+                .to_string(),
+        )
+    })
+}
+
 /// Aggregate decision counts.
 #[derive(Debug, Default, serde::Serialize)]
 pub struct DecisionCounts {
@@ -243,6 +265,92 @@ pub struct DecisionCounts {
     pub allow: i64,
     pub ask: i64,
     pub deny: i64,
+}
+
+/// Per-command decision breakdown for suggestion analysis.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CommandBreakdown {
+    pub command: String,
+    pub allow_count: i64,
+    pub ask_count: i64,
+    pub deny_count: i64,
+}
+
+/// Query per-command decision breakdowns from the tracking database.
+///
+/// Returns one entry per unique command string with counts for each decision type.
+///
+/// # Errors
+///
+/// Returns `RippyError::Tracking` if the database cannot be queried.
+pub fn query_command_breakdown(
+    conn: &Connection,
+    since: Option<&str>,
+) -> Result<Vec<CommandBreakdown>, RippyError> {
+    let base_query = "SELECT command, decision, COUNT(*) FROM decisions \
+                      WHERE command IS NOT NULL";
+
+    if let Some(duration) = since {
+        let modifier = format!("-{duration}");
+        let mut stmt = conn
+            .prepare(&format!(
+                "{base_query} AND timestamp >= datetime('now', ?1) \
+                 GROUP BY command, decision"
+            ))
+            .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
+        collect_breakdown(&mut stmt, rusqlite::params![modifier])
+    } else {
+        let mut stmt = conn
+            .prepare(&format!("{base_query} GROUP BY command, decision"))
+            .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
+        collect_breakdown(&mut stmt, [])
+    }
+}
+
+fn collect_breakdown(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: impl rusqlite::Params,
+) -> Result<Vec<CommandBreakdown>, RippyError> {
+    let rows = stmt
+        .query_map(params, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|e| RippyError::Tracking(format!("query failed: {e}")))?;
+
+    // Pivot: group (command, decision, count) rows into per-command breakdowns.
+    let mut map: std::collections::HashMap<String, CommandBreakdown> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let (command, decision, count) = row.map_err(|e| RippyError::Tracking(format!("{e}")))?;
+        let entry = map
+            .entry(command.clone())
+            .or_insert_with(|| CommandBreakdown {
+                command,
+                allow_count: 0,
+                ask_count: 0,
+                deny_count: 0,
+            });
+        match decision.as_str() {
+            "allow" => entry.allow_count = count,
+            "ask" => entry.ask_count = count,
+            "deny" => entry.deny_count = count,
+            _ => {}
+        }
+    }
+
+    let mut result: Vec<CommandBreakdown> = map.into_values().collect();
+    result.sort_by(|a, b| {
+        let total_b = b.allow_count + b.ask_count + b.deny_count;
+        let total_a = a.allow_count + a.ask_count + a.deny_count;
+        total_b
+            .cmp(&total_a)
+            .then_with(|| a.command.cmp(&b.command))
+    });
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -387,6 +495,50 @@ mod tests {
         .unwrap();
         let counts = query_counts(&conn, None).unwrap();
         assert_eq!(counts.total, 1);
+    }
+
+    #[test]
+    fn query_command_breakdown_groups_by_decision() {
+        let conn = in_memory_db();
+        for _ in 0..10 {
+            record_decision(&conn, &sample_entry()).unwrap(); // git status, allow
+        }
+        for _ in 0..5 {
+            record_decision(
+                &conn,
+                &TrackingEntry {
+                    decision: Decision::Ask,
+                    command: Some("git push"),
+                    reason: "review",
+                    ..sample_entry()
+                },
+            )
+            .unwrap();
+        }
+        for _ in 0..2 {
+            record_decision(
+                &conn,
+                &TrackingEntry {
+                    decision: Decision::Allow,
+                    command: Some("git push"),
+                    reason: "ok",
+                    ..sample_entry()
+                },
+            )
+            .unwrap();
+        }
+
+        let breakdown = super::query_command_breakdown(&conn, None).unwrap();
+        assert_eq!(breakdown.len(), 2);
+
+        // Sorted by total descending: git status (10) > git push (7)
+        assert_eq!(breakdown[0].command, "git status");
+        assert_eq!(breakdown[0].allow_count, 10);
+        assert_eq!(breakdown[0].ask_count, 0);
+
+        assert_eq!(breakdown[1].command, "git push");
+        assert_eq!(breakdown[1].allow_count, 2);
+        assert_eq!(breakdown[1].ask_count, 5);
     }
 
     #[test]
