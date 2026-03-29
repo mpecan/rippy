@@ -1238,9 +1238,41 @@ fn deny_command_with_message() {
 }
 
 #[test]
-fn suggest_patterns_output() {
+fn ask_command_creates_toml_rule() {
+    let dir = tempfile::TempDir::new().unwrap();
     let output = std::process::Command::new(common::rippy_binary())
-        .args(["allow", "dummy", "--suggest", "git push origin main"])
+        .args(["ask", "docker run *"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let content = std::fs::read_to_string(dir.path().join(".rippy.toml")).unwrap();
+    assert!(content.contains("action = \"ask\""));
+    assert!(content.contains("pattern = \"docker run *\""));
+}
+
+#[test]
+fn allow_global_writes_to_home_config() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["allow", "git status", "--global"])
+        .env("HOME", dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let content = std::fs::read_to_string(dir.path().join(".rippy/config.toml")).unwrap();
+    assert!(content.contains("action = \"allow\""));
+    assert!(content.contains("pattern = \"git status\""));
+}
+
+#[test]
+fn suggest_command_output() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["suggest", "git push origin main"])
+        .current_dir(dir.path())
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -1249,4 +1281,7 @@ fn suggest_patterns_output() {
     assert!(stdout.contains("git push origin main"));
     assert!(stdout.contains("git push *"));
     assert!(stdout.contains("git *"));
+
+    // Suggest should NOT create a config file
+    assert!(!dir.path().join(".rippy.toml").exists());
 }

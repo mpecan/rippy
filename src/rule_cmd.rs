@@ -4,10 +4,20 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::cli::RuleArgs;
+use crate::cli::{RuleArgs, SuggestArgs};
 use crate::config;
 use crate::error::RippyError;
 use crate::verdict::Decision;
+
+/// Run the suggest subcommand — print pattern suggestions for a command.
+///
+/// # Errors
+///
+/// This function is infallible but returns `Result` for consistency with other subcommands.
+pub fn run_suggest(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
+    print_suggestions(&args.command);
+    Ok(ExitCode::SUCCESS)
+}
 
 /// Run the allow/deny/ask subcommand.
 ///
@@ -15,11 +25,6 @@ use crate::verdict::Decision;
 ///
 /// Returns `RippyError::Setup` if the config file cannot be read or written.
 pub fn run(decision: Decision, args: &RuleArgs) -> Result<ExitCode, RippyError> {
-    if let Some(command) = &args.suggest {
-        print_suggestions(command);
-        return Ok(ExitCode::SUCCESS);
-    }
-
     let path = resolve_config_path(args.global)?;
     append_rule_to_toml(&path, decision, &args.pattern, args.message.as_deref())?;
 
@@ -115,8 +120,8 @@ pub fn suggest_patterns(command: &str) -> Vec<String> {
 
     let mut suggestions = Vec::new();
 
-    // 1. Exact command
-    suggestions.push(command.to_string());
+    // 1. Exact command (normalized whitespace)
+    suggestions.push(tokens.join(" "));
 
     // 2. Wildcard last arg (if >2 tokens)
     if tokens.len() > 2 {
@@ -198,6 +203,12 @@ mod tests {
     #[test]
     fn suggest_empty() {
         assert!(suggest_patterns("").is_empty());
+    }
+
+    #[test]
+    fn suggest_normalizes_whitespace() {
+        let s = suggest_patterns("git  push   origin");
+        assert_eq!(s, vec!["git push origin", "git push *", "git *"]);
     }
 
     #[test]

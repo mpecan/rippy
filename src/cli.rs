@@ -60,6 +60,8 @@ pub enum Command {
     Deny(RuleArgs),
     /// Add an ask rule to the config
     Ask(RuleArgs),
+    /// Show suggested patterns from a command string
+    Suggest(SuggestArgs),
 }
 
 #[derive(Args, Debug)]
@@ -86,9 +88,12 @@ pub struct RuleArgs {
     /// Write to global config (~/.rippy/config.toml) instead of project .rippy.toml
     #[arg(long)]
     pub global: bool,
-    /// Show suggested patterns from a command string instead of adding a rule
-    #[arg(long)]
-    pub suggest: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct SuggestArgs {
+    /// Command string to generate patterns from (e.g. "git push origin main")
+    pub command: String,
 }
 
 #[derive(Args, Debug)]
