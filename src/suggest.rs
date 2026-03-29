@@ -116,18 +116,7 @@ fn print_command_suggestions(command: &str) {
 }
 
 fn resolve_db_path(args: &SuggestArgs) -> Result<PathBuf, RippyError> {
-    if let Some(db) = &args.db {
-        return Ok(db.clone());
-    }
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let cfg = config::Config::load(&cwd, None)?;
-    cfg.tracking_db.ok_or_else(|| {
-        RippyError::Tracking(
-            "no tracking database configured. Enable with `set tracking on` in \
-             .rippy config, or use --db <path>"
-                .to_string(),
-        )
-    })
+    tracking::resolve_db_path(args.db.as_deref())
 }
 
 fn parse_since(since: Option<&str>) -> Result<Option<String>, RippyError> {
@@ -600,5 +589,40 @@ mod tests {
             .find(|s| s.pattern.contains("push"))
             .unwrap();
         assert_eq!(push.risk, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn apply_suggestions_writes_rules() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let config_path = dir.path().join(".rippy.toml");
+
+        let suggestions = vec![
+            Suggestion {
+                pattern: "git status".into(),
+                action: "allow".into(),
+                risk: RiskLevel::Low,
+                confidence: Confidence::High,
+                evidence: make_evidence(20, 0, 0),
+            },
+            Suggestion {
+                pattern: "rm -rf *".into(),
+                action: "deny".into(),
+                risk: RiskLevel::High,
+                confidence: Confidence::High,
+                evidence: make_evidence(0, 0, 10),
+            },
+        ];
+
+        // We need to run in the tmpdir so .rippy.toml lands there.
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        apply_suggestions(&suggestions, false).unwrap();
+        std::env::set_current_dir(original_dir).unwrap();
+
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("action = \"allow\""));
+        assert!(content.contains("pattern = \"git status\""));
+        assert!(content.contains("action = \"deny\""));
+        assert!(content.contains("pattern = \"rm -rf *\""));
     }
 }

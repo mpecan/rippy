@@ -236,6 +236,28 @@ pub fn parse_duration(input: &str) -> Option<String> {
     Some(format!("{num} {sqlite_unit}"))
 }
 
+/// Resolve the tracking database path from an explicit override or config.
+///
+/// # Errors
+///
+/// Returns `RippyError::Tracking` if no database is configured.
+pub fn resolve_db_path(
+    explicit: Option<&std::path::Path>,
+) -> Result<std::path::PathBuf, RippyError> {
+    if let Some(db) = explicit {
+        return Ok(db.to_path_buf());
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let cfg = crate::config::Config::load(&cwd, None)?;
+    cfg.tracking_db.ok_or_else(|| {
+        RippyError::Tracking(
+            "no tracking database configured. Enable with `set tracking on` in \
+             .rippy config, or use --db <path>"
+                .to_string(),
+        )
+    })
+}
+
 /// Aggregate decision counts.
 #[derive(Debug, Default, serde::Serialize)]
 pub struct DecisionCounts {

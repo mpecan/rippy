@@ -6,7 +6,6 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 use crate::cli::StatsArgs;
-use crate::config;
 use crate::error::RippyError;
 use crate::tracking;
 
@@ -53,20 +52,7 @@ pub fn run(args: &StatsArgs) -> Result<ExitCode, RippyError> {
 }
 
 fn resolve_db_path(args: &StatsArgs) -> Result<PathBuf, RippyError> {
-    if let Some(db) = &args.db {
-        return Ok(db.clone());
-    }
-
-    // Try loading config to find tracking_db path.
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let cfg = config::Config::load(&cwd, None)?;
-    cfg.tracking_db.ok_or_else(|| {
-        RippyError::Tracking(
-            "no tracking database configured. Enable with `set tracking on` in \
-             .rippy config, or use --db <path>"
-                .to_string(),
-        )
-    })
+    tracking::resolve_db_path(args.db.as_deref())
 }
 
 fn print_stats_text(output: &StatsOutput) {

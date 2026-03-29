@@ -136,4 +136,11 @@ mod tests {
         assert_eq!(classify("git push"), RiskLevel::Medium);
         assert_eq!(classify("unknown-tool"), RiskLevel::Medium);
     }
+
+    #[test]
+    fn ordering_low_to_critical() {
+        assert!(RiskLevel::Low < RiskLevel::Medium);
+        assert!(RiskLevel::Medium < RiskLevel::High);
+        assert!(RiskLevel::High < RiskLevel::Critical);
+    }
 }
