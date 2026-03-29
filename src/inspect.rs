@@ -133,13 +133,9 @@ fn directive_to_display(directive: &ConfigDirective) -> Option<RuleDisplay> {
 
 fn rule_to_display(rule: &Rule) -> RuleDisplay {
     let pattern = if rule.has_structured_fields() && rule.pattern.is_any() {
-        format_structured_pattern(rule)
+        rule.structured_description()
     } else if rule.has_structured_fields() {
-        format!(
-            "{} + {}",
-            rule.pattern.raw(),
-            format_structured_pattern(rule)
-        )
+        format!("{} + {}", rule.pattern.raw(), rule.structured_description())
     } else {
         rule.pattern.raw().to_string()
     };
@@ -148,26 +144,6 @@ fn rule_to_display(rule: &Rule) -> RuleDisplay {
         pattern,
         message: rule.message.clone(),
     }
-}
-
-fn format_structured_pattern(rule: &Rule) -> String {
-    let mut parts = Vec::new();
-    if let Some(c) = &rule.command {
-        parts.push(format!("command={c}"));
-    }
-    if let Some(s) = &rule.subcommand {
-        parts.push(format!("subcommand={s}"));
-    }
-    if let Some(list) = &rule.subcommands {
-        parts.push(format!("subcommands=[{}]", list.join(",")));
-    }
-    if let Some(f) = &rule.flags {
-        parts.push(format!("flags=[{}]", f.join(",")));
-    }
-    if let Some(a) = &rule.args_contain {
-        parts.push(format!("args-contain={a}"));
-    }
-    parts.join(" ")
 }
 
 fn collect_cc_rules(cwd: &Path) -> Vec<SourceRules> {

@@ -1,0 +1,62 @@
+# Example: Data-driven handler replacements using structured matching
+#
+# These rules demonstrate how to replicate handler behavior declaratively,
+# making the safety policy transparent and customizable without code changes.
+
+# ── Git ────────────────────────────────────────────────────────────────
+
+# Allow safe read-only git subcommands
+[[rules]]
+action = "allow"
+command = "git"
+subcommands = ["status", "log", "diff", "show", "branch", "stash", "tag", "remote"]
+
+# Deny force-push to main
+[[rules]]
+action = "deny"
+command = "git"
+subcommand = "push"
+flags = ["--force", "--force-with-lease", "-f"]
+message = "Use --force-with-lease on feature branches only"
+
+[rules.when]
+branch = { eq = "main" }
+
+# Ask before any push
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "push"
+
+# ── Docker ─────────────────────────────────────────────────────────────
+
+# Allow read-only docker subcommands
+[[rules]]
+action = "allow"
+command = "docker"
+subcommands = ["ps", "images", "inspect", "logs", "version"]
+
+# Ask before running containers
+[[rules]]
+action = "ask"
+command = "docker"
+subcommand = "run"
+message = "Review the container image and flags"
+
+# ── Curl ───────────────────────────────────────────────────────────────
+
+# Deny insecure curl flags
+[[rules]]
+action = "deny"
+command = "curl"
+flags = ["-k", "--insecure"]
+message = "Do not disable certificate verification"
+
+# ── npm ────────────────────────────────────────────────────────────────
+
+# Ask before installing packages
+[[rules]]
+action = "ask"
+command = "npm"
+subcommand = "install"
+message = "Verify package name and source"

@@ -69,6 +69,28 @@ impl Rule {
         self
     }
 
+    /// Format structured fields as a human-readable description.
+    #[must_use]
+    pub fn structured_description(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(c) = &self.command {
+            parts.push(format!("command={c}"));
+        }
+        if let Some(s) = &self.subcommand {
+            parts.push(format!("subcommand={s}"));
+        }
+        if let Some(list) = &self.subcommands {
+            parts.push(format!("subcommands=[{}]", list.join(",")));
+        }
+        if let Some(f) = &self.flags {
+            parts.push(format!("flags=[{}]", f.join(",")));
+        }
+        if let Some(a) = &self.args_contain {
+            parts.push(format!("args-contain={a}"));
+        }
+        parts.join(" ")
+    }
+
     /// Returns `true` if this rule has any structured matching fields set.
     #[must_use]
     pub const fn has_structured_fields(&self) -> bool {
@@ -675,23 +697,7 @@ fn has_required_flag(args: &[&str], required_flags: &[String]) -> bool {
 /// Format a human-readable reason for a matched rule.
 fn format_rule_reason(rule: &Rule, label: &str) -> String {
     if rule.has_structured_fields() {
-        let mut parts = Vec::new();
-        if let Some(c) = &rule.command {
-            parts.push(format!("command={c}"));
-        }
-        if let Some(s) = &rule.subcommand {
-            parts.push(format!("subcommand={s}"));
-        }
-        if let Some(list) = &rule.subcommands {
-            parts.push(format!("subcommands=[{}]", list.join(",")));
-        }
-        if let Some(f) = &rule.flags {
-            parts.push(format!("flags=[{}]", f.join(",")));
-        }
-        if let Some(a) = &rule.args_contain {
-            parts.push(format!("args-contain={a}"));
-        }
-        format!("{label}: {}", parts.join(" "))
+        format!("{label}: {}", rule.structured_description())
     } else {
         format!("{label}: {}", rule.pattern.as_str())
     }
@@ -1165,6 +1171,33 @@ mod tests {
     fn structured_empty_input_no_match() {
         let rule = structured_rule(Decision::Deny, Some("git"), None, None);
         assert!(!matches_structured(&rule, ""));
+    }
+
+    #[test]
+    fn structured_rule_with_when_condition() {
+        let rule = structured_rule(Decision::Deny, Some("git"), Some("push"), None)
+            .with_conditions(vec![Condition::BranchEq("main".into())]);
+        let config = Config::from_directives(vec![ConfigDirective::Rule(rule)]);
+        let ctx_main = MatchContext {
+            branch: Some("main"),
+            cwd: std::path::Path::new("/tmp"),
+        };
+        let ctx_feat = MatchContext {
+            branch: Some("feature"),
+            cwd: std::path::Path::new("/tmp"),
+        };
+        // Matches on main branch
+        assert!(
+            config
+                .match_command("git push origin", Some(&ctx_main))
+                .is_some()
+        );
+        // Does NOT match on feature branch
+        assert!(
+            config
+                .match_command("git push origin", Some(&ctx_feat))
+                .is_none()
+        );
     }
 
     #[test]
