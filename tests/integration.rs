@@ -1268,10 +1268,10 @@ fn allow_global_writes_to_home_config() {
 }
 
 #[test]
-fn suggest_command_output() {
+fn suggest_from_command_output() {
     let dir = tempfile::TempDir::new().unwrap();
     let output = std::process::Command::new(common::rippy_binary())
-        .args(["suggest", "git push origin main"])
+        .args(["suggest", "--from-command", "git push origin main"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -1284,4 +1284,64 @@ fn suggest_command_output() {
 
     // Suggest should NOT create a config file
     assert!(!dir.path().join(".rippy.toml").exists());
+}
+
+#[test]
+fn suggest_from_db_json() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let db_path = dir.path().join("test.db");
+
+    // Populate a tracking DB directly using rusqlite.
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         CREATE TABLE decisions (
+             id INTEGER PRIMARY KEY,
+             timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+             session_id TEXT, mode TEXT, tool_name TEXT NOT NULL,
+             command TEXT, decision TEXT NOT NULL, reason TEXT, payload_json TEXT
+         );",
+    )
+    .unwrap();
+    // 15x allow git status
+    for _ in 0..15 {
+        conn.execute(
+            "INSERT INTO decisions (tool_name, command, decision, reason) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Bash", "git status", "allow", "safe"],
+        )
+        .unwrap();
+    }
+    // 8x deny rm -rf /
+    for _ in 0..8 {
+        conn.execute(
+            "INSERT INTO decisions (tool_name, command, decision, reason) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params!["Bash", "rm -rf /", "deny", "dangerous"],
+        )
+        .unwrap();
+    }
+    drop(conn);
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args([
+            "suggest",
+            "--db",
+            db_path.to_str().unwrap(),
+            "--json",
+            "--min-count",
+            "3",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let suggestions: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = suggestions.as_array().unwrap();
+    assert!(arr.len() >= 2);
+
+    // Should have a suggestion with allow action and one with deny
+    let actions: Vec<&str> = arr.iter().filter_map(|s| s["action"].as_str()).collect();
+    assert!(actions.contains(&"allow"));
+    assert!(actions.contains(&"deny"));
 }

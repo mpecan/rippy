@@ -213,7 +213,7 @@ fn run() -> Result<ExitCode, RippyError> {
             rippy_cli::rule_cmd::run(rippy_cli::verdict::Decision::Deny, a)
         }
         Some(Command::Ask(ref a)) => rippy_cli::rule_cmd::run(rippy_cli::verdict::Decision::Ask, a),
-        Some(Command::Suggest(ref a)) => rippy_cli::rule_cmd::run_suggest(a),
+        Some(Command::Suggest(ref a)) => rippy_cli::suggest::run(a),
         None => run_hook(&cli.hook_args),
     }
 }
