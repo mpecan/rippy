@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 use crate::config::{ConfigDirective, Rule, RuleTarget};
 use crate::error::RippyError;
+use crate::pattern::Pattern;
 use crate::verdict::Decision;
 
 // ---------------------------------------------------------------------------
@@ -42,12 +43,20 @@ pub struct TomlSettings {
 #[derive(Debug, Deserialize)]
 pub struct TomlRule {
     pub action: String,
-    pub pattern: String,
+    /// Glob pattern (optional if structured fields are present).
+    pub pattern: Option<String>,
     pub message: Option<String>,
     /// Risk annotation — stored for future use by `rippy suggest` (#48).
     pub risk: Option<String>,
     /// Condition clause — parsed into `Condition` list for conditional rules (#46).
     pub when: Option<toml::Value>,
+    // Structured matching fields (all optional, combined with AND).
+    pub command: Option<String>,
+    pub subcommand: Option<String>,
+    pub subcommands: Option<Vec<String>>,
+    pub flags: Option<Vec<String>>,
+    #[serde(rename = "args-contain")]
+    pub args_contain: Option<String>,
 }
 
 /// An alias entry from the `[[aliases]]` array.
@@ -142,7 +151,23 @@ fn convert_rule(toml_rule: &TomlRule) -> Result<ConfigDirective, String> {
     let action = toml_rule.action.as_str();
     let (target, decision) = parse_action_to_target(action)?;
 
-    let mut rule = Rule::new(target, decision, &toml_rule.pattern);
+    let has_structured = toml_rule.command.is_some()
+        || toml_rule.subcommand.is_some()
+        || toml_rule.subcommands.is_some()
+        || toml_rule.flags.is_some()
+        || toml_rule.args_contain.is_some();
+
+    // Pattern is optional when structured fields are present.
+    let mut rule = match &toml_rule.pattern {
+        Some(p) => Rule::new(target, decision, p),
+        None if has_structured => {
+            let mut r = Rule::new(target, decision, "*");
+            r.pattern = Pattern::any();
+            r
+        }
+        None => return Err("rule must have 'pattern' or structured fields".to_string()),
+    };
+
     if let Some(msg) = &toml_rule.message {
         rule = rule.with_message(msg.clone());
     }
@@ -157,6 +182,13 @@ fn convert_rule(toml_rule: &TomlRule) -> Result<ConfigDirective, String> {
         let conditions = crate::condition::parse_conditions(when_value)?;
         rule = rule.with_conditions(conditions);
     }
+
+    // Copy structured fields.
+    rule.command.clone_from(&toml_rule.command);
+    rule.subcommand.clone_from(&toml_rule.subcommand);
+    rule.subcommands.clone_from(&toml_rule.subcommands);
+    rule.flags.clone_from(&toml_rule.flags);
+    rule.args_contain.clone_from(&toml_rule.args_contain);
 
     Ok(ConfigDirective::Rule(rule))
 }
@@ -229,17 +261,34 @@ fn emit_settings(directives: &[ConfigDirective], out: &mut String) {
 fn emit_rules(directives: &[ConfigDirective], out: &mut String) {
     for d in directives {
         if let ConfigDirective::Rule(rule) = d {
-            let action = rule.action_str();
-            emit_rule_entry(out, &action, rule.pattern.raw(), rule.message.as_deref());
+            emit_rule_entry(out, rule);
         }
     }
 }
 
-fn emit_rule_entry(out: &mut String, action: &str, pattern: &str, message: Option<&str>) {
+fn emit_rule_entry(out: &mut String, rule: &Rule) {
     let _ = writeln!(out, "[[rules]]");
-    let _ = writeln!(out, "action = {action:?}");
-    let _ = writeln!(out, "pattern = {pattern:?}");
-    if let Some(msg) = message {
+    let _ = writeln!(out, "action = {:?}", rule.action_str());
+    // Only emit pattern if it's not the wildcard placeholder for structured-only rules.
+    if !rule.pattern.is_any() || !rule.has_structured_fields() {
+        let _ = writeln!(out, "pattern = {:?}", rule.pattern.raw());
+    }
+    if let Some(cmd) = &rule.command {
+        let _ = writeln!(out, "command = {cmd:?}");
+    }
+    if let Some(sub) = &rule.subcommand {
+        let _ = writeln!(out, "subcommand = {sub:?}");
+    }
+    if let Some(subs) = &rule.subcommands {
+        let _ = writeln!(out, "subcommands = {subs:?}");
+    }
+    if let Some(flags) = &rule.flags {
+        let _ = writeln!(out, "flags = {flags:?}");
+    }
+    if let Some(ac) = &rule.args_contain {
+        let _ = writeln!(out, "args-contain = {ac:?}");
+    }
+    if let Some(msg) = &rule.message {
         let _ = writeln!(out, "message = {msg:?}");
     }
     out.push('\n');
@@ -593,5 +642,57 @@ pattern = "mcp__unknown__*"
         let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
         let config = Config::from_directives(directives);
         assert!(!config.log_full);
+    }
+
+    // ── Structured matching TOML tests ─────────────────────────────
+
+    const STRUCTURED_DENY_FORCE: &str = "\
+[[rules]]\naction = \"deny\"\ncommand = \"git\"\nsubcommand = \"push\"\n\
+flags = [\"--force\", \"-f\"]\nmessage = \"No force push\"\n";
+
+    #[test]
+    fn parse_structured_command_with_flags() {
+        let directives = parse_toml_config(STRUCTURED_DENY_FORCE, Path::new("t")).unwrap();
+        let config = Config::from_directives(directives);
+        assert_eq!(
+            config
+                .match_command("git push --force origin main", None)
+                .unwrap()
+                .decision,
+            Decision::Deny
+        );
+        assert!(config.match_command("git push origin main", None).is_none());
+    }
+
+    #[test]
+    fn parse_structured_subcommands_and_no_pattern() {
+        let toml = "[[rules]]\naction = \"allow\"\ncommand = \"git\"\n\
+                     subcommands = [\"status\", \"log\", \"diff\"]\n";
+        let config = Config::from_directives(parse_toml_config(toml, Path::new("t")).unwrap());
+        assert!(config.match_command("git status", None).is_some());
+        assert!(config.match_command("git log --oneline", None).is_some());
+        assert!(config.match_command("git push", None).is_none());
+
+        // No-pattern structured rule (docker)
+        let toml2 = "[[rules]]\naction = \"ask\"\ncommand = \"docker\"\nsubcommand = \"run\"\n";
+        let config2 = Config::from_directives(parse_toml_config(toml2, Path::new("t")).unwrap());
+        assert!(config2.match_command("docker run ubuntu", None).is_some());
+        assert!(config2.match_command("docker ps", None).is_none());
+    }
+
+    #[test]
+    fn structured_rule_round_trips() {
+        let directives = parse_toml_config(STRUCTURED_DENY_FORCE, Path::new("t")).unwrap();
+        let serialized = rules_to_toml(&directives);
+        assert!(serialized.contains("command = \"git\""));
+        assert!(serialized.contains("subcommand = \"push\""));
+        assert!(serialized.contains("flags = "));
+        assert!(!serialized.contains("pattern = ")); // structured-only
+    }
+
+    #[test]
+    fn rule_without_pattern_or_structured_fails() {
+        let toml = "[[rules]]\naction = \"deny\"\nmessage = \"missing\"\n";
+        assert!(parse_toml_config(toml, Path::new("t")).is_err());
     }
 }

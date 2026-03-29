@@ -29,10 +29,26 @@ impl Pattern {
         }
     }
 
+    /// Create a pattern that matches any input. Used for structured-only rules.
+    #[must_use]
+    pub fn any() -> Self {
+        Self {
+            raw: "*".to_owned(),
+            exact: false,
+            literal: false,
+        }
+    }
+
     /// Return the raw pattern string (without the trailing `|` if it was exact).
     #[must_use]
     pub fn raw(&self) -> &str {
         &self.raw
+    }
+
+    /// Returns `true` if this pattern is the wildcard `*` (matches anything).
+    #[must_use]
+    pub fn is_any(&self) -> bool {
+        self.raw == "*"
     }
 
     /// Test whether `input` matches this pattern.

@@ -22,6 +22,9 @@ pub enum RuleTarget {
 }
 
 /// A single rule: target + decision + pattern + optional message + conditions.
+///
+/// Rules can use glob-pattern matching (the `pattern` field), structured matching
+/// (command/subcommand/flags fields), or both. When both are present, all must match (AND).
 #[derive(Debug, Clone)]
 pub struct Rule {
     pub target: RuleTarget,
@@ -29,6 +32,12 @@ pub struct Rule {
     pub pattern: Pattern,
     pub message: Option<String>,
     pub conditions: Vec<Condition>,
+    // Structured matching fields (all optional, combined with AND).
+    pub command: Option<String>,
+    pub subcommand: Option<String>,
+    pub subcommands: Option<Vec<String>>,
+    pub flags: Option<Vec<String>>,
+    pub args_contain: Option<String>,
 }
 
 impl Rule {
@@ -40,6 +49,11 @@ impl Rule {
             pattern: Pattern::new(pattern),
             message: None,
             conditions: vec![],
+            command: None,
+            subcommand: None,
+            subcommands: None,
+            flags: None,
+            args_contain: None,
         }
     }
 
@@ -53,6 +67,16 @@ impl Rule {
     pub fn with_conditions(mut self, c: Vec<Condition>) -> Self {
         self.conditions = c;
         self
+    }
+
+    /// Returns `true` if this rule has any structured matching fields set.
+    #[must_use]
+    pub const fn has_structured_fields(&self) -> bool {
+        self.command.is_some()
+            || self.subcommand.is_some()
+            || self.subcommands.is_some()
+            || self.flags.is_some()
+            || self.args_contain.is_some()
     }
 
     /// Return the action string for this rule (e.g. "allow", "deny-redirect", "ask-read").
@@ -196,6 +220,9 @@ impl Config {
     }
 
     /// Shared matching logic for all rule targets (last-match-wins).
+    ///
+    /// Supports both glob-pattern and structured matching. For structured rules,
+    /// the input is parsed into command name + args on demand.
     fn match_rules(
         &self,
         target: RuleTarget,
@@ -205,7 +232,15 @@ impl Config {
     ) -> Option<Verdict> {
         let mut result = None;
         for rule in &self.rules {
-            if rule.target != target || !rule.pattern.matches(input) {
+            if rule.target != target {
+                continue;
+            }
+            // Pattern check: structured-only rules use Pattern::any() which always matches.
+            if !rule.pattern.matches(input) {
+                continue;
+            }
+            // Structured field check (if any are set).
+            if rule.has_structured_fields() && !matches_structured(rule, input) {
                 continue;
             }
             if !rule.conditions.is_empty() {
@@ -216,10 +251,10 @@ impl Config {
             }
             result = Some(Verdict {
                 decision: rule.decision,
-                reason: rule.message.as_deref().map_or_else(
-                    || format!("{label}: {}", rule.pattern.as_str()),
-                    String::from,
-                ),
+                reason: rule
+                    .message
+                    .as_deref()
+                    .map_or_else(|| format_rule_reason(rule, label), String::from),
             });
         }
         result
@@ -563,6 +598,102 @@ pub(crate) fn find_project_config(start: &Path) -> Option<PathBuf> {
             return Some(dippy);
         }
         dir = dir.parent()?;
+    }
+}
+
+/// Check structured rule fields against the parsed command tokens.
+///
+/// All present fields must match (AND logic). Returns `true` if every
+/// field that is `Some` matches the given input.
+fn matches_structured(rule: &Rule, input: &str) -> bool {
+    let mut tokens = input.split_whitespace();
+    let Some(cmd_name) = tokens.next() else {
+        return false;
+    };
+    let args: Vec<&str> = tokens.collect();
+
+    if let Some(expected) = &rule.command
+        && cmd_name != expected.as_str()
+    {
+        return false;
+    }
+
+    let first_positional = args.iter().find(|a| !a.starts_with('-')).copied();
+
+    if let Some(expected) = &rule.subcommand
+        && first_positional != Some(expected.as_str())
+    {
+        return false;
+    }
+
+    if let Some(list) = &rule.subcommands {
+        match first_positional {
+            Some(sub) if list.iter().any(|s| s == sub) => {}
+            _ => return false,
+        }
+    }
+
+    if let Some(required_flags) = &rule.flags
+        && !has_required_flag(&args, required_flags)
+    {
+        return false;
+    }
+
+    if let Some(needle) = &rule.args_contain
+        && !args.iter().any(|a| a.contains(needle.as_str()))
+    {
+        return false;
+    }
+
+    true
+}
+
+/// Check if any required flag matches any arg, handling combined short flags.
+fn has_required_flag(args: &[&str], required_flags: &[String]) -> bool {
+    for arg in args {
+        // Direct match (e.g. "--force" == "--force", "-f" == "-f").
+        if required_flags.iter().any(|f| f == arg) {
+            return true;
+        }
+        // Combined short flag expansion: "-fv" contains "-f" and "-v".
+        if arg.starts_with('-')
+            && !arg.starts_with("--")
+            && arg.len() > 2
+            && arg.as_bytes().iter().skip(1).all(u8::is_ascii_alphabetic)
+        {
+            for ch in arg.chars().skip(1) {
+                let short = format!("-{ch}");
+                if required_flags.iter().any(|f| f == &short) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Format a human-readable reason for a matched rule.
+fn format_rule_reason(rule: &Rule, label: &str) -> String {
+    if rule.has_structured_fields() {
+        let mut parts = Vec::new();
+        if let Some(c) = &rule.command {
+            parts.push(format!("command={c}"));
+        }
+        if let Some(s) = &rule.subcommand {
+            parts.push(format!("subcommand={s}"));
+        }
+        if let Some(list) = &rule.subcommands {
+            parts.push(format!("subcommands=[{}]", list.join(",")));
+        }
+        if let Some(f) = &rule.flags {
+            parts.push(format!("flags=[{}]", f.join(",")));
+        }
+        if let Some(a) = &rule.args_contain {
+            parts.push(format!("args-contain={a}"));
+        }
+        format!("{label}: {}", parts.join(" "))
+    } else {
+        format!("{label}: {}", rule.pattern.as_str())
     }
 }
 
@@ -932,5 +1063,116 @@ mod tests {
         )]);
         // No context provided — rule should be skipped
         assert!(config.match_command("echo hello", None).is_none());
+    }
+
+    // ── Structured matching tests ──────────────────────────────────
+
+    fn structured_rule(
+        decision: Decision,
+        command: Option<&str>,
+        subcommand: Option<&str>,
+        flags: Option<Vec<&str>>,
+    ) -> Rule {
+        let mut r = Rule::new(RuleTarget::Command, decision, "*");
+        r.pattern = Pattern::any();
+        r.command = command.map(String::from);
+        r.subcommand = subcommand.map(String::from);
+        r.flags = flags.map(|f| f.into_iter().map(String::from).collect());
+        r
+    }
+
+    #[test]
+    fn structured_command_matches() {
+        let rule = structured_rule(Decision::Deny, Some("git"), None, None);
+        assert!(matches_structured(&rule, "git push origin main"));
+        assert!(matches_structured(&rule, "git status"));
+        assert!(!matches_structured(&rule, "docker ps"));
+    }
+
+    #[test]
+    fn structured_subcommand_matches() {
+        let rule = structured_rule(Decision::Deny, Some("git"), Some("push"), None);
+        assert!(matches_structured(&rule, "git push origin main"));
+        assert!(!matches_structured(&rule, "git status"));
+        // --no-pager is a flag, so "push" is still the first positional → matches
+        assert!(matches_structured(&rule, "git --no-pager push"));
+    }
+
+    #[test]
+    fn structured_flags_matches() {
+        let rule = structured_rule(
+            Decision::Deny,
+            Some("git"),
+            Some("push"),
+            Some(vec!["--force", "-f"]),
+        );
+        assert!(matches_structured(&rule, "git push --force origin main"));
+        assert!(matches_structured(&rule, "git push origin main --force"));
+        assert!(matches_structured(&rule, "git push -f origin main"));
+        assert!(!matches_structured(&rule, "git push origin main"));
+    }
+
+    #[test]
+    fn structured_combined_short_flags() {
+        let rule = structured_rule(
+            Decision::Deny,
+            Some("curl"),
+            None,
+            Some(vec!["-k", "--insecure"]),
+        );
+        let flags = rule.flags.as_ref().unwrap();
+        assert!(has_required_flag(&["-kv", "http://example.com"], flags));
+        assert!(has_required_flag(
+            &["--insecure", "http://example.com"],
+            flags
+        ));
+        assert!(!has_required_flag(&["-v", "http://example.com"], flags));
+    }
+
+    #[test]
+    fn structured_subcommands_list() {
+        let mut rule = structured_rule(Decision::Allow, Some("git"), None, None);
+        rule.subcommands = Some(vec!["status".into(), "log".into(), "diff".into()]);
+        assert!(matches_structured(&rule, "git status"));
+        assert!(matches_structured(&rule, "git log --oneline"));
+        assert!(!matches_structured(&rule, "git push origin"));
+    }
+
+    #[test]
+    fn structured_args_contain() {
+        let mut rule = structured_rule(Decision::Deny, Some("curl"), None, None);
+        rule.args_contain = Some("password".into());
+        assert!(matches_structured(
+            &rule,
+            "curl http://example.com?password=123"
+        ));
+        assert!(!matches_structured(&rule, "curl http://example.com"));
+    }
+
+    #[test]
+    fn structured_rule_in_config() {
+        let rule = structured_rule(Decision::Deny, Some("git"), Some("push"), None);
+        let config = Config::from_directives(vec![ConfigDirective::Rule(rule)]);
+        let v = config.match_command("git push origin main", None);
+        assert!(v.is_some());
+        assert_eq!(v.unwrap().decision, Decision::Deny);
+
+        // Non-matching command
+        assert!(config.match_command("git status", None).is_none());
+    }
+
+    #[test]
+    fn structured_empty_input_no_match() {
+        let rule = structured_rule(Decision::Deny, Some("git"), None, None);
+        assert!(!matches_structured(&rule, ""));
+    }
+
+    #[test]
+    fn has_structured_fields_detects_fields() {
+        let plain = Rule::new(RuleTarget::Command, Decision::Allow, "git *");
+        assert!(!plain.has_structured_fields());
+
+        let structured = structured_rule(Decision::Deny, Some("git"), None, None);
+        assert!(structured.has_structured_fields());
     }
 }

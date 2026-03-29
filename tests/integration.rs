@@ -1345,3 +1345,77 @@ fn suggest_from_db_json() {
     assert!(actions.contains(&"allow"));
     assert!(actions.contains(&"deny"));
 }
+
+// ---- Structured command matching tests ----
+
+#[test]
+fn structured_rule_denies_force_push() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        r#"
+[[rules]]
+action = "deny"
+command = "git"
+subcommand = "push"
+flags = ["--force", "-f"]
+message = "No force push"
+"#,
+    )
+    .unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}"#;
+    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn structured_rule_allows_safe_subcommands() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        r#"
+[[rules]]
+action = "allow"
+command = "git"
+subcommands = ["status", "log", "diff"]
+"#,
+    )
+    .unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git status"}}"#;
+    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+
+    // git push is NOT in the subcommands list, falls through to handler
+    let json2 = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
+    let (_stdout2, code2) = run_rippy_in_dir(json2, "claude", dir.path());
+    // git push without force is "ask" from handler
+    assert_eq!(code2, 2);
+}
+
+#[test]
+fn structured_rule_with_flag_position_independence() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        r#"
+[[rules]]
+action = "deny"
+command = "git"
+subcommand = "push"
+flags = ["-f"]
+message = "No force push"
+"#,
+    )
+    .unwrap();
+
+    // Flag at end
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main -f"}}"#;
+    let (_, code) = run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+
+    // Combined short flags
+    let json2 = r#"{"tool_name":"Bash","tool_input":{"command":"git push -fv origin"}}"#;
+    let (_, code2) = run_rippy_in_dir(json2, "claude", dir.path());
+    assert_eq!(code2, 2);
+}
