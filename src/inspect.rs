@@ -132,9 +132,16 @@ fn directive_to_display(directive: &ConfigDirective) -> Option<RuleDisplay> {
 }
 
 fn rule_to_display(rule: &Rule) -> RuleDisplay {
+    let pattern = if rule.has_structured_fields() && rule.pattern.is_any() {
+        rule.structured_description()
+    } else if rule.has_structured_fields() {
+        format!("{} + {}", rule.pattern.raw(), rule.structured_description())
+    } else {
+        rule.pattern.raw().to_string()
+    };
     RuleDisplay {
         action: rule.action_str(),
-        pattern: rule.pattern.raw().to_string(),
+        pattern,
         message: rule.message.clone(),
     }
 }
