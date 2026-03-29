@@ -206,6 +206,14 @@ fn run() -> Result<ExitCode, RippyError> {
         Some(Command::Migrate(ref migrate_args)) => rippy_cli::migrate::run(migrate_args),
         Some(Command::Inspect(ref inspect_args)) => rippy_cli::inspect::run(inspect_args),
         Some(Command::Stats(ref stats_args)) => rippy_cli::stats::run(stats_args),
+        Some(Command::Allow(ref a)) => {
+            rippy_cli::rule_cmd::run(rippy_cli::verdict::Decision::Allow, a)
+        }
+        Some(Command::Deny(ref a)) => {
+            rippy_cli::rule_cmd::run(rippy_cli::verdict::Decision::Deny, a)
+        }
+        Some(Command::Ask(ref a)) => rippy_cli::rule_cmd::run(rippy_cli::verdict::Decision::Ask, a),
+        Some(Command::Suggest(ref a)) => rippy_cli::rule_cmd::run_suggest(a),
         None => run_hook(&cli.hook_args),
     }
 }
