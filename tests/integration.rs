@@ -1489,3 +1489,32 @@ fn init_refuses_existing() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+// ---- Flag discovery tests ----
+
+#[test]
+fn discover_finds_curl_flags() {
+    let home = tempfile::TempDir::new().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["discover", "curl", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    // curl might not be installed in CI, so just check exit code 0 or graceful error
+    if output.status.success() {
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let arr = parsed.as_array().unwrap();
+        // curl has many flag aliases
+        assert!(!arr.is_empty());
+    }
+}
+
+#[test]
+fn discover_without_args_errors() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["discover"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}

@@ -64,6 +64,22 @@ pub enum Command {
     Suggest(SuggestArgs),
     /// Copy default stdlib rules to config for customization
     Init(InitArgs),
+    /// Discover flag aliases from command --help output
+    Discover(DiscoverArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct DiscoverArgs {
+    /// Command and optional subcommand (e.g. "git push")
+    pub args: Vec<String>,
+
+    /// Re-discover all previously cached commands
+    #[arg(long)]
+    pub all: bool,
+
+    /// Output in JSON format
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

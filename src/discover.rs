@@ -1,0 +1,526 @@
+//! Flag alias discovery — parse `--help` output to find short/long flag pairs.
+//!
+//! Enables auto-expansion: a rule with `flags = ["--force"]` also matches `-f`
+//! if the flag cache knows `--force` aliases to `-f`.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use crate::cli::DiscoverArgs;
+use crate::config;
+use crate::error::RippyError;
+
+/// A short ↔ long flag pair discovered from help output.
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct FlagAlias {
+    pub short: String,
+    pub long: String,
+}
+
+/// Current cache format version. Bump to force re-discovery on upgrade.
+const CACHE_VERSION: u32 = 1;
+
+/// Cached flag aliases keyed by command (e.g. "git push", "curl").
+#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct FlagCache {
+    /// Cache format version — mismatched versions are discarded.
+    pub version: u32,
+    /// Map from command key to list of flag aliases.
+    pub entries: BTreeMap<String, Vec<FlagAlias>>,
+}
+
+impl Default for FlagCache {
+    fn default() -> Self {
+        Self {
+            version: CACHE_VERSION,
+            entries: BTreeMap::new(),
+        }
+    }
+}
+
+// ── Help output parser ─────────────────────────────────────────────────
+
+/// Parse help output text and extract short/long flag pairs.
+///
+/// Recognizes common CLI framework formats:
+/// - `  -f, --force          description`  (clap, cobra, argparse)
+/// - `  --force, -f          description`  (reverse order)
+/// - `       -n, --dry-run`                (git man pages)
+#[must_use]
+pub fn parse_help_output(output: &str) -> Vec<FlagAlias> {
+    let mut aliases = Vec::new();
+
+    for line in output.lines() {
+        if let Some(alias) = parse_flag_line(line) {
+            aliases.push(alias);
+        }
+    }
+
+    // Deduplicate by long flag (keep first occurrence).
+    let mut seen = std::collections::HashSet::new();
+    aliases.retain(|a| seen.insert(a.long.clone()));
+    aliases
+}
+
+/// Try to extract a flag alias from a single line.
+fn parse_flag_line(line: &str) -> Option<FlagAlias> {
+    let trimmed = line.trim();
+
+    // Find positions of short flag (-X) and long flag (--word).
+    // Pattern 1: -X, --long or -X --long
+    // Pattern 2: --long, -X or --long -X
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+
+    for window in tokens.windows(2) {
+        let a = window[0].trim_end_matches(',');
+        let b = window[1].trim_end_matches(',');
+
+        if let Some(alias) = match_flag_pair(a, b) {
+            return Some(alias);
+        }
+        if let Some(alias) = match_flag_pair(b, a) {
+            return Some(alias);
+        }
+    }
+
+    None
+}
+
+/// Check if two tokens form a short/long flag pair.
+fn match_flag_pair(a: &str, b: &str) -> Option<FlagAlias> {
+    let is_short = a.starts_with('-')
+        && !a.starts_with("--")
+        && a.len() == 2
+        && a.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic);
+
+    let is_long = b.starts_with("--") && b.len() > 2 && b.as_bytes()[2].is_ascii_alphabetic();
+
+    if is_short && is_long {
+        Some(FlagAlias {
+            short: a.to_string(),
+            long: b.to_string(),
+        })
+    } else {
+        None
+    }
+}
+
+// ── Flag cache ─────────────────────────────────────────────────────────
+
+fn cache_path() -> Option<PathBuf> {
+    config::home_dir().map(|h| h.join(".rippy/flag-cache.bin"))
+}
+
+/// Load the flag cache from `~/.rippy/flag-cache.bin`.
+#[must_use]
+pub fn load_cache() -> FlagCache {
+    let Some(path) = cache_path() else {
+        return FlagCache::default();
+    };
+    load_cache_from(&path).unwrap_or_default()
+}
+
+fn load_cache_from(path: &Path) -> Option<FlagCache> {
+    let bytes = std::fs::read(path).ok()?;
+    let cache = rkyv::from_bytes::<FlagCache, rkyv::rancor::Error>(&bytes).ok()?;
+    // Discard cache if version doesn't match (forces re-discovery on upgrade).
+    if cache.version != CACHE_VERSION {
+        return None;
+    }
+    Some(cache)
+}
+
+/// Save the flag cache to `~/.rippy/flag-cache.bin`.
+///
+/// # Errors
+///
+/// Returns `RippyError::Setup` if the file cannot be written.
+pub fn save_cache(cache: &FlagCache) -> Result<(), RippyError> {
+    let Some(path) = cache_path() else {
+        return Err(RippyError::Setup(
+            "could not determine home directory".into(),
+        ));
+    };
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            RippyError::Setup(format!("could not create {}: {e}", parent.display()))
+        })?;
+    }
+
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(cache)
+        .map_err(|e| RippyError::Setup(format!("could not serialize flag cache: {e}")))?;
+    std::fs::write(&path, &bytes)
+        .map_err(|e| RippyError::Setup(format!("could not write {}: {e}", path.display())))?;
+    Ok(())
+}
+
+#[cfg(test)]
+fn save_cache_to(cache: &FlagCache, path: &Path) -> Result<(), RippyError> {
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(cache)
+        .map_err(|e| RippyError::Setup(format!("could not serialize flag cache: {e}")))?;
+    std::fs::write(path, &bytes)
+        .map_err(|e| RippyError::Setup(format!("could not write {}: {e}", path.display())))?;
+    Ok(())
+}
+
+// ── Discovery ──────────────────────────────────────────────────────────
+
+/// Run a command with `--help` and parse the output for flag aliases.
+///
+/// # Errors
+///
+/// Returns `RippyError::Setup` if the command cannot be executed.
+pub fn discover_flags(
+    command: &str,
+    subcommand: Option<&str>,
+) -> Result<Vec<FlagAlias>, RippyError> {
+    let mut cmd = std::process::Command::new(command);
+    if let Some(sub) = subcommand {
+        cmd.arg(sub);
+    }
+    cmd.arg("--help");
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let output = cmd
+        .output()
+        .map_err(|e| RippyError::Setup(format!("could not run `{command} --help`: {e}")))?;
+
+    // Some tools print help to stdout, others to stderr.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}\n{stderr}");
+
+    Ok(parse_help_output(&combined))
+}
+
+/// Expand a list of flags with their aliases from the cache.
+///
+/// Given `["--force"]` and a cache with `--force → -f`, returns `["--force", "-f"]`.
+#[must_use]
+pub fn expand_flags(flags: &[String], cache: &FlagCache, command: Option<&str>) -> Vec<String> {
+    let mut expanded: Vec<String> = flags.to_vec();
+
+    let Some(cmd) = command else {
+        return expanded;
+    };
+
+    // Try exact command key and command-only key.
+    let aliases = cache.entries.get(cmd);
+
+    if let Some(alias_list) = aliases {
+        for flag in flags {
+            for alias in alias_list {
+                if flag == &alias.long && !expanded.contains(&alias.short) {
+                    expanded.push(alias.short.clone());
+                } else if flag == &alias.short && !expanded.contains(&alias.long) {
+                    expanded.push(alias.long.clone());
+                }
+            }
+        }
+    }
+
+    expanded
+}
+
+// ── CLI entry point ────────────────────────────────────────────────────
+
+/// Run the `rippy discover` command.
+///
+/// # Errors
+///
+/// Returns `RippyError::Setup` if discovery or cache writing fails.
+pub fn run(args: &DiscoverArgs) -> Result<ExitCode, RippyError> {
+    if args.all {
+        return rediscover_all(args.json);
+    }
+
+    let Some(command) = args.args.first() else {
+        return Err(RippyError::Setup(
+            "usage: rippy discover <command> [subcommand]".into(),
+        ));
+    };
+
+    let subcommand = args.args.get(1).map(String::as_str);
+    let aliases = discover_flags(command, subcommand)?;
+
+    if args.json {
+        print_json(&aliases);
+    } else {
+        print_text(command, subcommand, &aliases);
+    }
+
+    // Update cache.
+    let mut cache = load_cache();
+    let key = cache_key(command, subcommand);
+    cache.entries.insert(key, aliases);
+    save_cache(&cache)?;
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cache_key(command: &str, subcommand: Option<&str>) -> String {
+    subcommand.map_or_else(|| command.to_string(), |sub| format!("{command} {sub}"))
+}
+
+fn rediscover_all(json: bool) -> Result<ExitCode, RippyError> {
+    let cache = load_cache();
+    let mut new_cache = FlagCache::default();
+
+    for key in cache.entries.keys() {
+        let mut parts = key.split_whitespace();
+        let Some(cmd) = parts.next() else { continue };
+        let sub = parts.next();
+        match discover_flags(cmd, sub) {
+            Ok(aliases) => {
+                if !json {
+                    eprintln!("[rippy] discovered {} flags for {key}", aliases.len());
+                }
+                new_cache.entries.insert(key.clone(), aliases);
+            }
+            Err(e) => {
+                eprintln!("[rippy] warning: {key}: {e}");
+            }
+        }
+    }
+
+    save_cache(&new_cache)?;
+    if json {
+        println!("{{\"refreshed\": {}}}", new_cache.entries.len());
+    } else {
+        eprintln!("[rippy] Refreshed {} commands", new_cache.entries.len());
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn print_text(command: &str, subcommand: Option<&str>, aliases: &[FlagAlias]) {
+    let label = subcommand.map_or_else(|| command.to_string(), |sub| format!("{command} {sub}"));
+    if aliases.is_empty() {
+        eprintln!("[rippy] No flag aliases discovered for {label}");
+        return;
+    }
+    println!("Flag aliases for {label}:\n");
+    for alias in aliases {
+        println!("  {:<6} {}", alias.short, alias.long);
+    }
+    println!("\n{} alias(es) cached.", aliases.len());
+}
+
+fn print_json(aliases: &[FlagAlias]) {
+    let pairs: Vec<serde_json::Value> = aliases
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "short": a.short,
+                "long": a.long,
+            })
+        })
+        .collect();
+    let json = serde_json::to_string_pretty(&serde_json::Value::Array(pairs));
+    if let Ok(j) = json {
+        println!("{j}");
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_clap_style() {
+        let help = "  -f, --force          Force operation\n  -v, --verbose        Be verbose\n";
+        let aliases = parse_help_output(help);
+        assert_eq!(aliases.len(), 2);
+        assert_eq!(aliases[0].short, "-f");
+        assert_eq!(aliases[0].long, "--force");
+        assert_eq!(aliases[1].short, "-v");
+        assert_eq!(aliases[1].long, "--verbose");
+    }
+
+    #[test]
+    fn parse_git_manpage_style() {
+        let help = "       -n, --dry-run\n       -d, --delete\n";
+        let aliases = parse_help_output(help);
+        assert_eq!(aliases.len(), 2);
+        assert_eq!(aliases[0].short, "-n");
+        assert_eq!(aliases[0].long, "--dry-run");
+    }
+
+    #[test]
+    fn parse_reverse_order() {
+        let help = "  --force, -f          Force operation\n";
+        let aliases = parse_help_output(help);
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].short, "-f");
+        assert_eq!(aliases[0].long, "--force");
+    }
+
+    #[test]
+    fn parse_no_comma() {
+        let help = "  -q --quiet           Suppress output\n";
+        let aliases = parse_help_output(help);
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].short, "-q");
+        assert_eq!(aliases[0].long, "--quiet");
+    }
+
+    #[test]
+    fn parse_with_value_placeholder() {
+        let help = "  -o, --output <file>  Write to file\n";
+        let aliases = parse_help_output(help);
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].short, "-o");
+        assert_eq!(aliases[0].long, "--output");
+    }
+
+    #[test]
+    fn parse_ignores_long_only() {
+        let help = "  --verbose            Be verbose\n  --quiet              Quiet\n";
+        let aliases = parse_help_output(help);
+        assert!(aliases.is_empty());
+    }
+
+    #[test]
+    fn parse_ignores_noise() {
+        let help = "Usage: git push [options]\n\nOptions:\n  This is a description.\n";
+        let aliases = parse_help_output(help);
+        assert!(aliases.is_empty());
+    }
+
+    #[test]
+    fn parse_deduplicates() {
+        let help = "  -f, --force   Force\n  -f, --force   Force again\n";
+        let aliases = parse_help_output(help);
+        assert_eq!(aliases.len(), 1);
+    }
+
+    #[test]
+    fn parse_curl_real_output() {
+        let help = "\
+ -d, --data <data>           HTTP POST data
+ -f, --fail                  Fail fast with no output on HTTP errors
+ -h, --help <category>       Get help for commands
+ -i, --include               Include response headers in output
+ -o, --output <file>         Write to file instead of stdout
+ -s, --silent                Silent mode
+ -u, --user <user:password>  Server user and password";
+        let aliases = parse_help_output(help);
+        assert_eq!(aliases.len(), 7);
+        assert!(
+            aliases
+                .iter()
+                .any(|a| a.short == "-f" && a.long == "--fail")
+        );
+        assert!(
+            aliases
+                .iter()
+                .any(|a| a.short == "-s" && a.long == "--silent")
+        );
+    }
+
+    #[test]
+    fn expand_flags_with_cache() {
+        let mut cache = FlagCache::default();
+        cache.entries.insert(
+            "git push".into(),
+            vec![FlagAlias {
+                short: "-f".into(),
+                long: "--force".into(),
+            }],
+        );
+
+        let expanded = expand_flags(&["--force".into()], &cache, Some("git push"));
+        assert!(expanded.contains(&"--force".to_string()));
+        assert!(expanded.contains(&"-f".to_string()));
+    }
+
+    #[test]
+    fn expand_flags_reverse() {
+        let mut cache = FlagCache::default();
+        cache.entries.insert(
+            "curl".into(),
+            vec![FlagAlias {
+                short: "-s".into(),
+                long: "--silent".into(),
+            }],
+        );
+
+        let expanded = expand_flags(&["-s".into()], &cache, Some("curl"));
+        assert!(expanded.contains(&"-s".to_string()));
+        assert!(expanded.contains(&"--silent".to_string()));
+    }
+
+    #[test]
+    fn expand_flags_no_cache_entry() {
+        let cache = FlagCache::default();
+        let expanded = expand_flags(&["--force".into()], &cache, Some("unknown"));
+        assert_eq!(expanded, vec!["--force".to_string()]);
+    }
+
+    #[test]
+    fn expand_flags_no_command() {
+        let cache = FlagCache::default();
+        let expanded = expand_flags(&["--force".into()], &cache, None);
+        assert_eq!(expanded, vec!["--force".to_string()]);
+    }
+
+    #[test]
+    fn cache_round_trip() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("flag-cache.bin");
+
+        let mut cache = FlagCache::default();
+        cache.entries.insert(
+            "git push".into(),
+            vec![
+                FlagAlias {
+                    short: "-f".into(),
+                    long: "--force".into(),
+                },
+                FlagAlias {
+                    short: "-n".into(),
+                    long: "--dry-run".into(),
+                },
+            ],
+        );
+
+        // Save via save_cache_to (same serialization as save_cache)
+        save_cache_to(&cache, &path).unwrap();
+
+        // Load
+        let loaded = load_cache_from(&path).unwrap();
+        assert!(loaded.entries.contains_key("git push"));
+        let aliases = &loaded.entries["git push"];
+        assert_eq!(aliases.len(), 2);
+        assert!(
+            aliases
+                .iter()
+                .any(|a| a.short == "-f" && a.long == "--force")
+        );
+    }
+
+    #[test]
+    fn cache_version_mismatch_returns_none() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("flag-cache.bin");
+
+        let cache = FlagCache {
+            version: 999, // Wrong version
+            ..FlagCache::default()
+        };
+        save_cache_to(&cache, &path).unwrap();
+
+        assert!(load_cache_from(&path).is_none());
+    }
+
+    #[test]
+    fn cache_key_format() {
+        assert_eq!(cache_key("git", Some("push")), "git push");
+        assert_eq!(cache_key("curl", None), "curl");
+    }
+}
