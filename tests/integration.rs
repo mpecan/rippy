@@ -1419,3 +1419,73 @@ message = "No force push"
     let (_, code2) = run_rippy_in_dir(json2, "claude", dir.path());
     assert_eq!(code2, 2);
 }
+
+// ---- Stdlib regression tests ----
+
+#[test]
+fn stdlib_cargo_test_allowed() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo test --release"}}"#;
+    let (_, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn stdlib_cargo_run_asks() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo run"}}"#;
+    let (_, code) = run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn stdlib_rm_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/test"}}"#;
+    let (_, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn stdlib_sudo_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"sudo apt install foo"}}"#;
+    let (_, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn init_stdout_prints_stdlib() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["init", "--stdout"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("[[rules]]"));
+    assert!(stdout.contains("cargo"));
+}
+
+#[test]
+fn init_creates_config_file() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let content = std::fs::read_to_string(dir.path().join(".rippy.toml")).unwrap();
+    assert!(content.contains("[[rules]]"));
+    assert!(content.contains("cargo"));
+}
+
+#[test]
+fn init_refuses_existing() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(dir.path().join(".rippy.toml"), "existing").unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}

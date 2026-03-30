@@ -1,0 +1,38 @@
+# Stdlib rules for Terraform (terraform and tf aliases).
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "terraform"
+
+[[rules]]
+action = "allow"
+command = "terraform"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "terraform"
+subcommands = [
+    "version", "help", "fmt", "validate", "plan", "show", "state",
+    "output", "graph", "providers", "console", "workspace", "get",
+    "modules", "metadata", "test", "refresh",
+]
+
+[[rules]]
+action = "ask"
+command = "tf"
+
+[[rules]]
+action = "allow"
+command = "tf"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "tf"
+subcommands = [
+    "version", "help", "fmt", "validate", "plan", "show", "state",
+    "output", "graph", "providers", "console", "workspace", "get",
+    "modules", "metadata", "test", "refresh",
+]

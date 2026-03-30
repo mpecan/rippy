@@ -1,0 +1,11 @@
+# Stdlib rules for the pytest test runner.
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "pytest"
+
+[[rules]]
+action = "allow"
+command = "pytest"
+flags = ["--help", "-h", "--version", "-V"]

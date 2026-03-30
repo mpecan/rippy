@@ -1,0 +1,47 @@
+# Stdlib rules for script interpreters (perl, ruby, node, deno, lua).
+# Catch-all ask first, then allow version/help overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "perl"
+
+[[rules]]
+action = "allow"
+command = "perl"
+flags = ["--version", "-v", "--help", "-h"]
+
+[[rules]]
+action = "ask"
+command = "ruby"
+
+[[rules]]
+action = "allow"
+command = "ruby"
+flags = ["--version", "-v", "--help", "-h"]
+
+[[rules]]
+action = "ask"
+command = "node"
+
+[[rules]]
+action = "allow"
+command = "node"
+flags = ["--version", "-v", "--help", "-h"]
+
+[[rules]]
+action = "ask"
+command = "deno"
+
+[[rules]]
+action = "allow"
+command = "deno"
+flags = ["--version", "-V", "--help", "-h"]
+
+[[rules]]
+action = "ask"
+command = "lua"
+
+[[rules]]
+action = "allow"
+command = "lua"
+flags = ["--version", "-v", "--help", "-h"]

@@ -1,0 +1,34 @@
+# Stdlib rules for system package managers.
+# All default to "ask" — these install/remove system packages.
+
+[[rules]]
+action = "ask"
+command = "apt"
+
+[[rules]]
+action = "ask"
+command = "apt-get"
+
+[[rules]]
+action = "ask"
+command = "dpkg"
+
+[[rules]]
+action = "ask"
+command = "dnf"
+
+[[rules]]
+action = "ask"
+command = "yum"
+
+[[rules]]
+action = "ask"
+command = "pacman"
+
+[[rules]]
+action = "ask"
+command = "snap"
+
+[[rules]]
+action = "ask"
+command = "flatpak"

@@ -1,10 +1,8 @@
 mod ansible;
 mod cloud;
 mod curl;
-mod dangerous;
 mod database;
 mod docker;
-mod file_ops;
 mod find;
 mod gh;
 mod git;
@@ -13,7 +11,6 @@ mod misc;
 mod npm;
 mod python;
 mod shell;
-mod simple;
 mod system;
 mod text_tools;
 
@@ -162,6 +159,8 @@ static HANDLER_REGISTRY: LazyLock<HashMap<&'static str, &'static dyn Handler>> =
     LazyLock::new(build_registry);
 
 fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
+    // NOTE: Pure classification handlers (simple.rs, file_ops.rs, dangerous.rs) have been
+    // migrated to stdlib config rules. Only behavioral handlers remain here.
     let handlers: Vec<&'static dyn Handler> = vec![
         &git::GIT_HANDLER,
         &docker::DOCKER_HANDLER,
@@ -170,16 +169,8 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &find::FIND_HANDLER,
         &curl::CURL_HANDLER,
         &npm::NPM_HANDLER,
-        &simple::CARGO_HANDLER,
-        &simple::BREW_HANDLER,
-        &simple::PIP_HANDLER,
-        &simple::TERRAFORM_HANDLER,
         &helm::HELM_HANDLER,
-        &simple::PYTEST_HANDLER,
         &gh::GH_HANDLER,
-        &simple::MAKE_HANDLER,
-        &simple::RUSTUP_HANDLER,
-        &simple::OPENSSL_HANDLER,
         &cloud::KUBECTL_HANDLER,
         &cloud::AWS_HANDLER,
         &cloud::GCLOUD_HANDLER,
@@ -187,7 +178,6 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &database::PSQL_HANDLER,
         &database::MYSQL_HANDLER,
         &database::SQLITE3_HANDLER,
-        &file_ops::FILE_OPS_HANDLER,
         &text_tools::SED_HANDLER,
         &text_tools::AWK_HANDLER,
         &misc::ENV_HANDLER,
@@ -204,11 +194,6 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &misc::YQ_HANDLER,
         &misc::RUFF_HANDLER,
         &misc::BLACK_HANDLER,
-        &dangerous::DANGEROUS_BUILTINS_HANDLER,
-        &dangerous::SUDO_HANDLER,
-        &dangerous::SSH_HANDLER,
-        &dangerous::INTERPRETER_HANDLER,
-        &dangerous::PACKAGE_MANAGER_HANDLER,
         &system::FD_HANDLER,
         &system::DMESG_HANDLER,
         &system::IP_HANDLER,

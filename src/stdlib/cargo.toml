@@ -1,0 +1,24 @@
+# Stdlib rules for the Cargo build tool.
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "cargo"
+
+[[rules]]
+action = "allow"
+command = "cargo"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "cargo"
+subcommands = [
+    "help", "version", "search", "info", "tree", "metadata",
+    "read-manifest", "locate-project", "pkgid", "verify-project",
+    "build", "test", "bench", "check", "clippy", "fmt", "doc", "clean", "nextest",
+    "fetch", "generate-lockfile", "update", "vendor",
+    "login", "logout", "owner",
+    "audit", "deny", "expand", "outdated", "bloat", "machete",
+    "llvm-lines", "udeps", "depgraph", "msrv",
+]

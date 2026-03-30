@@ -1,0 +1,43 @@
+# Stdlib rules for file operation commands.
+# These replace the compiled handler in src/handlers/file_ops.rs.
+# All file operations default to "ask" — they modify the filesystem.
+
+[[rules]]
+action = "ask"
+command = "rm"
+
+[[rules]]
+action = "ask"
+command = "mv"
+
+[[rules]]
+action = "ask"
+command = "cp"
+
+[[rules]]
+action = "ask"
+command = "mkdir"
+
+[[rules]]
+action = "ask"
+command = "touch"
+
+[[rules]]
+action = "ask"
+command = "chmod"
+
+[[rules]]
+action = "ask"
+command = "chown"
+
+[[rules]]
+action = "ask"
+command = "chgrp"
+
+[[rules]]
+action = "ask"
+command = "ln"
+
+[[rules]]
+action = "ask"
+command = "install"

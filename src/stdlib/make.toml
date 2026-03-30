@@ -1,0 +1,20 @@
+# Stdlib rules for make and gmake.
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "make"
+
+[[rules]]
+action = "allow"
+command = "make"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "ask"
+command = "gmake"
+
+[[rules]]
+action = "allow"
+command = "gmake"
+flags = ["--help", "-h", "--version", "-V"]
