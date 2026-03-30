@@ -10,15 +10,45 @@ use crate::cli::InitArgs;
 use crate::config::{self, ConfigDirective};
 use crate::error::RippyError;
 
-const SIMPLE_TOML: &str = include_str!("stdlib/simple.toml");
+// Simple tool rules (split from simple.toml)
+const CARGO_TOML: &str = include_str!("stdlib/cargo.toml");
+const BREW_TOML: &str = include_str!("stdlib/brew.toml");
+const PIP_TOML: &str = include_str!("stdlib/pip.toml");
+const TERRAFORM_TOML: &str = include_str!("stdlib/terraform.toml");
+const PYTEST_TOML: &str = include_str!("stdlib/pytest.toml");
+const MAKE_TOML: &str = include_str!("stdlib/make.toml");
+const RUSTUP_TOML: &str = include_str!("stdlib/rustup.toml");
+const OPENSSL_TOML: &str = include_str!("stdlib/openssl.toml");
+
+// File operations
 const FILE_OPS_TOML: &str = include_str!("stdlib/file_ops.toml");
-const DANGEROUS_TOML: &str = include_str!("stdlib/dangerous.toml");
+
+// Dangerous command rules (split from dangerous.toml)
+const BUILTINS_TOML: &str = include_str!("stdlib/builtins.toml");
+const SUDO_TOML: &str = include_str!("stdlib/sudo.toml");
+const SSH_TOML: &str = include_str!("stdlib/ssh.toml");
+const INTERPRETERS_TOML: &str = include_str!("stdlib/interpreters.toml");
+const PACKAGE_MANAGERS_TOML: &str = include_str!("stdlib/package_managers.toml");
 
 /// All embedded stdlib TOML sources in loading order.
 const STDLIB_SOURCES: &[(&str, &str)] = &[
-    ("(stdlib:simple)", SIMPLE_TOML),
+    // Simple tools
+    ("(stdlib:cargo)", CARGO_TOML),
+    ("(stdlib:brew)", BREW_TOML),
+    ("(stdlib:pip)", PIP_TOML),
+    ("(stdlib:terraform)", TERRAFORM_TOML),
+    ("(stdlib:pytest)", PYTEST_TOML),
+    ("(stdlib:make)", MAKE_TOML),
+    ("(stdlib:rustup)", RUSTUP_TOML),
+    ("(stdlib:openssl)", OPENSSL_TOML),
+    // File operations
     ("(stdlib:file_ops)", FILE_OPS_TOML),
-    ("(stdlib:dangerous)", DANGEROUS_TOML),
+    // Dangerous commands
+    ("(stdlib:builtins)", BUILTINS_TOML),
+    ("(stdlib:sudo)", SUDO_TOML),
+    ("(stdlib:ssh)", SSH_TOML),
+    ("(stdlib:interpreters)", INTERPRETERS_TOML),
+    ("(stdlib:package_managers)", PACKAGE_MANAGERS_TOML),
 ];
 
 /// Parse all embedded stdlib TOML into config directives.

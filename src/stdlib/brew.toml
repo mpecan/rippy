@@ -1,0 +1,20 @@
+# Stdlib rules for the Homebrew package manager.
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "brew"
+
+[[rules]]
+action = "allow"
+command = "brew"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "brew"
+subcommands = [
+    "list", "ls", "leaves", "info", "desc", "home", "deps", "uses",
+    "search", "doctor", "config", "outdated", "missing", "tap-info",
+    "formulae", "casks", "log", "cat", "fetch", "docs", "shellenv", "help",
+]

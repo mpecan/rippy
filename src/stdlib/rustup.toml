@@ -1,0 +1,19 @@
+# Stdlib rules for the Rust toolchain manager.
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "rustup"
+
+[[rules]]
+action = "allow"
+command = "rustup"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "rustup"
+subcommands = [
+    "show", "which", "doc", "man", "completions", "check",
+    "default", "target", "component", "toolchain",
+]

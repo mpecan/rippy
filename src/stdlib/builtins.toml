@@ -1,0 +1,14 @@
+# Stdlib rules for dangerous shell builtins (eval, exec, source).
+# All default to "ask" — these can execute arbitrary code.
+
+[[rules]]
+action = "ask"
+command = "eval"
+
+[[rules]]
+action = "ask"
+command = "exec"
+
+[[rules]]
+action = "ask"
+command = "source"

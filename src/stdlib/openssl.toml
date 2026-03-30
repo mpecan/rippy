@@ -1,0 +1,16 @@
+# Stdlib rules for the OpenSSL command-line tool.
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "openssl"
+
+[[rules]]
+action = "allow"
+command = "openssl"
+flags = ["--help", "-h"]
+
+[[rules]]
+action = "allow"
+command = "openssl"
+subcommands = ["version", "help", "list", "s_client"]

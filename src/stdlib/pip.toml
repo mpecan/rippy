@@ -1,0 +1,36 @@
+# Stdlib rules for pip and pip3 package managers.
+# Catch-all ask first, then allow overrides (last-match-wins).
+
+[[rules]]
+action = "ask"
+command = "pip"
+
+[[rules]]
+action = "allow"
+command = "pip"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "pip"
+subcommands = [
+    "list", "freeze", "show", "search", "check", "config",
+    "help", "version", "debug", "cache", "index", "inspect", "hash",
+]
+
+[[rules]]
+action = "ask"
+command = "pip3"
+
+[[rules]]
+action = "allow"
+command = "pip3"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "pip3"
+subcommands = [
+    "list", "freeze", "show", "search", "check", "config",
+    "help", "version", "debug", "cache", "index", "inspect", "hash",
+]

@@ -1,0 +1,14 @@
+# Stdlib rules for remote execution and transfer (ssh, scp, rsync).
+# All default to "ask" — these operate on remote systems.
+
+[[rules]]
+action = "ask"
+command = "ssh"
+
+[[rules]]
+action = "ask"
+command = "scp"
+
+[[rules]]
+action = "ask"
+command = "rsync"

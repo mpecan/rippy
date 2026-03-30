@@ -1,0 +1,14 @@
+# Stdlib rules for privilege escalation commands (sudo, su, doas).
+# All default to "ask" — these run commands with elevated privileges.
+
+[[rules]]
+action = "ask"
+command = "sudo"
+
+[[rules]]
+action = "ask"
+command = "su"
+
+[[rules]]
+action = "ask"
+command = "doas"
