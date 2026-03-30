@@ -1494,9 +1494,10 @@ fn init_refuses_existing() {
 
 #[test]
 fn discover_finds_curl_flags() {
+    let home = tempfile::TempDir::new().unwrap();
     let output = std::process::Command::new(common::rippy_binary())
         .args(["discover", "curl", "--json"])
-        .env("HOME", tempfile::TempDir::new().unwrap().path())
+        .env("HOME", home.path())
         .output()
         .unwrap();
     // curl might not be installed in CI, so just check exit code 0 or graceful error
