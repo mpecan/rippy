@@ -120,6 +120,7 @@ pub struct RuleArgs {
 }
 
 #[derive(Args, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SuggestArgs {
     /// Generate patterns from a command string instead of analyzing the DB
     #[arg(long)]
@@ -148,6 +149,18 @@ pub struct SuggestArgs {
     /// Minimum number of occurrences to generate a suggestion
     #[arg(long, default_value = "3")]
     pub min_count: i64,
+
+    /// Analyze Claude Code session files for this project
+    #[arg(long)]
+    pub sessions: bool,
+
+    /// Analyze a specific session JSONL file
+    #[arg(long)]
+    pub session_file: Option<PathBuf>,
+
+    /// Audit mode: classify commands against current config
+    #[arg(long)]
+    pub audit: bool,
 }
 
 #[derive(Args, Debug)]
