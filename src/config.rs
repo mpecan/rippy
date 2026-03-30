@@ -149,7 +149,8 @@ impl Config {
     ///
     /// Returns `RippyError::Config` if a config file exists but contains invalid syntax.
     pub fn load(cwd: &Path, env_config: Option<&Path>) -> Result<Self, RippyError> {
-        let mut directives = Vec::new();
+        // Stdlib first (lowest priority — user config overrides via last-match-wins).
+        let mut directives = crate::stdlib::stdlib_directives()?;
 
         if let Some(home) = home_dir() {
             load_first_existing(

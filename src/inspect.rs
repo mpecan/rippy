@@ -76,6 +76,19 @@ fn list_rules(args: &InspectArgs) -> Result<(), RippyError> {
 fn collect_list_data(cwd: &Path, config_override: Option<&Path>) -> Result<ListOutput, RippyError> {
     let mut config_sources = Vec::new();
 
+    // Stdlib rules (lowest priority).
+    let stdlib_directives = crate::stdlib::stdlib_directives()?;
+    let stdlib_displays: Vec<RuleDisplay> = stdlib_directives
+        .iter()
+        .filter_map(directive_to_display)
+        .collect();
+    if !stdlib_displays.is_empty() {
+        config_sources.push(SourceRules {
+            path: "(stdlib)".to_string(),
+            rules: stdlib_displays,
+        });
+    }
+
     // Global config.
     if let Some(home) = config::home_dir() {
         for candidate in &[

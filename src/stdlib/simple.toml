@@ -1,0 +1,132 @@
+# Stdlib rules for pure SubcommandHandler-based tools.
+# These replace the compiled handlers in src/handlers/simple.rs.
+# Order: catch-all ask first, then allow overrides (last-match-wins).
+
+# ── Cargo ──────────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "cargo"
+
+[[rules]]
+action = "allow"
+command = "cargo"
+subcommands = [
+    "help", "version", "search", "info", "tree", "metadata",
+    "read-manifest", "locate-project", "pkgid", "verify-project",
+    "build", "test", "bench", "check", "clippy", "fmt", "doc", "clean", "nextest",
+    "fetch", "generate-lockfile", "update", "vendor",
+    "login", "logout", "owner",
+    "audit", "deny", "expand", "outdated", "bloat", "machete",
+    "llvm-lines", "udeps", "depgraph", "msrv",
+]
+
+# ── Brew ───────────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "brew"
+
+[[rules]]
+action = "allow"
+command = "brew"
+subcommands = [
+    "list", "ls", "leaves", "info", "desc", "home", "deps", "uses",
+    "search", "doctor", "config", "outdated", "missing", "tap-info",
+    "formulae", "casks", "log", "cat", "fetch", "docs", "shellenv", "help",
+]
+
+# ── Pip ────────────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "pip"
+
+[[rules]]
+action = "ask"
+command = "pip3"
+
+[[rules]]
+action = "allow"
+command = "pip"
+subcommands = [
+    "list", "freeze", "show", "search", "check", "config",
+    "help", "version", "debug", "cache", "index", "inspect", "hash",
+]
+
+[[rules]]
+action = "allow"
+command = "pip3"
+subcommands = [
+    "list", "freeze", "show", "search", "check", "config",
+    "help", "version", "debug", "cache", "index", "inspect", "hash",
+]
+
+# ── Terraform ──────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "terraform"
+
+[[rules]]
+action = "ask"
+command = "tf"
+
+[[rules]]
+action = "allow"
+command = "terraform"
+subcommands = [
+    "version", "help", "fmt", "validate", "plan", "show", "state",
+    "output", "graph", "providers", "console", "workspace", "get",
+    "modules", "metadata", "test", "refresh",
+]
+
+[[rules]]
+action = "allow"
+command = "tf"
+subcommands = [
+    "version", "help", "fmt", "validate", "plan", "show", "state",
+    "output", "graph", "providers", "console", "workspace", "get",
+    "modules", "metadata", "test", "refresh",
+]
+
+# ── Pytest ─────────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "pytest"
+
+# ── Make ───────────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "make"
+
+[[rules]]
+action = "ask"
+command = "gmake"
+
+# ── Rustup ─────────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "rustup"
+
+[[rules]]
+action = "allow"
+command = "rustup"
+subcommands = [
+    "show", "which", "doc", "man", "completions", "check",
+    "default", "target", "component", "toolchain",
+]
+
+# ── OpenSSL ────────────────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "openssl"
+
+[[rules]]
+action = "allow"
+command = "openssl"
+subcommands = ["version", "help", "list", "s_client"]

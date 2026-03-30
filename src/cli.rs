@@ -62,6 +62,19 @@ pub enum Command {
     Ask(RuleArgs),
     /// Analyze tracking data and suggest config rules
     Suggest(SuggestArgs),
+    /// Copy default stdlib rules to config for customization
+    Init(InitArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// Write to global config (~/.rippy/config.toml) instead of project .rippy.toml
+    #[arg(long)]
+    pub global: bool,
+
+    /// Print stdlib to stdout instead of writing to file
+    #[arg(long)]
+    pub stdout: bool,
 }
 
 #[derive(Args, Debug)]

@@ -21,6 +21,7 @@ pub mod self_protect;
 pub mod setup;
 pub mod sql;
 pub mod stats;
+pub mod stdlib;
 pub mod suggest;
 pub mod toml_config;
 pub mod tracking;

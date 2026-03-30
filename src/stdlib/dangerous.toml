@@ -1,0 +1,101 @@
+# Stdlib rules for dangerous builtins, privilege escalation,
+# remote execution, interpreters, and package managers.
+# These replace the compiled handlers in src/handlers/dangerous.rs.
+
+# ── Dangerous shell builtins ───────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "eval"
+
+[[rules]]
+action = "ask"
+command = "exec"
+
+[[rules]]
+action = "ask"
+command = "source"
+
+# ── Privilege escalation ───────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "sudo"
+
+[[rules]]
+action = "ask"
+command = "su"
+
+[[rules]]
+action = "ask"
+command = "doas"
+
+# ── Remote execution / transfer ────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "ssh"
+
+[[rules]]
+action = "ask"
+command = "scp"
+
+[[rules]]
+action = "ask"
+command = "rsync"
+
+# ── Script interpreters ────────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "perl"
+
+[[rules]]
+action = "ask"
+command = "ruby"
+
+[[rules]]
+action = "ask"
+command = "node"
+
+[[rules]]
+action = "ask"
+command = "deno"
+
+[[rules]]
+action = "ask"
+command = "lua"
+
+# ── System package managers ────────────────────────────────────────────
+
+[[rules]]
+action = "ask"
+command = "apt"
+
+[[rules]]
+action = "ask"
+command = "apt-get"
+
+[[rules]]
+action = "ask"
+command = "dpkg"
+
+[[rules]]
+action = "ask"
+command = "dnf"
+
+[[rules]]
+action = "ask"
+command = "yum"
+
+[[rules]]
+action = "ask"
+command = "pacman"
+
+[[rules]]
+action = "ask"
+command = "snap"
+
+[[rules]]
+action = "ask"
+command = "flatpak"
