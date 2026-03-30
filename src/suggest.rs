@@ -97,28 +97,57 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Load command breakdowns from the appropriate source (sessions or tracking DB).
+/// Load command breakdowns from the appropriate source.
+///
+/// Priority: explicit `--session-file` > explicit `--db` > auto-detect sessions > tracking DB.
+/// Sessions are the default for Claude Code users (always available, no setup needed).
 fn load_breakdowns(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
-    if args.sessions || args.session_file.is_some() {
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let commands = if let Some(file) = &args.session_file {
-            crate::sessions::parse_session_file(file)?
-        } else {
-            crate::sessions::parse_project_sessions(&cwd)?
-        };
-
-        if args.audit {
-            let audit = crate::sessions::audit_commands(&commands, &cwd)?;
-            crate::sessions::print_audit(&audit);
-        }
-
-        Ok(crate::sessions::to_breakdowns(&commands))
-    } else {
-        let db_path = resolve_db_path(args)?;
-        let conn = tracking::open_db(&db_path)?;
-        let since_modifier = parse_since(args.since.as_deref())?;
-        tracking::query_command_breakdown(&conn, since_modifier.as_deref())
+    // Explicit session file always wins.
+    if let Some(file) = &args.session_file {
+        return load_from_sessions(args, || crate::sessions::parse_session_file(file));
     }
+
+    // Explicit --db flag uses tracking DB.
+    if args.db.is_some() {
+        return load_from_db(args);
+    }
+
+    // Default: try sessions first, fall back to tracking DB.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    match crate::sessions::parse_project_sessions(&cwd) {
+        Ok(ref commands) if !commands.is_empty() => {
+            load_from_session_commands(args, commands, &cwd)
+        }
+        _ => load_from_db(args),
+    }
+}
+
+fn load_from_sessions(
+    args: &SuggestArgs,
+    parse: impl FnOnce() -> Result<Vec<crate::sessions::SessionCommand>, RippyError>,
+) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let commands = parse()?;
+    load_from_session_commands(args, &commands, &cwd)
+}
+
+fn load_from_session_commands(
+    args: &SuggestArgs,
+    commands: &[crate::sessions::SessionCommand],
+    cwd: &std::path::Path,
+) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    if args.audit {
+        let audit = crate::sessions::audit_commands(commands, cwd)?;
+        crate::sessions::print_audit(&audit);
+    }
+    Ok(crate::sessions::to_breakdowns(commands))
+}
+
+fn load_from_db(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    let db_path = resolve_db_path(args)?;
+    let conn = tracking::open_db(&db_path)?;
+    let since_modifier = parse_since(args.since.as_deref())?;
+    tracking::query_command_breakdown(&conn, since_modifier.as_deref())
 }
 
 fn print_command_suggestions(command: &str) {

@@ -150,7 +150,7 @@ pub struct SuggestArgs {
     #[arg(long, default_value = "3")]
     pub min_count: i64,
 
-    /// Analyze Claude Code session files for this project
+    /// Use Claude Code session files (default if sessions exist, use --db to override)
     #[arg(long)]
     pub sessions: bool,
 
