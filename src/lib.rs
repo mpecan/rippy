@@ -19,6 +19,7 @@ pub mod python_safety;
 pub mod risk;
 pub mod rule_cmd;
 pub mod self_protect;
+pub mod sessions;
 pub mod setup;
 pub mod sql;
 pub mod stats;

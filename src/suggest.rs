@@ -74,14 +74,11 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let db_path = resolve_db_path(args)?;
-    let conn = tracking::open_db(&db_path)?;
-
-    let since_modifier = parse_since(args.since.as_deref())?;
-    let suggestions = analyze(&conn, since_modifier.as_deref(), args.min_count)?;
+    let breakdowns = load_breakdowns(args)?;
+    let suggestions = analyze_breakdowns(&breakdowns, args.min_count);
 
     if suggestions.is_empty() {
-        eprintln!("[rippy] No suggestions — not enough tracking data yet.");
+        eprintln!("[rippy] No suggestions — not enough data yet.");
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -98,6 +95,62 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// Load command breakdowns from the appropriate source.
+///
+/// Priority: explicit `--session-file` > explicit `--db` > auto-detect sessions > tracking DB.
+/// Sessions are the default for Claude Code users (always available, no setup needed).
+fn load_breakdowns(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    // Explicit session file always wins.
+    if let Some(file) = &args.session_file {
+        return load_from_sessions(args, || crate::sessions::parse_session_file(file));
+    }
+
+    // Explicit --db flag uses tracking DB.
+    if args.db.is_some() {
+        return load_from_db(args);
+    }
+
+    // Default: try sessions first, fall back to tracking DB.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    match crate::sessions::parse_project_sessions(&cwd) {
+        Ok(ref commands) if !commands.is_empty() => {
+            load_from_session_commands(args, commands, &cwd)
+        }
+        _ => load_from_db(args),
+    }
+}
+
+fn load_from_sessions(
+    args: &SuggestArgs,
+    parse: impl FnOnce() -> Result<Vec<crate::sessions::SessionCommand>, RippyError>,
+) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let commands = parse()?;
+    load_from_session_commands(args, &commands, &cwd)
+}
+
+fn load_from_session_commands(
+    args: &SuggestArgs,
+    commands: &[crate::sessions::SessionCommand],
+    cwd: &std::path::Path,
+) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    if args.audit {
+        let audit = crate::sessions::audit_commands(commands, cwd)?;
+        crate::sessions::print_audit(&audit);
+    }
+
+    // Filter out commands already handled by CC permissions or rippy config.
+    let filtered = crate::sessions::filter_auto_allowed(commands, cwd)?;
+    Ok(crate::sessions::to_breakdowns(&filtered))
+}
+
+fn load_from_db(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    let db_path = resolve_db_path(args)?;
+    let conn = tracking::open_db(&db_path)?;
+    let since_modifier = parse_since(args.since.as_deref())?;
+    tracking::query_command_breakdown(&conn, since_modifier.as_deref())
 }
 
 fn print_command_suggestions(command: &str) {
@@ -133,18 +186,13 @@ fn parse_since(since: Option<&str>) -> Result<Option<String>, RippyError> {
 
 // ── Analysis engine ────────────────────────────────────────────────────
 
-/// Analyze tracking data and produce rule suggestions.
-///
-/// # Errors
-///
-/// Returns `RippyError::Tracking` on query failure.
-pub fn analyze(
-    conn: &rusqlite::Connection,
-    since: Option<&str>,
+/// Analyze command breakdowns and produce rule suggestions.
+#[must_use]
+pub fn analyze_breakdowns(
+    breakdowns: &[tracking::CommandBreakdown],
     min_count: i64,
-) -> Result<Vec<Suggestion>, RippyError> {
-    let breakdowns = tracking::query_command_breakdown(conn, since)?;
-    let groups = group_commands(&breakdowns);
+) -> Vec<Suggestion> {
+    let groups = group_commands(breakdowns);
 
     let mut suggestions: Vec<Suggestion> = groups
         .into_iter()
@@ -171,7 +219,7 @@ pub fn analyze(
             .then_with(|| b.evidence.total.cmp(&a.evidence.total))
     });
 
-    Ok(suggestions)
+    suggestions
 }
 
 // ── Grouping ───────────────────────────────────────────────────────────
@@ -557,7 +605,8 @@ mod tests {
         conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
         populate_test_db(&conn);
 
-        let suggestions = analyze(&conn, None, 3).unwrap();
+        let breakdowns = tracking::query_command_breakdown(&conn, None).unwrap();
+        let suggestions = analyze_breakdowns(&breakdowns, 3);
         assert!(!suggestions.is_empty());
         assert!(suggestions.len() >= 3);
     }
@@ -568,7 +617,8 @@ mod tests {
         conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
         populate_test_db(&conn);
 
-        let suggestions = analyze(&conn, None, 3).unwrap();
+        let breakdowns = tracking::query_command_breakdown(&conn, None).unwrap();
+        let suggestions = analyze_breakdowns(&breakdowns, 3);
 
         let rm = suggestions
             .iter()

@@ -1518,3 +1518,51 @@ fn discover_without_args_errors() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+// ---- Session file suggest tests ----
+
+#[test]
+fn suggest_from_session_file() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let session_file = dir.path().join("test-session.jsonl");
+    // Write a sample session JSONL with Bash tool calls.
+    let jsonl = [
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git status"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#,
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"git status"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"ok"}]}}"#,
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"rm -rf /"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t4","is_error":true,"content":"denied"}]}}"#,
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"rm -rf /"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t5","is_error":true,"content":"denied"}]}}"#,
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t6","name":"Bash","input":{"command":"rm -rf /"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t6","is_error":true,"content":"denied"}]}}"#,
+    ];
+    std::fs::write(&session_file, jsonl.join("\n")).unwrap();
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args([
+            "suggest",
+            "--session-file",
+            session_file.to_str().unwrap(),
+            "--json",
+            "--min-count",
+            "2",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let suggestions: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let arr = suggestions.as_array().unwrap();
+    assert!(arr.len() >= 2);
+
+    // Should have allow and deny suggestions
+    let actions: Vec<&str> = arr.iter().filter_map(|s| s["action"].as_str()).collect();
+    assert!(actions.contains(&"allow"));
+    assert!(actions.contains(&"deny"));
+}
