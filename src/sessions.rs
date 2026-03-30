@@ -167,6 +167,39 @@ fn find_project_dir(cwd: &Path) -> Option<PathBuf> {
     }
 }
 
+// ── Filtering ──────────────────────────────────────────────────────────
+
+/// Filter out commands that CC permissions or rippy config already auto-allow.
+///
+/// Only returns commands that would actually need new rules (user-allowed or user-denied).
+///
+/// # Errors
+///
+/// Returns `RippyError` if the config cannot be loaded.
+pub fn filter_auto_allowed(
+    commands: &[SessionCommand],
+    cwd: &Path,
+) -> Result<Vec<SessionCommand>, RippyError> {
+    let config = crate::config::Config::load(cwd, None)?;
+    let cc_rules = crate::cc_permissions::load_cc_rules(cwd);
+
+    let filtered = commands
+        .iter()
+        .filter(|cmd| {
+            let cc = cc_rules.check(&cmd.command);
+            let rippy = config.match_command(&cmd.command, None);
+            let auto_allowed = cc == Some(Decision::Allow)
+                || rippy
+                    .as_ref()
+                    .is_some_and(|v| v.decision == Decision::Allow);
+            !auto_allowed
+        })
+        .cloned()
+        .collect();
+
+    Ok(filtered)
+}
+
 // ── Conversion to CommandBreakdown ─────────────────────────────────────
 
 /// Convert session commands to `CommandBreakdown` format for the suggest engine.
@@ -219,18 +252,22 @@ pub struct AuditResult {
 /// Returns `RippyError` if the config cannot be loaded.
 pub fn audit_commands(commands: &[SessionCommand], cwd: &Path) -> Result<AuditResult, RippyError> {
     let config = crate::config::Config::load(cwd, None)?;
+    let cc_rules = crate::cc_permissions::load_cc_rules(cwd);
 
     let mut auto_allowed: HashMap<String, i64> = HashMap::new();
     let mut user_allowed: HashMap<String, i64> = HashMap::new();
     let mut user_denied: HashMap<String, i64> = HashMap::new();
 
     for cmd in commands {
-        let verdict = config.match_command(&cmd.command, None);
-        let rippy_would_allow = verdict
-            .as_ref()
-            .is_some_and(|v| v.decision == Decision::Allow);
+        // Check CC permissions first (same priority as analyzer).
+        let cc_decision = cc_rules.check(&cmd.command);
+        let rippy_verdict = config.match_command(&cmd.command, None);
+        let would_allow = cc_decision == Some(Decision::Allow)
+            || rippy_verdict
+                .as_ref()
+                .is_some_and(|v| v.decision == Decision::Allow);
 
-        if rippy_would_allow {
+        if would_allow {
             *auto_allowed.entry(cmd.command.clone()).or_default() += 1;
         } else if cmd.allowed {
             *user_allowed.entry(cmd.command.clone()).or_default() += 1;

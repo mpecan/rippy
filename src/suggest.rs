@@ -140,7 +140,10 @@ fn load_from_session_commands(
         let audit = crate::sessions::audit_commands(commands, cwd)?;
         crate::sessions::print_audit(&audit);
     }
-    Ok(crate::sessions::to_breakdowns(commands))
+
+    // Filter out commands already handled by CC permissions or rippy config.
+    let filtered = crate::sessions::filter_auto_allowed(commands, cwd)?;
+    Ok(crate::sessions::to_breakdowns(&filtered))
 }
 
 fn load_from_db(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
