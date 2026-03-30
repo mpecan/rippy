@@ -156,10 +156,7 @@ fn find_project_dir(cwd: &Path) -> Option<PathBuf> {
 
     // Claude Code uses cwd path with '/' replaced by '-'.
     let cwd_str = cwd.to_str()?;
-    let normalized = cwd_str
-        .trim_start_matches('/')
-        .replace('/', "-")
-        .replace('.', "-");
+    let normalized = cwd_str.trim_start_matches('/').replace(['/', '.'], "-");
     let project_name = format!("-{normalized}");
     let candidate = projects_dir.join(&project_name);
 
@@ -393,8 +390,7 @@ mod tests {
         let cwd_str = cwd.to_str().unwrap();
         let normalized = cwd_str
             .trim_start_matches('/')
-            .replace('/', "-")
-            .replace('.', "-");
+            .replace(['/', '.'], "-");
         let name = format!("-{normalized}");
         assert_eq!(name, "-Users-mdp-src-github-com-mpecan-rippy");
     }
