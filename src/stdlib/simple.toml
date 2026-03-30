@@ -1,12 +1,18 @@
 # Stdlib rules for pure SubcommandHandler-based tools.
 # These replace the compiled handlers in src/handlers/simple.rs.
 # Order: catch-all ask first, then allow overrides (last-match-wins).
+# Each tool has: catch-all ask → help/version allow → safe subcommands allow.
 
 # ── Cargo ──────────────────────────────────────────────────────────────
 
 [[rules]]
 action = "ask"
 command = "cargo"
+
+[[rules]]
+action = "allow"
+command = "cargo"
+flags = ["--help", "-h", "--version", "-V"]
 
 [[rules]]
 action = "allow"
@@ -30,6 +36,11 @@ command = "brew"
 [[rules]]
 action = "allow"
 command = "brew"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
+action = "allow"
+command = "brew"
 subcommands = [
     "list", "ls", "leaves", "info", "desc", "home", "deps", "uses",
     "search", "doctor", "config", "outdated", "missing", "tap-info",
@@ -43,8 +54,9 @@ action = "ask"
 command = "pip"
 
 [[rules]]
-action = "ask"
-command = "pip3"
+action = "allow"
+command = "pip"
+flags = ["--help", "-h", "--version", "-V"]
 
 [[rules]]
 action = "allow"
@@ -53,6 +65,15 @@ subcommands = [
     "list", "freeze", "show", "search", "check", "config",
     "help", "version", "debug", "cache", "index", "inspect", "hash",
 ]
+
+[[rules]]
+action = "ask"
+command = "pip3"
+
+[[rules]]
+action = "allow"
+command = "pip3"
+flags = ["--help", "-h", "--version", "-V"]
 
 [[rules]]
 action = "allow"
@@ -69,8 +90,9 @@ action = "ask"
 command = "terraform"
 
 [[rules]]
-action = "ask"
-command = "tf"
+action = "allow"
+command = "terraform"
+flags = ["--help", "-h", "--version", "-V"]
 
 [[rules]]
 action = "allow"
@@ -80,6 +102,15 @@ subcommands = [
     "output", "graph", "providers", "console", "workspace", "get",
     "modules", "metadata", "test", "refresh",
 ]
+
+[[rules]]
+action = "ask"
+command = "tf"
+
+[[rules]]
+action = "allow"
+command = "tf"
+flags = ["--help", "-h", "--version", "-V"]
 
 [[rules]]
 action = "allow"
@@ -96,6 +127,11 @@ subcommands = [
 action = "ask"
 command = "pytest"
 
+[[rules]]
+action = "allow"
+command = "pytest"
+flags = ["--help", "-h", "--version", "-V"]
+
 # ── Make ───────────────────────────────────────────────────────────────
 
 [[rules]]
@@ -103,14 +139,29 @@ action = "ask"
 command = "make"
 
 [[rules]]
+action = "allow"
+command = "make"
+flags = ["--help", "-h", "--version", "-V"]
+
+[[rules]]
 action = "ask"
 command = "gmake"
+
+[[rules]]
+action = "allow"
+command = "gmake"
+flags = ["--help", "-h", "--version", "-V"]
 
 # ── Rustup ─────────────────────────────────────────────────────────────
 
 [[rules]]
 action = "ask"
 command = "rustup"
+
+[[rules]]
+action = "allow"
+command = "rustup"
+flags = ["--help", "-h", "--version", "-V"]
 
 [[rules]]
 action = "allow"
@@ -125,6 +176,11 @@ subcommands = [
 [[rules]]
 action = "ask"
 command = "openssl"
+
+[[rules]]
+action = "allow"
+command = "openssl"
+flags = ["--help", "-h"]
 
 [[rules]]
 action = "allow"
