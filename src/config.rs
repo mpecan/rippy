@@ -1,9 +1,18 @@
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::condition::{Condition, MatchContext, evaluate_all};
+use crate::discover::FlagCache;
 use crate::error::RippyError;
 use crate::pattern::Pattern;
 use crate::verdict::{Decision, Verdict};
+
+/// Lazily loaded flag alias cache for structured matching.
+static FLAG_CACHE: OnceLock<FlagCache> = OnceLock::new();
+
+fn flag_cache() -> &'static FlagCache {
+    FLAG_CACHE.get_or_init(crate::discover::load_cache)
+}
 
 // ---------------------------------------------------------------------------
 // New Rule types
@@ -656,10 +665,18 @@ fn matches_structured(rule: &Rule, input: &str) -> bool {
         }
     }
 
-    if let Some(required_flags) = &rule.flags
-        && !has_required_flag(&args, required_flags)
-    {
-        return false;
+    if let Some(required_flags) = &rule.flags {
+        // Expand flags with aliases from discovery cache.
+        let cache_key = rule.command.as_ref().map(|cmd| {
+            rule.subcommand
+                .as_ref()
+                .map_or_else(|| cmd.clone(), |sub| format!("{cmd} {sub}"))
+        });
+        let expanded =
+            crate::discover::expand_flags(required_flags, flag_cache(), cache_key.as_deref());
+        if !has_required_flag(&args, &expanded) {
+            return false;
+        }
     }
 
     if let Some(needle) = &rule.args_contain
