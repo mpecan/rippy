@@ -388,9 +388,7 @@ mod tests {
     fn project_dir_mapping() {
         let cwd = Path::new("/Users/mdp/src/github.com/mpecan/rippy");
         let cwd_str = cwd.to_str().unwrap();
-        let normalized = cwd_str
-            .trim_start_matches('/')
-            .replace(['/', '.'], "-");
+        let normalized = cwd_str.trim_start_matches('/').replace(['/', '.'], "-");
         let name = format!("-{normalized}");
         assert_eq!(name, "-Users-mdp-src-github-com-mpecan-rippy");
     }
