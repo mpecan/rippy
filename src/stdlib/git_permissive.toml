@@ -1,0 +1,64 @@
+# Git permissive style: allow everything except operations that lose data.
+
+[[rules]]
+action = "allow"
+command = "git"
+subcommands = [
+    "add", "commit", "push", "pull", "merge", "rebase", "cherry-pick",
+    "checkout", "switch", "am", "apply", "fetch",
+    "rm", "mv", "restore", "revert", "init", "clone",
+    "submodule", "worktree", "gc", "prune", "reset",
+]
+
+[[rules]]
+action = "allow"
+command = "git"
+subcommand = "stash"
+
+# Allow branch ops including -d (safe delete — refuses if unmerged)
+[[rules]]
+action = "allow"
+command = "git"
+subcommand = "branch"
+
+[[rules]]
+action = "allow"
+command = "git"
+subcommand = "tag"
+
+# --- Still ask for truly destructive operations ---
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "push"
+flags = ["--force", "-f", "--force-with-lease"]
+message = "Force push can rewrite remote history"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "reset"
+flags = ["--hard"]
+message = "Hard reset can lose uncommitted work"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "clean"
+message = "Clean removes untracked files permanently"
+
+# -D bypasses the unmerged check that -d has
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "branch"
+flags = ["-D"]
+message = "Force branch deletion bypasses unmerged check"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "stash"
+args-contain = "clear"
+message = "Stash clear permanently removes all stash entries"
