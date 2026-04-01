@@ -9,6 +9,7 @@ mod gh;
 mod git;
 mod helm;
 mod misc;
+mod mkdir;
 mod npm;
 mod python;
 mod shell;
@@ -166,6 +167,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
     // migrated to stdlib config rules. Only behavioral handlers remain here.
     let handlers: Vec<&'static dyn Handler> = vec![
         &cd::CD_HANDLER,
+        &mkdir::MKDIR_HANDLER,
         &git::GIT_HANDLER,
         &docker::DOCKER_HANDLER,
         &python::PYTHON_HANDLER,
@@ -242,6 +244,46 @@ pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+/// Default directories that are always considered safe for path-based handlers.
+pub const SAFE_DIRECTORIES: &[&str] = &["/tmp", "/var/tmp"];
+
+/// Logical path normalization: resolve `.` and `..` components without
+/// filesystem access (the target directory may not exist yet).
+pub fn normalize_path(path: &Path) -> std::path::PathBuf {
+    let mut result = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                result.pop();
+            }
+            other => result.push(other),
+        }
+    }
+    result
+}
+
+/// Check if a resolved, normalized path is within the working directory,
+/// a config-allowed directory, or a default safe directory.
+///
+/// Both `path` and `normalized_cwd` must already be normalized.
+/// `allowed_dirs` are normalized at config load time.
+pub fn is_within_scope(
+    path: &Path,
+    normalized_cwd: &Path,
+    allowed_dirs: &[std::path::PathBuf],
+) -> bool {
+    if path.starts_with(normalized_cwd) {
+        return true;
+    }
+
+    if allowed_dirs.iter().any(|d| path.starts_with(d)) {
+        return true;
+    }
+
+    SAFE_DIRECTORIES.iter().any(|safe| path.starts_with(safe))
 }
 
 #[cfg(test)]

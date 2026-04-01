@@ -1,9 +1,6 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
-use super::{Classification, Handler, HandlerContext};
-
-/// Default directories that are always considered safe for `cd`.
-const SAFE_DIRECTORIES: &[&str] = &["/tmp", "/var/tmp"];
+use super::{Classification, Handler, HandlerContext, is_within_scope, normalize_path};
 
 pub static CD_HANDLER: CdHandler = CdHandler;
 
@@ -57,42 +54,11 @@ impl Handler for CdHandler {
     }
 }
 
-/// Check if a resolved, normalized path is within the working directory,
-/// a config-allowed directory, or a default safe directory.
-///
-/// Both `path` and `normalized_cwd` must already be normalized.
-/// `allowed_dirs` are normalized at config load time.
-fn is_within_scope(path: &Path, normalized_cwd: &Path, allowed_dirs: &[PathBuf]) -> bool {
-    if path.starts_with(normalized_cwd) {
-        return true;
-    }
-
-    if allowed_dirs.iter().any(|d| path.starts_with(d)) {
-        return true;
-    }
-
-    SAFE_DIRECTORIES.iter().any(|safe| path.starts_with(safe))
-}
-
-/// Logical path normalization: resolve `.` and `..` components without
-/// filesystem access (the target directory may not exist yet).
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut result = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                result.pop();
-            }
-            other => result.push(other),
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn mk_ctx<'a>(cmd: &'a str, args: &'a [String], cwd: &'a Path) -> HandlerContext<'a> {

@@ -14,9 +14,7 @@ command = "mv"
 action = "ask"
 command = "cp"
 
-[[rules]]
-action = "ask"
-command = "mkdir"
+# mkdir is handled by the path-aware MkdirHandler (same scope rules as cd).
 
 [[rules]]
 action = "ask"
