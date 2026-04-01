@@ -132,6 +132,7 @@ pub enum ConfigDirective {
     Rule(Rule),
     Set { key: String, value: String },
     Alias { source: String, target: String },
+    CdAllow(PathBuf),
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +150,8 @@ pub struct Config {
     pub tracking_db: Option<PathBuf>,
     pub self_protect: bool,
     aliases: Vec<(String, String)>,
+    /// Extra directories that `cd` is allowed to navigate to (beyond the project root).
+    pub cd_allowed_dirs: Vec<PathBuf>,
 }
 
 impl Config {
@@ -315,6 +318,20 @@ impl Config {
                 }
                 ConfigDirective::Alias { source, target } => {
                     config.aliases.push((source, target));
+                }
+                ConfigDirective::CdAllow(path) => {
+                    // Pre-normalize so the cd handler skips per-call normalization.
+                    let mut normalized = PathBuf::new();
+                    for c in path.components() {
+                        match c {
+                            std::path::Component::CurDir => {}
+                            std::path::Component::ParentDir => {
+                                normalized.pop();
+                            }
+                            other => normalized.push(other),
+                        }
+                    }
+                    config.cd_allowed_dirs.push(normalized);
                 }
             }
         }
@@ -490,6 +507,7 @@ pub fn parse_rule(line: &str) -> Result<ConfigDirective, String> {
         "allow-edit" | "ask-edit" | "deny-edit" => parse_file_rule(keyword, rest, "edit"),
         "set" => parse_set_directive(rest),
         "alias" => parse_alias_directive(rest),
+        "cd-allow" => parse_cd_allow_directive(rest),
         _ => Err(format!("unknown directive: {keyword}")),
     }
 }
@@ -594,6 +612,14 @@ fn parse_alias_directive(rest: &[Token]) -> Result<ConfigDirective, String> {
         source: bare[0].to_owned(),
         target: bare[1].to_owned(),
     })
+}
+
+fn parse_cd_allow_directive(rest: &[Token]) -> Result<ConfigDirective, String> {
+    let (path_str, _) = extract_pattern_and_message(rest);
+    if path_str.is_empty() {
+        return Err("cd-allow requires a directory path".into());
+    }
+    Ok(ConfigDirective::CdAllow(PathBuf::from(path_str)))
 }
 
 fn parse_rule_kind(word: &str) -> Decision {

@@ -21,10 +21,19 @@ use crate::verdict::Decision;
 #[derive(Debug, Deserialize)]
 pub struct TomlConfig {
     pub settings: Option<TomlSettings>,
+    pub cd: Option<TomlCd>,
     #[serde(default)]
     pub rules: Vec<TomlRule>,
     #[serde(default)]
     pub aliases: Vec<TomlAlias>,
+}
+
+/// Configuration for `cd` directory navigation.
+#[derive(Debug, Deserialize)]
+pub struct TomlCd {
+    /// Additional directories that `cd` is allowed to navigate to.
+    #[serde(default, rename = "allowed-dirs")]
+    pub allowed_dirs: Vec<String>,
 }
 
 /// Global settings section.
@@ -96,6 +105,12 @@ fn toml_to_directives(config: &TomlConfig) -> Result<Vec<ConfigDirective>, Strin
 
     if let Some(settings) = &config.settings {
         settings_to_directives(settings, &mut directives);
+    }
+
+    if let Some(cd) = &config.cd {
+        for dir in &cd.allowed_dirs {
+            directives.push(ConfigDirective::CdAllow(std::path::PathBuf::from(dir)));
+        }
     }
 
     for rule in &config.rules {
