@@ -1,4 +1,6 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use std::path::Path;
+
+use super::{Classification, Handler, HandlerContext, has_flag, is_within_scope, normalize_path};
 
 pub static GIT_HANDLER: GitHandler = GitHandler;
 
@@ -106,7 +108,11 @@ impl Handler for GitHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // Skip global flags to find the real subcommand
+        // Check if -C, --git-dir, or --work-tree points outside allowed scope
+        if let Some(verdict) = check_repo_path_flags(ctx) {
+            return verdict;
+        }
+
         let (sub, sub_args) = extract_subcommand(ctx.args);
         let desc = format!("git {sub}");
 
@@ -135,6 +141,38 @@ impl Handler for GitHandler {
             _ => Classification::Ask(desc),
         }
     }
+}
+
+/// Flags that redirect git to a different repository location.
+const REPO_PATH_FLAGS: &[&str] = &["-C", "--git-dir", "--work-tree"];
+
+/// If git is invoked with -C, --git-dir, or --work-tree pointing outside
+/// the allowed scope, return Ask. Otherwise return None to continue
+/// normal classification.
+fn check_repo_path_flags(ctx: &HandlerContext) -> Option<Classification> {
+    let normalized_cwd = normalize_path(ctx.working_directory);
+    let mut i = 0;
+    while i < ctx.args.len() {
+        let arg = &ctx.args[i];
+        if REPO_PATH_FLAGS.contains(&arg.as_str()) {
+            if let Some(value) = ctx.args.get(i + 1) {
+                let resolved = if Path::new(value.as_str()).is_absolute() {
+                    normalize_path(Path::new(value.as_str()))
+                } else {
+                    normalize_path(&ctx.working_directory.join(value.as_str()))
+                };
+                if !is_within_scope(&resolved, &normalized_cwd, ctx.cd_allowed_dirs) {
+                    return Some(Classification::Ask(format!(
+                        "git {arg} targets outside allowed scope ({value})"
+                    )));
+                }
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    None
 }
 
 fn extract_subcommand(args: &[String]) -> (String, Vec<String>) {
@@ -307,5 +345,62 @@ mod tests {
         let args = vec!["-C".into(), "/tmp".into(), "status".into()];
         let result = GIT_HANDLER.classify(&ctx(&args));
         assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn dash_c_outside_scope_asks() {
+        let args = vec!["-C".into(), "/etc".into(), "status".into()];
+        let result = GIT_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn git_dir_outside_scope_asks() {
+        let args = vec!["--git-dir".into(), "/etc/repo/.git".into(), "log".into()];
+        let result = GIT_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn work_tree_outside_scope_asks() {
+        let args = vec![
+            "--work-tree".into(),
+            "/etc/checkout".into(),
+            "status".into(),
+        ];
+        let result = GIT_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn dash_c_within_project_allows() {
+        let args = vec!["-C".into(), "/tmp/subdir".into(), "status".into()];
+        let result = GIT_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn dash_c_relative_allows() {
+        let args = vec!["-C".into(), "subdir".into(), "status".into()];
+        let result = GIT_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    #[test]
+    fn dash_c_config_allowed() {
+        let allowed = vec![std::path::PathBuf::from("/opt/repos")];
+        let args = vec!["-C".into(), "/opt/repos/other".into(), "status".into()];
+        let ctx = HandlerContext {
+            command_name: "git",
+            args: &args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+            receives_piped_input: false,
+            cd_allowed_dirs: &allowed,
+        };
+        assert!(matches!(
+            GIT_HANDLER.classify(&ctx),
+            Classification::Allow(_)
+        ));
     }
 }
