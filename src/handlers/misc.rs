@@ -372,6 +372,7 @@ mod tests {
             working_directory: Path::new("/tmp"),
             remote: false,
             receives_piped_input: false,
+            cd_allowed_dirs: &[],
         }
     }
 

@@ -1,4 +1,5 @@
 mod ansible;
+mod cd;
 mod cloud;
 mod curl;
 mod database;
@@ -27,6 +28,8 @@ pub struct HandlerContext<'a> {
     pub working_directory: &'a Path,
     pub remote: bool,
     pub receives_piped_input: bool,
+    /// Extra directories that `cd` is allowed to navigate to (from config).
+    pub cd_allowed_dirs: &'a [std::path::PathBuf],
 }
 
 /// Maximum file size (64 KB) for `read_file` — prevents reading huge files.
@@ -162,6 +165,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
     // NOTE: Pure classification handlers (simple.rs, file_ops.rs, dangerous.rs) have been
     // migrated to stdlib config rules. Only behavioral handlers remain here.
     let handlers: Vec<&'static dyn Handler> = vec![
+        &cd::CD_HANDLER,
         &git::GIT_HANDLER,
         &docker::DOCKER_HANDLER,
         &python::PYTHON_HANDLER,
@@ -252,6 +256,7 @@ mod tests {
             working_directory: dir,
             remote,
             receives_piped_input: false,
+            cd_allowed_dirs: &[],
         }
     }
 

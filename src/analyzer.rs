@@ -383,6 +383,7 @@ impl Analyzer {
                 working_directory: cwd,
                 remote: self.remote,
                 receives_piped_input: self.piped,
+                cd_allowed_dirs: &self.config.cd_allowed_dirs,
             };
             let classification = handler.classify(&ctx);
             if self.verbose {

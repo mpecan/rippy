@@ -53,6 +53,7 @@ mod tests {
             working_directory: Path::new("/tmp"),
             remote: false,
             receives_piped_input: false,
+            cd_allowed_dirs: &[],
         }
     }
 
@@ -95,6 +96,7 @@ mod tests {
             working_directory: dir.path(),
             remote: false,
             receives_piped_input: false,
+            cd_allowed_dirs: &[],
         };
         let result = SHELL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Recurse(cmd) if cmd.contains("git status")));
@@ -110,6 +112,7 @@ mod tests {
             working_directory: dir.path(),
             remote: false,
             receives_piped_input: false,
+            cd_allowed_dirs: &[],
         };
         let result = SHELL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));

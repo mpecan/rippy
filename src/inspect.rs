@@ -140,7 +140,9 @@ fn load_source_rules(path: &Path) -> Result<SourceRules, RippyError> {
 fn directive_to_display(directive: &ConfigDirective) -> Option<RuleDisplay> {
     match directive {
         ConfigDirective::Rule(rule) => Some(rule_to_display(rule)),
-        ConfigDirective::Set { .. } | ConfigDirective::Alias { .. } => None,
+        ConfigDirective::Set { .. }
+        | ConfigDirective::Alias { .. }
+        | ConfigDirective::CdAllow(_) => None,
     }
 }
 
