@@ -1,0 +1,77 @@
+# Git standard style: allow non-destructive operations, ask for destructive.
+
+[[rules]]
+action = "allow"
+command = "git"
+subcommands = [
+    "add", "commit", "push", "pull", "merge", "rebase", "cherry-pick",
+    "checkout", "switch", "am", "apply", "fetch",
+    "rm", "mv", "restore", "revert", "init", "clone",
+    "submodule", "worktree",
+]
+
+# Allow stash save/pop/apply (drop/clear overridden to ask below)
+[[rules]]
+action = "allow"
+command = "git"
+subcommand = "stash"
+
+[[rules]]
+action = "allow"
+command = "git"
+subcommand = "branch"
+
+[[rules]]
+action = "allow"
+command = "git"
+subcommand = "tag"
+
+# --- Destructive overrides (last-match-wins) ---
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "push"
+flags = ["--force", "-f", "--force-with-lease"]
+message = "Force push can rewrite remote history"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "reset"
+flags = ["--hard"]
+message = "Hard reset can lose uncommitted work"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "clean"
+message = "Clean removes untracked files"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "branch"
+flags = ["-d", "-D", "--delete"]
+message = "Branch deletion may lose unmerged work"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "tag"
+flags = ["-d", "--delete"]
+message = "Tag deletion"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "stash"
+args-contain = "drop"
+message = "Stash drop permanently removes a stash entry"
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "stash"
+args-contain = "clear"
+message = "Stash clear permanently removes all stash entries"

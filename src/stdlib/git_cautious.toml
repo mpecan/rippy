@@ -1,0 +1,13 @@
+# Git cautious style: ask for all write operations.
+# When used as a branch override, suppresses more permissive defaults.
+
+[[rules]]
+action = "ask"
+command = "git"
+subcommands = [
+    "add", "commit", "push", "pull", "merge", "rebase", "cherry-pick",
+    "checkout", "switch", "stash", "branch", "tag", "am", "apply",
+    "rm", "mv", "restore", "revert", "reset", "clean",
+    "gc", "prune", "filter-branch", "filter-repo",
+    "submodule", "worktree", "init", "clone",
+]

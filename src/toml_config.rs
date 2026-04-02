@@ -22,6 +22,7 @@ use crate::verdict::Decision;
 pub struct TomlConfig {
     pub settings: Option<TomlSettings>,
     pub cd: Option<TomlCd>,
+    pub git: Option<TomlGit>,
     #[serde(default)]
     pub rules: Vec<TomlRule>,
     #[serde(default)]
@@ -34,6 +35,25 @@ pub struct TomlCd {
     /// Additional directories that `cd` is allowed to navigate to.
     #[serde(default, rename = "allowed-dirs")]
     pub allowed_dirs: Vec<String>,
+}
+
+/// Git workflow style configuration.
+#[derive(Debug, Deserialize)]
+pub struct TomlGit {
+    /// Default git workflow style for the project.
+    pub style: Option<String>,
+    /// Branch-specific style overrides.
+    #[serde(default)]
+    pub branches: Vec<TomlGitBranch>,
+}
+
+/// A branch-specific git style override.
+#[derive(Debug, Deserialize)]
+pub struct TomlGitBranch {
+    /// Branch glob pattern (e.g., "agent/*", "main").
+    pub pattern: String,
+    /// Style name for branches matching this pattern.
+    pub style: String,
 }
 
 /// Global settings section.
@@ -111,6 +131,11 @@ fn toml_to_directives(config: &TomlConfig) -> Result<Vec<ConfigDirective>, Strin
         for dir in &cd.allowed_dirs {
             directives.push(ConfigDirective::CdAllow(std::path::PathBuf::from(dir)));
         }
+    }
+
+    // Expand git style rules BEFORE user rules so users can override.
+    if let Some(git) = &config.git {
+        directives.extend(crate::git_styles::expand_git_config(git)?);
     }
 
     for rule in &config.rules {
