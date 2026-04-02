@@ -130,9 +130,17 @@ impl Rule {
 #[derive(Debug, Clone)]
 pub enum ConfigDirective {
     Rule(Rule),
-    Set { key: String, value: String },
-    Alias { source: String, target: String },
+    Set {
+        key: String,
+        value: String,
+    },
+    Alias {
+        source: String,
+        target: String,
+    },
     CdAllow(PathBuf),
+    /// Marker separating baseline (stdlib + global) from project rules.
+    ProjectBoundary,
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +162,9 @@ pub struct Config {
     aliases: Vec<(String, String)>,
     /// Extra directories that `cd` is allowed to navigate to (beyond the project root).
     pub cd_allowed_dirs: Vec<PathBuf>,
+    /// Index in `rules` where project-config rules begin.
+    /// Rules before this index are baseline (stdlib + global).
+    project_rules_start: usize,
 }
 
 impl Config {
@@ -176,6 +187,8 @@ impl Config {
                 &mut directives,
             )?;
         }
+
+        directives.push(ConfigDirective::ProjectBoundary);
 
         if let Some(project_config) = find_project_config(cwd) {
             let trust_all = has_trust_setting(&directives);
@@ -269,7 +282,9 @@ impl Config {
         ctx: Option<&MatchContext>,
     ) -> Option<Verdict> {
         let mut result = None;
-        for rule in &self.rules {
+        let mut baseline_decision: Option<Decision> = None;
+
+        for (i, rule) in self.rules.iter().enumerate() {
             if rule.target != target {
                 continue;
             }
@@ -287,12 +302,30 @@ impl Config {
                     _ => continue,
                 }
             }
+
+            let is_project_rule = i >= self.project_rules_start;
+            if !is_project_rule {
+                baseline_decision = Some(rule.decision);
+            }
+
+            let reason = if is_project_rule
+                && rule.decision == Decision::Allow
+                && baseline_decision.is_some_and(|d| d != Decision::Allow)
+            {
+                let overridden = baseline_decision.map_or("ask", Decision::as_str);
+                format!(
+                    "matched project rule (overrides {overridden}: {})",
+                    rule.pattern.raw()
+                )
+            } else {
+                rule.message
+                    .as_deref()
+                    .map_or_else(|| format_rule_reason(rule, label), String::from)
+            };
+
             result = Some(Verdict {
                 decision: rule.decision,
-                reason: rule
-                    .message
-                    .as_deref()
-                    .map_or_else(|| format_rule_reason(rule, label), String::from),
+                reason,
             });
         }
         result
@@ -321,6 +354,9 @@ impl Config {
                 }
                 ConfigDirective::Alias { source, target } => {
                     config.aliases.push((source, target));
+                }
+                ConfigDirective::ProjectBoundary => {
+                    config.project_rules_start = config.rules.len();
                 }
                 ConfigDirective::CdAllow(path) => {
                     // Pre-normalize so the cd handler skips per-call normalization.
@@ -1320,5 +1356,84 @@ mod tests {
 
         let structured = structured_rule(Decision::Deny, Some("git"), None, None);
         assert!(structured.has_structured_fields());
+    }
+
+    #[test]
+    fn project_rule_override_annotated() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm -rf *")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "rm -rf *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /tmp", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            v.reason.contains("overrides deny"),
+            "reason should mention override, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_rule_no_override_not_annotated() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "echo *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("echo hello", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            !v.reason.contains("overrides"),
+            "no baseline deny → should not mention override, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn baseline_rule_not_annotated() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /", None).unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        assert!(
+            !v.reason.contains("overrides"),
+            "baseline rule should not be annotated, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_ask_overriding_deny_not_annotated() {
+        // ask overriding deny is not weakening — it's still restrictive.
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Ask, "rm *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /", None).unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+        assert!(
+            !v.reason.contains("overrides"),
+            "ask overriding deny is not weakening, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_rules_start_set_correctly() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "a")),
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "b")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "c")),
+        ];
+        let config = Config::from_directives(directives);
+        assert_eq!(config.project_rules_start, 2);
     }
 }

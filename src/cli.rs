@@ -270,6 +270,10 @@ pub struct HookArgs {
     /// Print decision trace to stderr for debugging
     #[arg(long, short = 'v')]
     pub verbose: bool,
+
+    /// Suppress informational stderr messages (trust warnings, etc.)
+    #[arg(long, short = 'q')]
+    pub quiet: bool,
 }
 
 impl HookArgs {
@@ -299,6 +303,7 @@ mod tests {
             config: None,
             remote: false,
             verbose: false,
+            quiet: false,
         };
         assert_eq!(args.forced_mode(), Some(Mode::Claude));
     }
@@ -310,6 +315,7 @@ mod tests {
             config: None,
             remote: false,
             verbose: false,
+            quiet: false,
         };
         assert_eq!(args.forced_mode(), None);
     }

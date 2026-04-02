@@ -2053,3 +2053,73 @@ fn trust_guard_does_not_grant_trust_to_untrusted_file() {
         "guard should not grant trust to previously untrusted file"
     );
 }
+
+// ---- Config weakening annotation tests ----
+
+#[test]
+fn config_weakening_verdict_annotated() {
+    // A config that allows a command the stdlib denies should produce
+    // a verdict reason mentioning "overrides".
+    let dir = tempfile::TempDir::new().unwrap();
+    // The stdlib denies rm -rf via handler (returns ask). A config allow overrides it.
+    let config_path = dir.path().join("override.toml");
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"allow\"\npattern = \"rm -rf *\"\n",
+    )
+    .unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/stuff"}}"#;
+    let config_str = config_path.to_str().unwrap();
+    let (stdout, code) = run_rippy(json, "claude", &["--config", config_str]);
+    assert_eq!(code, 0, "allow rule should approve, stdout: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        reason.contains("overrides"),
+        "verdict should mention override, got: {reason}"
+    );
+}
+
+#[test]
+fn config_tightening_verdict_normal() {
+    // A config that only adds deny rules should NOT produce an annotation.
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join("tighten.toml");
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"blocked\"\n",
+    )
+    .unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let config_str = config_path.to_str().unwrap();
+    let (stdout, code) = run_rippy(json, "claude", &["--config", config_str]);
+    assert_eq!(code, 2, "deny rule should block");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        !reason.contains("overrides"),
+        "tightening should not mention override, got: {reason}"
+    );
+}
+
+#[test]
+fn config_no_override_normal_reason() {
+    // Without project/override config, verdicts have normal reasons.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git status"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        !reason.contains("overrides"),
+        "no override config → no annotation, got: {reason}"
+    );
+}
