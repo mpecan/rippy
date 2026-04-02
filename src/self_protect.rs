@@ -10,7 +10,12 @@ use std::path::Path;
 const PROTECTED_BASENAMES: &[&str] = &[".rippy", ".rippy.toml", ".dippy"];
 
 /// Subdirectory paths that are always protected (matched against suffix).
-const PROTECTED_SUFFIXES: &[&str] = &[".rippy/config", ".rippy/config.toml", ".dippy/config"];
+const PROTECTED_SUFFIXES: &[&str] = &[
+    ".rippy/config",
+    ".rippy/config.toml",
+    ".rippy/trusted.json",
+    ".dippy/config",
+];
 
 /// Message returned when a protected file is denied.
 pub const PROTECTION_MESSAGE: &str = "rippy configuration files are protected from modification. To disable self-protection, manually add `set self-protect off` to your config.";
@@ -63,6 +68,12 @@ mod tests {
         assert!(is_protected_path("/home/user/.rippy/config"));
         assert!(is_protected_path("/home/user/.rippy/config.toml"));
         assert!(is_protected_path("/home/user/.dippy/config"));
+    }
+
+    #[test]
+    fn protects_trust_database() {
+        assert!(is_protected_path("/home/user/.rippy/trusted.json"));
+        assert!(is_protected_path(".rippy/trusted.json"));
     }
 
     #[test]

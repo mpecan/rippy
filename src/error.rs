@@ -30,4 +30,7 @@ pub enum RippyError {
 
     #[error("tracking error: {0}")]
     Tracking(String),
+
+    #[error("trust error: {0}")]
+    Trust(String),
 }

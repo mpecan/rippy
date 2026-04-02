@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 mod common;
-use common::{run_rippy, run_rippy_in_dir, run_rippy_with_stderr};
+use common::{run_rippy, run_rippy_in_dir, run_rippy_in_dir_with_args, run_rippy_with_stderr};
 
 // ---- Claude mode tests ----
 
@@ -778,7 +778,10 @@ message = "Use trash-cli instead of rm -rf"
     .unwrap();
 
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp"}}"#;
-    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let config = dir.path().join(".rippy.toml");
+    let config_str = config.to_str().unwrap();
+    let (stdout, code) =
+        run_rippy_in_dir_with_args(json, "claude", dir.path(), &["--config", config_str]);
     assert_eq!(code, 2);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
@@ -994,7 +997,10 @@ fn file_read_denied_by_rule() {
     .unwrap();
 
     let json = r#"{"tool_name":"Read","tool_input":{"file_path":".env.local"}}"#;
-    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let config = dir.path().join(".rippy.toml");
+    let config_str = config.to_str().unwrap();
+    let (stdout, code) =
+        run_rippy_in_dir_with_args(json, "claude", dir.path(), &["--config", config_str]);
     assert_eq!(code, 2);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
@@ -1043,7 +1049,10 @@ fn file_read_allowed_by_explicit_rule() {
     .unwrap();
 
     let json = r#"{"tool_name":"Read","tool_input":{"file_path":"anything.txt"}}"#;
-    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let config = dir.path().join(".rippy.toml");
+    let config_str = config.to_str().unwrap();
+    let (stdout, code) =
+        run_rippy_in_dir_with_args(json, "claude", dir.path(), &["--config", config_str]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
@@ -1059,7 +1068,10 @@ fn edit_tool_matched_by_rule() {
     .unwrap();
 
     let json = r#"{"tool_name":"Edit","tool_input":{"file_path":"node_modules/pkg/index.js","old_string":"a","new_string":"b"}}"#;
-    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let config = dir.path().join(".rippy.toml");
+    let config_str = config.to_str().unwrap();
+    let (stdout, code) =
+        run_rippy_in_dir_with_args(json, "claude", dir.path(), &["--config", config_str]);
     assert_eq!(code, 2);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
@@ -1127,7 +1139,10 @@ fn self_protect_disabled_allows_write() {
     .unwrap();
 
     let json = r#"{"tool_name":"Write","tool_input":{"file_path":".rippy","content":"allow *"}}"#;
-    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let config = dir.path().join(".rippy.toml");
+    let config_str = config.to_str().unwrap();
+    let (_stdout, code) =
+        run_rippy_in_dir_with_args(json, "claude", dir.path(), &["--config", config_str]);
     // With self-protect off and no deny-write rule, this should passthrough (exit 0).
     assert_eq!(code, 0);
 }
@@ -1176,7 +1191,10 @@ file-exists = "Cargo.toml"
     )
     .unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
-    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let config = dir.path().join(".rippy.toml");
+    let config_str = config.to_str().unwrap();
+    let (stdout, code) =
+        run_rippy_in_dir_with_args(json, "claude", dir.path(), &["--config", config_str]);
     // Cargo.toml exists → condition passes → deny rule applies
     assert_eq!(code, 2);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -1565,4 +1583,329 @@ fn suggest_from_session_file() {
     let actions: Vec<&str> = arr.iter().filter_map(|s| s["action"].as_str()).collect();
     assert!(actions.contains(&"allow"));
     assert!(actions.contains(&"deny"));
+}
+
+// ---- Trust model integration tests ----
+
+#[test]
+fn trust_untrusted_project_config_ignored() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"blocked\"\n",
+    )
+    .unwrap();
+
+    // Without trust, the project config should be ignored.
+    // echo is simple_safe → allowed despite the deny rule.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0, "untrusted project config should be ignored");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn trust_untrusted_config_emits_stderr_warning() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\n",
+    )
+    .unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let mut cmd = std::process::Command::new(common::rippy_binary());
+    cmd.arg("--mode")
+        .arg("claude")
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("untrusted project config"),
+        "stderr should warn about untrusted config, got: {stderr}"
+    );
+}
+
+#[test]
+fn trust_trusted_project_config_applied() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join(".rippy.toml");
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"blocked\"\n",
+    )
+    .unwrap();
+
+    // Trust the config by writing a trust DB entry at HOME/.rippy/trusted.json.
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    let fake_home = dir.path().join("fakehome");
+    let rippy_dir = fake_home.join(".rippy");
+    std::fs::create_dir_all(&rippy_dir).unwrap();
+    let trust_db_path = rippy_dir.join("trusted.json");
+    let mut db = rippy_cli::trust::TrustDb::load_from(&trust_db_path);
+    db.trust(&config_path, &content);
+    db.save().unwrap();
+
+    // Run rippy with HOME pointing to our fake home.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let mut cmd = std::process::Command::new(common::rippy_binary());
+    cmd.arg("--mode")
+        .arg("claude")
+        .current_dir(dir.path())
+        .env("HOME", &fake_home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let output = child.wait_with_output().unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        code, 2,
+        "trusted deny rule should block echo, stdout: {stdout_str}"
+    );
+}
+
+#[test]
+fn trust_global_setting_bypasses_check() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // Project config denies echo.
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"blocked\"\n",
+    )
+    .unwrap();
+
+    // Global config enables trust-project-configs.
+    let home = dir.path().join("fakehome");
+    let rippy_dir = home.join(".rippy");
+    std::fs::create_dir_all(&rippy_dir).unwrap();
+    std::fs::write(
+        rippy_dir.join("config.toml"),
+        "[settings]\ntrust-project-configs = true\n",
+    )
+    .unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let mut cmd = std::process::Command::new(common::rippy_binary());
+    cmd.arg("--mode")
+        .arg("claude")
+        .current_dir(dir.path())
+        .env("HOME", &home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let output = child.wait_with_output().unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    // With trust-project-configs=true, the deny rule should apply.
+    assert_eq!(code, 2, "global trust setting should load project config");
+}
+
+#[test]
+fn trust_command_status_untrusted() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(dir.path().join(".rippy"), "allow git status\n").unwrap();
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["trust", "--status"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("untrusted"),
+        "should show untrusted status, got: {stderr}"
+    );
+    assert_eq!(output.status.code().unwrap_or(-1), 2);
+}
+
+#[test]
+fn trust_command_revoke() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join(".rippy");
+    std::fs::write(&config_path, "allow git status\n").unwrap();
+
+    // Trust it first via the trust DB.
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    let trust_dir = dir.path().join(".rippy_home");
+    let rippy_dir = trust_dir.join(".rippy");
+    std::fs::create_dir_all(&rippy_dir).unwrap();
+    let trust_db_path = rippy_dir.join("trusted.json");
+    let mut db = rippy_cli::trust::TrustDb::load_from(&trust_db_path);
+    db.trust(&config_path, &content);
+    db.save().unwrap();
+
+    // Revoke it.
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["trust", "--revoke"])
+        .current_dir(dir.path())
+        .env("HOME", &trust_dir)
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("revoked"),
+        "should confirm revocation, got: {stderr}"
+    );
+    assert_eq!(output.status.code().unwrap_or(-1), 0);
+
+    // Verify it's now untrusted.
+    let db2 = rippy_cli::trust::TrustDb::load_from(&trust_db_path);
+    assert_eq!(
+        db2.check(&config_path, &content),
+        rippy_cli::trust::TrustStatus::Untrusted
+    );
+}
+
+#[test]
+fn trust_modified_config_is_ignored() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join(".rippy.toml");
+    let original = "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"blocked\"\n";
+    std::fs::write(&config_path, original).unwrap();
+
+    // Trust the original content.
+    let fake_home = dir.path().join("fakehome");
+    let rippy_dir = fake_home.join(".rippy");
+    std::fs::create_dir_all(&rippy_dir).unwrap();
+    let trust_db_path = rippy_dir.join("trusted.json");
+    let mut db = rippy_cli::trust::TrustDb::load_from(&trust_db_path);
+    db.trust(&config_path, original);
+    db.save().unwrap();
+
+    // Modify the config after trusting.
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"allow\"\npattern = \"*\"\n",
+    )
+    .unwrap();
+
+    // Run rippy — modified config should be ignored.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let mut cmd = std::process::Command::new(common::rippy_binary());
+    cmd.arg("--mode")
+        .arg("claude")
+        .current_dir(dir.path())
+        .env("HOME", &fake_home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("modified since last trust"),
+        "should warn about modified config, got: {stderr}"
+    );
+    // echo should be allowed (config was ignored).
+    assert_eq!(output.status.code().unwrap_or(-1), 0);
+}
+
+#[test]
+fn trust_command_yes_trusts_without_stdin() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join(".rippy");
+    std::fs::write(&config_path, "deny echo\n").unwrap();
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["trust", "--yes"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("trusted"),
+        "should confirm trust, got: {stderr}"
+    );
+    assert_eq!(output.status.code().unwrap_or(-1), 0);
+}
+
+#[test]
+fn trust_command_list_empty() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["trust", "--list"])
+        .current_dir(dir.path())
+        .env("HOME", dir.path())
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no trusted project configs"),
+        "should report empty, got: {stderr}"
+    );
+    assert_eq!(output.status.code().unwrap_or(-1), 0);
+}
+
+#[test]
+fn trust_command_status_when_trusted() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join(".rippy");
+    std::fs::write(&config_path, "allow git status\n").unwrap();
+
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    let fake_home = dir.path().join("fakehome");
+    let rippy_dir = fake_home.join(".rippy");
+    std::fs::create_dir_all(&rippy_dir).unwrap();
+    let trust_db_path = rippy_dir.join("trusted.json");
+    let mut db = rippy_cli::trust::TrustDb::load_from(&trust_db_path);
+    db.trust(&config_path, &content);
+    db.save().unwrap();
+
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["trust", "--status"])
+        .current_dir(dir.path())
+        .env("HOME", &fake_home)
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("trusted:"),
+        "should show trusted status, got: {stderr}"
+    );
+    assert_eq!(output.status.code().unwrap_or(-1), 0);
+}
+
+#[test]
+fn self_protect_blocks_trust_db_write() {
+    let json = r#"{"tool_name":"Write","tool_input":{"file_path":"/home/user/.rippy/trusted.json","content":"{}"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2, "self-protect should block trust DB writes");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
 }

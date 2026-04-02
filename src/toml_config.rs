@@ -66,6 +66,9 @@ pub struct TomlSettings {
     pub tracking: Option<String>,
     #[serde(rename = "self-protect")]
     pub self_protect: Option<bool>,
+    /// Whether to auto-trust all project configs without checking the trust DB.
+    #[serde(rename = "trust-project-configs")]
+    pub trust_project_configs: Option<bool>,
 }
 
 /// A single rule entry from the `[[rules]]` array.
@@ -182,6 +185,12 @@ fn settings_to_directives(settings: &TomlSettings, out: &mut Vec<ConfigDirective
         out.push(ConfigDirective::Set {
             key: "self-protect".to_string(),
             value: "off".to_string(),
+        });
+    }
+    if let Some(trust) = settings.trust_project_configs {
+        out.push(ConfigDirective::Set {
+            key: "trust-project-configs".to_string(),
+            value: if trust { "on" } else { "off" }.to_string(),
         });
     }
 }
