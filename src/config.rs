@@ -149,6 +149,8 @@ pub struct Config {
     pub log_full: bool,
     pub tracking_db: Option<PathBuf>,
     pub self_protect: bool,
+    /// Whether to auto-trust all project configs without checking the trust DB.
+    pub trust_project_configs: bool,
     aliases: Vec<(String, String)>,
     /// Extra directories that `cd` is allowed to navigate to (beyond the project root).
     pub cd_allowed_dirs: Vec<PathBuf>,
@@ -176,7 +178,8 @@ impl Config {
         }
 
         if let Some(project_config) = find_project_config(cwd) {
-            load_file(&project_config, &mut directives)?;
+            let trust_all = has_trust_setting(&directives);
+            load_project_config_if_trusted(&project_config, trust_all, &mut directives)?;
         }
 
         if let Some(env_path) = env_config {
@@ -355,6 +358,9 @@ fn apply_setting(config: &mut Config, key: &str, value: &str) {
                 PathBuf::from(value)
             });
         }
+        "trust-project-configs" => {
+            config.trust_project_configs = value != "off" && value != "false";
+        }
         "self-protect" => {
             config.self_protect = value != "off";
         }
@@ -390,8 +396,17 @@ pub(crate) fn load_file(
         message: format!("could not read: {e}"),
     })?;
 
+    load_file_from_content(&content, path, directives)
+}
+
+/// Parse config content (already read from disk) and append directives.
+pub(crate) fn load_file_from_content(
+    content: &str,
+    path: &Path,
+    directives: &mut Vec<ConfigDirective>,
+) -> Result<(), RippyError> {
     if path.extension().is_some_and(|ext| ext == "toml") {
-        let parsed = crate::toml_config::parse_toml_config(&content, path)?;
+        let parsed = crate::toml_config::parse_toml_config(content, path)?;
         directives.extend(parsed);
         return Ok(());
     }
@@ -410,6 +425,60 @@ pub(crate) fn load_file(
     }
 
     Ok(())
+}
+
+/// Check whether already-loaded directives contain `trust-project-configs = on/true`.
+fn has_trust_setting(directives: &[ConfigDirective]) -> bool {
+    directives.iter().rev().any(|d| {
+        matches!(
+            d,
+            ConfigDirective::Set { key, value }
+            if key == "trust-project-configs"
+                && value != "off"
+                && value != "false"
+        )
+    })
+}
+
+/// Load a project config file only if it is trusted.
+///
+/// If `trust_all` is true (from `trust-project-configs = on` in global config),
+/// the file is loaded unconditionally. Otherwise, the trust database is consulted
+/// and untrusted/modified configs are skipped with a stderr warning.
+fn load_project_config_if_trusted(
+    path: &Path,
+    trust_all: bool,
+    directives: &mut Vec<ConfigDirective>,
+) -> Result<(), RippyError> {
+    let content = std::fs::read_to_string(path).map_err(|e| RippyError::Config {
+        path: path.to_owned(),
+        line: 0,
+        message: format!("could not read: {e}"),
+    })?;
+
+    if trust_all {
+        return load_file_from_content(&content, path, directives);
+    }
+
+    let db = crate::trust::TrustDb::load();
+    match db.check(path, &content) {
+        crate::trust::TrustStatus::Trusted => load_file_from_content(&content, path, directives),
+        crate::trust::TrustStatus::Untrusted => {
+            eprintln!(
+                "[rippy] untrusted project config: {} — run `rippy trust` to review and enable",
+                path.display()
+            );
+            Ok(())
+        }
+        crate::trust::TrustStatus::Modified { .. } => {
+            eprintln!(
+                "[rippy] project config modified since last trust: {} — \
+                 run `rippy trust` to re-approve",
+                path.display()
+            );
+            Ok(())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -640,7 +709,7 @@ fn parse_action_word(word: &str) -> Option<Decision> {
 }
 
 /// Walk up from `start` looking for `.rippy` or `.dippy` config files.
-pub(crate) fn find_project_config(start: &Path) -> Option<PathBuf> {
+pub fn find_project_config(start: &Path) -> Option<PathBuf> {
     let mut dir = start;
     loop {
         let toml = dir.join(".rippy.toml");

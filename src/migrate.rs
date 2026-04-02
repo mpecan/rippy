@@ -26,6 +26,7 @@ pub fn run(args: &MigrateArgs) -> Result<ExitCode, RippyError> {
         std::fs::write(&output_path, &toml_output).map_err(|e| {
             RippyError::Setup(format!("could not write {}: {e}", output_path.display()))
         })?;
+        crate::trust::TrustGuard::for_new_file(&output_path).commit();
         eprintln!(
             "[rippy] Converted {} -> {}",
             input_path.display(),

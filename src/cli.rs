@@ -66,6 +66,8 @@ pub enum Command {
     Init(InitArgs),
     /// Discover flag aliases from command --help output
     Discover(DiscoverArgs),
+    /// Manage trust for project-level config files
+    Trust(TrustArgs),
 }
 
 #[derive(Args, Debug)]
@@ -227,6 +229,27 @@ pub struct TokfSetupArgs {
     /// Install tokf hooks for all supported AI tools
     #[arg(long)]
     pub all_hooks: bool,
+}
+
+/// Arguments for `rippy trust` — manage project config trust.
+#[derive(Args, Debug)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct TrustArgs {
+    /// Remove trust for the current project config
+    #[arg(long)]
+    pub revoke: bool,
+
+    /// Show trust status without modifying
+    #[arg(long)]
+    pub status: bool,
+
+    /// List all trusted project configs
+    #[arg(long)]
+    pub list: bool,
+
+    /// Trust without interactive confirmation
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 /// Hook-mode arguments (the original rippy behavior).

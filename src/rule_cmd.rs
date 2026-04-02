@@ -16,7 +16,11 @@ use crate::verdict::Decision;
 /// Returns `RippyError::Setup` if the config file cannot be read or written.
 pub fn run(decision: Decision, args: &RuleArgs) -> Result<ExitCode, RippyError> {
     let path = resolve_config_path(args.global)?;
+    let guard = (!args.global).then(|| crate::trust::TrustGuard::before_write(&path));
     append_rule_to_toml(&path, decision, &args.pattern, args.message.as_deref())?;
+    if let Some(g) = guard {
+        g.commit();
+    }
 
     eprintln!(
         "[rippy] Added to {}:\n  {} {}{}",

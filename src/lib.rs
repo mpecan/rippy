@@ -28,4 +28,6 @@ pub mod stdlib;
 pub mod suggest;
 pub mod toml_config;
 pub mod tracking;
+pub mod trust;
+pub mod trust_cmd;
 pub mod verdict;

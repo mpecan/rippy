@@ -56,3 +56,13 @@ pub fn run_rippy_in_dir(json: &str, mode: &str, dir: &Path) -> (String, i32) {
     let (stdout, _, code) = run_rippy_cmd(json, mode, &[], Some(dir));
     (stdout, code)
 }
+
+pub fn run_rippy_in_dir_with_args(
+    json: &str,
+    mode: &str,
+    dir: &Path,
+    extra_args: &[&str],
+) -> (String, i32) {
+    let (stdout, _, code) = run_rippy_cmd(json, mode, extra_args, Some(dir));
+    (stdout, code)
+}
