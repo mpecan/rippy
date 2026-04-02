@@ -115,6 +115,10 @@ pub fn run_init(args: &InitArgs) -> Result<ExitCode, RippyError> {
     std::fs::write(&path, &content)
         .map_err(|e| RippyError::Setup(format!("could not write {}: {e}", path.display())))?;
 
+    if !args.global {
+        crate::trust::TrustGuard::for_new_file(&path).commit();
+    }
+
     eprintln!(
         "[rippy] Created {} with default stdlib rules.\n\
          Edit to customize safety rules for this project.",

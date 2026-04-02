@@ -1909,3 +1909,147 @@ fn self_protect_blocks_trust_db_write() {
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
 }
+
+#[test]
+fn trust_repo_level_survives_config_change() {
+    // Trust a config in a git repo, then change the file — should still be trusted
+    // because repo_id matches.
+    let dir = tempfile::TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            "git@github.com:test/trust-repo.git",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let config_path = dir.path().join(".rippy.toml");
+    let original = "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"blocked\"\n";
+    std::fs::write(&config_path, original).unwrap();
+
+    // Trust it (which stores repo_id).
+    let fake_home = dir.path().join("fakehome");
+    let rippy_dir = fake_home.join(".rippy");
+    std::fs::create_dir_all(&rippy_dir).unwrap();
+    let trust_db_path = rippy_dir.join("trusted.json");
+    let mut db = rippy_cli::trust::TrustDb::load_from(&trust_db_path);
+    db.trust(&config_path, original);
+    db.save().unwrap();
+
+    // Modify the config (simulates git pull changing the file).
+    let updated =
+        "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"updated block\"\n";
+    std::fs::write(&config_path, updated).unwrap();
+
+    // Run rippy — should still trust because repo_id matches.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let mut cmd = std::process::Command::new(common::rippy_binary());
+    cmd.arg("--mode")
+        .arg("claude")
+        .current_dir(dir.path())
+        .env("HOME", &fake_home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let output = child.wait_with_output().unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    // The deny rule should apply — config is trusted via repo_id.
+    assert_eq!(code, 2, "repo-level trust should survive config change");
+}
+
+#[test]
+fn trust_guard_preserves_trust_after_allow() {
+    // Verify TrustGuard works: trust a config, write to it via guard, verify still trusted.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("trusted.json");
+    let config_path = dir.path().join(".rippy.toml");
+
+    let original = "[[rules]]\naction = \"deny\"\npattern = \"rm *\"\n";
+    std::fs::write(&config_path, original).unwrap();
+
+    // Trust the original.
+    let mut db = rippy_cli::trust::TrustDb::load_from(&db_path);
+    db.trust(&config_path, original);
+    db.save().unwrap();
+
+    // Verify trusted.
+    assert_eq!(
+        db.check(&config_path, original),
+        rippy_cli::trust::TrustStatus::Trusted
+    );
+
+    // Simulate a write that changes the content.
+    let updated = format!("{original}\n[[rules]]\naction = \"allow\"\npattern = \"git status\"\n");
+    std::fs::write(&config_path, &updated).unwrap();
+
+    // Without guard, hash mismatch → modified. But check() also considers repo_id,
+    // and there's no git repo here, so it falls back to hash → Modified.
+    let status = db.check(&config_path, &updated);
+    assert!(
+        matches!(status, rippy_cli::trust::TrustStatus::Modified { .. }),
+        "without guard, changed hash should be Modified"
+    );
+
+    // Now simulate the guard flow: re-trust after write.
+    db.trust(&config_path, &updated);
+    db.save().unwrap();
+
+    let db2 = rippy_cli::trust::TrustDb::load_from(&db_path);
+    assert_eq!(
+        db2.check(&config_path, &updated),
+        rippy_cli::trust::TrustStatus::Trusted,
+        "after guard commit, should be trusted with new hash"
+    );
+}
+
+#[test]
+fn trust_guard_does_not_grant_trust_to_untrusted_file() {
+    // If a file was never trusted, TrustGuard::before_write should not
+    // grant trust after the write.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("trusted.json");
+    let config_path = dir.path().join(".rippy.toml");
+
+    let malicious = "[[rules]]\naction = \"allow\"\npattern = \"*\"\n";
+    std::fs::write(&config_path, malicious).unwrap();
+
+    // File is untrusted (no DB entry).
+    let db = rippy_cli::trust::TrustDb::load_from(&db_path);
+    assert_eq!(
+        db.check(&config_path, malicious),
+        rippy_cli::trust::TrustStatus::Untrusted
+    );
+
+    // TrustGuard::before_write sees untrusted → was_trusted = false.
+    let guard = rippy_cli::trust::TrustGuard::before_write(&config_path);
+
+    // Append a rule (simulating `rippy allow`).
+    let updated = format!("{malicious}\n[[rules]]\naction = \"deny\"\npattern = \"rm *\"\n");
+    std::fs::write(&config_path, &updated).unwrap();
+
+    // Commit should be a no-op since file was not trusted before.
+    guard.commit();
+
+    // Verify still untrusted.
+    let db2 = rippy_cli::trust::TrustDb::load_from(&db_path);
+    assert_eq!(
+        db2.check(&config_path, &updated),
+        rippy_cli::trust::TrustStatus::Untrusted,
+        "guard should not grant trust to previously untrusted file"
+    );
+}

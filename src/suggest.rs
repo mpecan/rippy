@@ -389,6 +389,8 @@ fn apply_suggestions(suggestions: &[Suggestion], global: bool) -> Result<(), Rip
         PathBuf::from(".rippy.toml")
     };
 
+    let guard = (!global).then(|| crate::trust::TrustGuard::before_write(&path));
+
     for s in suggestions {
         let decision = match s.action.as_str() {
             "allow" => Decision::Allow,
@@ -396,6 +398,10 @@ fn apply_suggestions(suggestions: &[Suggestion], global: bool) -> Result<(), Rip
             _ => Decision::Ask,
         };
         rule_cmd::append_rule_to_toml(&path, decision, &s.pattern, None)?;
+    }
+
+    if let Some(g) = guard {
+        g.commit();
     }
 
     eprintln!(

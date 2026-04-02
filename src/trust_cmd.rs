@@ -66,6 +66,10 @@ fn trust_config(config_path: &Path, skip_confirm: bool) -> Result<ExitCode, Ripp
 /// Print a summary of the config file contents with safety analysis.
 fn print_config_summary(path: &Path, content: &str) {
     eprintln!("Project config: {}", path.display());
+    if let Some(repo_id) = crate::trust::detect_repo_id(path) {
+        eprintln!("Repository: {repo_id}");
+        eprintln!("  (future config changes in this repo will be auto-trusted)");
+    }
     eprintln!("---");
     for line in content.lines() {
         eprintln!("  {line}");
