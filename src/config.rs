@@ -162,13 +162,13 @@ pub struct Config {
     aliases: Vec<(String, String)>,
     /// Extra directories that `cd` is allowed to navigate to (beyond the project root).
     pub cd_allowed_dirs: Vec<PathBuf>,
-    /// Range in `rules` where project-config rules live.
-    /// Rules outside this range are baseline (stdlib + global) or env override.
-    project_rules_start: usize,
-    project_rules_end: usize,
-    /// Notes about how the project config weakens protections.
-    /// Appended to verdict reasons when project rules are used.
-    project_weakening_notes: Vec<String>,
+    /// Index range in `rules` containing project-config rules.
+    /// `None` when no project config was loaded. Rules outside this range
+    /// are baseline (stdlib + global) or env override.
+    project_rules_range: Option<std::ops::Range<usize>>,
+    /// Pre-formatted suffix appended to verdict reasons when project allow rules fire.
+    /// Empty string when the project config doesn't weaken protections.
+    project_weakening_suffix: String,
 }
 
 impl Config {
@@ -213,10 +213,10 @@ impl Config {
         Self::default()
     }
 
-    /// Return notes about how the project config weakens protections.
+    /// Return the pre-formatted weakening suffix for verdict annotation.
     #[must_use]
-    pub fn weakening_notes(&self) -> &[String] {
-        &self.project_weakening_notes
+    pub fn weakening_suffix(&self) -> &str {
+        &self.project_weakening_suffix
     }
 
     /// Match a command string against command rules (last-match-wins).
@@ -295,16 +295,15 @@ impl Config {
     ) -> Option<Verdict> {
         let mut result = None;
         let mut baseline_decision: Option<Decision> = None;
+        let project_range = self.project_rules_range.as_ref();
 
         for (i, rule) in self.rules.iter().enumerate() {
             if rule.target != target {
                 continue;
             }
-            // Pattern check: structured-only rules use Pattern::any() which always matches.
             if !rule.pattern.matches(input) {
                 continue;
             }
-            // Structured field check (if any are set).
             if rule.has_structured_fields() && !matches_structured(rule, input) {
                 continue;
             }
@@ -315,8 +314,7 @@ impl Config {
                 }
             }
 
-            let is_project_rule = i >= self.project_rules_start
-                && (self.project_rules_end == 0 || i < self.project_rules_end);
+            let is_project_rule = project_range.is_some_and(|r| r.contains(&i));
             if !is_project_rule {
                 baseline_decision = Some(rule.decision);
             }
@@ -336,13 +334,8 @@ impl Config {
                     .map_or_else(|| format_rule_reason(rule, label), String::from)
             };
 
-            // Append weakening notes when a project allow rule is used.
-            if is_project_rule
-                && rule.decision == Decision::Allow
-                && !self.project_weakening_notes.is_empty()
-            {
-                reason.push_str(" | NOTE: project config ");
-                reason.push_str(&self.project_weakening_notes.join(", "));
+            if is_project_rule && rule.decision == Decision::Allow {
+                reason.push_str(&self.project_weakening_suffix);
             }
 
             result = Some(Verdict {
@@ -360,6 +353,8 @@ impl Config {
             ..Self::default()
         };
         let mut in_project_section = false;
+        let mut project_start: Option<usize> = None;
+        let mut weakening_notes: Vec<String> = Vec::new();
 
         for directive in directives {
             match directive {
@@ -370,14 +365,14 @@ impl Config {
                         }
                     } else {
                         if in_project_section {
-                            detect_broad_allow(&r, &mut config.project_weakening_notes);
+                            detect_broad_allow(&r, &mut weakening_notes);
                         }
                         config.rules.push(r);
                     }
                 }
                 ConfigDirective::Set { key, value } => {
                     if in_project_section {
-                        detect_dangerous_setting(&key, &value, &mut config.project_weakening_notes);
+                        detect_dangerous_setting(&key, &value, &mut weakening_notes);
                     }
                     apply_setting(&mut config, &key, &value);
                 }
@@ -386,32 +381,43 @@ impl Config {
                 }
                 ConfigDirective::ProjectBoundary => {
                     if in_project_section {
-                        config.project_rules_end = config.rules.len();
+                        if let Some(start) = project_start {
+                            config.project_rules_range = Some(start..config.rules.len());
+                        }
                         in_project_section = false;
                     } else {
-                        config.project_rules_start = config.rules.len();
+                        project_start = Some(config.rules.len());
                         in_project_section = true;
                     }
                 }
                 ConfigDirective::CdAllow(path) => {
-                    // Pre-normalize so the cd handler skips per-call normalization.
-                    let mut normalized = PathBuf::new();
-                    for c in path.components() {
-                        match c {
-                            std::path::Component::CurDir => {}
-                            std::path::Component::ParentDir => {
-                                normalized.pop();
-                            }
-                            other => normalized.push(other),
-                        }
-                    }
-                    config.cd_allowed_dirs.push(normalized);
+                    config.cd_allowed_dirs.push(normalize_path(&path));
                 }
             }
         }
 
+        if in_project_section && project_start.is_some() {
+            config.project_rules_range = project_start.map(|start| start..config.rules.len());
+        }
+
+        config.project_weakening_suffix = build_weakening_suffix(&weakening_notes);
         config
     }
+}
+
+/// Normalize a path by removing `.` and resolving `..` components.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for c in path.components() {
+        match c {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 fn apply_setting(config: &mut Config, key: &str, value: &str) {
@@ -455,10 +461,26 @@ fn detect_broad_allow(rule: &Rule, notes: &mut Vec<String>) {
         return;
     }
     let raw = rule.pattern.raw();
-    // Patterns that are just wildcards or very broad.
     if raw == "*" || raw == "**" || raw == "*|" {
         notes.push(format!("allows all commands with pattern \"{raw}\""));
     }
+}
+
+/// Pre-format the weakening notes into a suffix string for verdict annotation.
+///
+/// Returns an empty string if there are no notes.
+pub(crate) fn build_weakening_suffix(notes: &[String]) -> String {
+    if notes.is_empty() {
+        return String::new();
+    }
+    let mut suffix = String::from(" | NOTE: project config ");
+    for (i, note) in notes.iter().enumerate() {
+        if i > 0 {
+            suffix.push_str(", ");
+        }
+        suffix.push_str(note);
+    }
+    suffix
 }
 
 // ---------------------------------------------------------------------------
@@ -1517,8 +1539,7 @@ mod tests {
             ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "c")),
         ];
         let config = Config::from_directives(directives);
-        assert_eq!(config.project_rules_start, 1);
-        assert_eq!(config.project_rules_end, 2);
+        assert_eq!(config.project_rules_range, Some(1..2));
     }
 
     #[test]
@@ -1553,11 +1574,10 @@ mod tests {
         let config = Config::from_directives(directives);
         assert!(
             config
-                .weakening_notes()
-                .iter()
-                .any(|n| n.contains("default action to allow")),
+                .weakening_suffix()
+                .contains("default action to allow"),
             "should detect 'set default allow', got: {:?}",
-            config.weakening_notes()
+            config.weakening_suffix()
         );
     }
 
@@ -1573,12 +1593,9 @@ mod tests {
         ];
         let config = Config::from_directives(directives);
         assert!(
-            config
-                .weakening_notes()
-                .iter()
-                .any(|n| n.contains("self-protection")),
+            config.weakening_suffix().contains("self-protection"),
             "should detect self-protect off, got: {:?}",
-            config.weakening_notes()
+            config.weakening_suffix()
         );
     }
 
@@ -1591,12 +1608,9 @@ mod tests {
         ];
         let config = Config::from_directives(directives);
         assert!(
-            config
-                .weakening_notes()
-                .iter()
-                .any(|n| n.contains("allows all commands")),
+            config.weakening_suffix().contains("allows all commands"),
             "should detect broad allow *, got: {:?}",
-            config.weakening_notes()
+            config.weakening_suffix()
         );
     }
 
@@ -1613,9 +1627,9 @@ mod tests {
         ];
         let config = Config::from_directives(directives);
         assert!(
-            config.weakening_notes().is_empty(),
-            "deny-only config should have no weakening notes, got: {:?}",
-            config.weakening_notes()
+            config.weakening_suffix().is_empty(),
+            "deny-only config should have no weakening suffix, got: {:?}",
+            config.weakening_suffix()
         );
     }
 

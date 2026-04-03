@@ -476,7 +476,7 @@ impl Analyzer {
             |action| {
                 let mut reason = format!("{cmd_name} (default action)");
                 if action == Decision::Allow {
-                    append_weakening_notes(&mut reason, self.config.weakening_notes());
+                    reason.push_str(self.config.weakening_suffix());
                 }
                 Verdict {
                     decision: action,
@@ -484,19 +484,6 @@ impl Analyzer {
                 }
             },
         )
-    }
-}
-
-fn append_weakening_notes(reason: &mut String, notes: &[String]) {
-    if notes.is_empty() {
-        return;
-    }
-    reason.push_str(" | NOTE: project config ");
-    for (i, note) in notes.iter().enumerate() {
-        if i > 0 {
-            reason.push_str(", ");
-        }
-        reason.push_str(note);
     }
 }
 
