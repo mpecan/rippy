@@ -162,9 +162,10 @@ pub struct Config {
     aliases: Vec<(String, String)>,
     /// Extra directories that `cd` is allowed to navigate to (beyond the project root).
     pub cd_allowed_dirs: Vec<PathBuf>,
-    /// Index in `rules` where project-config rules begin.
-    /// Rules before this index are baseline (stdlib + global).
+    /// Range in `rules` where project-config rules live.
+    /// Rules outside this range are baseline (stdlib + global) or env override.
     project_rules_start: usize,
+    project_rules_end: usize,
 }
 
 impl Config {
@@ -194,6 +195,8 @@ impl Config {
             let trust_all = has_trust_setting(&directives);
             load_project_config_if_trusted(&project_config, trust_all, &mut directives)?;
         }
+
+        directives.push(ConfigDirective::ProjectBoundary);
 
         if let Some(env_path) = env_config {
             load_file(env_path, &mut directives)?;
@@ -303,7 +306,8 @@ impl Config {
                 }
             }
 
-            let is_project_rule = i >= self.project_rules_start;
+            let is_project_rule = i >= self.project_rules_start
+                && (self.project_rules_end == 0 || i < self.project_rules_end);
             if !is_project_rule {
                 baseline_decision = Some(rule.decision);
             }
@@ -356,7 +360,11 @@ impl Config {
                     config.aliases.push((source, target));
                 }
                 ConfigDirective::ProjectBoundary => {
-                    config.project_rules_start = config.rules.len();
+                    if config.project_rules_start == 0 && config.project_rules_end == 0 {
+                        config.project_rules_start = config.rules.len();
+                    } else {
+                        config.project_rules_end = config.rules.len();
+                    }
                 }
                 ConfigDirective::CdAllow(path) => {
                     // Pre-normalize so the cd handler skips per-call normalization.
@@ -1426,14 +1434,60 @@ mod tests {
     }
 
     #[test]
-    fn project_rules_start_set_correctly() {
+    fn project_allow_overriding_ask_annotated() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(
+                RuleTarget::Command,
+                Decision::Ask,
+                "docker run *",
+            )),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(
+                RuleTarget::Command,
+                Decision::Allow,
+                "docker run *",
+            )),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("docker run nginx", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            v.reason.contains("overrides ask"),
+            "allow overriding ask should be annotated, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_rules_range_set_correctly() {
         let directives = vec![
             ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "a")),
+            ConfigDirective::ProjectBoundary,
             ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "b")),
             ConfigDirective::ProjectBoundary,
             ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "c")),
         ];
         let config = Config::from_directives(directives);
-        assert_eq!(config.project_rules_start, 2);
+        assert_eq!(config.project_rules_start, 1);
+        assert_eq!(config.project_rules_end, 2);
+    }
+
+    #[test]
+    fn env_override_allow_not_annotated_as_project() {
+        // --config rules (after second boundary) should NOT be annotated.
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "rm *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            !v.reason.contains("overrides"),
+            "env override should not be annotated as project rule, got: {}",
+            v.reason
+        );
     }
 }
