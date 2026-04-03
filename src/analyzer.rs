@@ -473,9 +473,15 @@ impl Analyzer {
     fn default_verdict(&self, cmd_name: &str) -> Verdict {
         self.config.default_action.map_or_else(
             || Verdict::ask(format!("{cmd_name} (unknown command)")),
-            |action| Verdict {
-                decision: action,
-                reason: format!("{cmd_name} (default action)"),
+            |action| {
+                let mut reason = format!("{cmd_name} (default action)");
+                if action == Decision::Allow {
+                    reason.push_str(self.config.weakening_suffix());
+                }
+                Verdict {
+                    decision: action,
+                    reason,
+                }
             },
         )
     }

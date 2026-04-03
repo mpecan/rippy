@@ -2053,3 +2053,99 @@ fn trust_guard_does_not_grant_trust_to_untrusted_file() {
         "guard should not grant trust to previously untrusted file"
     );
 }
+
+// ---- Config weakening annotation tests ----
+
+#[test]
+fn config_weakening_verdict_annotated() {
+    // A project config that allows a command the stdlib denies should produce
+    // a verdict reason mentioning "overrides".
+    let dir = tempfile::TempDir::new().unwrap();
+
+    // Project config: allow rm -rf (overrides stdlib handler which returns ask).
+    std::fs::write(
+        dir.path().join(".rippy.toml"),
+        "[[rules]]\naction = \"allow\"\npattern = \"rm -rf *\"\n",
+    )
+    .unwrap();
+
+    // Global config: trust all project configs so the project config is loaded.
+    let home = dir.path().join("fakehome");
+    let rippy_dir = home.join(".rippy");
+    std::fs::create_dir_all(&rippy_dir).unwrap();
+    std::fs::write(
+        rippy_dir.join("config.toml"),
+        "[settings]\ntrust-project-configs = true\n",
+    )
+    .unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/stuff"}}"#;
+    let mut cmd = std::process::Command::new(common::rippy_binary());
+    cmd.arg("--mode")
+        .arg("claude")
+        .current_dir(dir.path())
+        .env("HOME", &home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let output = child.wait_with_output().unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(code, 0, "allow rule should approve, stdout: {stdout_str}");
+    let v: serde_json::Value = serde_json::from_str(&stdout_str).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        reason.contains("overrides"),
+        "verdict should mention override, got: {reason}"
+    );
+}
+
+#[test]
+fn config_tightening_verdict_normal() {
+    // A config that only adds deny rules should NOT produce an annotation.
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join("tighten.toml");
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"deny\"\npattern = \"echo *\"\nmessage = \"blocked\"\n",
+    )
+    .unwrap();
+
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let config_str = config_path.to_str().unwrap();
+    let (stdout, code) = run_rippy(json, "claude", &["--config", config_str]);
+    assert_eq!(code, 2, "deny rule should block");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        !reason.contains("overrides"),
+        "tightening should not mention override, got: {reason}"
+    );
+}
+
+#[test]
+fn config_no_override_normal_reason() {
+    // Without project/override config, verdicts have normal reasons.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git status"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        !reason.contains("overrides"),
+        "no override config → no annotation, got: {reason}"
+    );
+}

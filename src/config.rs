@@ -130,9 +130,17 @@ impl Rule {
 #[derive(Debug, Clone)]
 pub enum ConfigDirective {
     Rule(Rule),
-    Set { key: String, value: String },
-    Alias { source: String, target: String },
+    Set {
+        key: String,
+        value: String,
+    },
+    Alias {
+        source: String,
+        target: String,
+    },
     CdAllow(PathBuf),
+    /// Marker separating baseline (stdlib + global) from project rules.
+    ProjectBoundary,
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +162,13 @@ pub struct Config {
     aliases: Vec<(String, String)>,
     /// Extra directories that `cd` is allowed to navigate to (beyond the project root).
     pub cd_allowed_dirs: Vec<PathBuf>,
+    /// Index range in `rules` containing project-config rules.
+    /// `None` when no project config was loaded. Rules outside this range
+    /// are baseline (stdlib + global) or env override.
+    project_rules_range: Option<std::ops::Range<usize>>,
+    /// Pre-formatted suffix appended to verdict reasons when project allow rules fire.
+    /// Empty string when the project config doesn't weaken protections.
+    project_weakening_suffix: String,
 }
 
 impl Config {
@@ -177,10 +192,14 @@ impl Config {
             )?;
         }
 
+        directives.push(ConfigDirective::ProjectBoundary);
+
         if let Some(project_config) = find_project_config(cwd) {
             let trust_all = has_trust_setting(&directives);
             load_project_config_if_trusted(&project_config, trust_all, &mut directives)?;
         }
+
+        directives.push(ConfigDirective::ProjectBoundary);
 
         if let Some(env_path) = env_config {
             load_file(env_path, &mut directives)?;
@@ -192,6 +211,12 @@ impl Config {
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Return the pre-formatted weakening suffix for verdict annotation.
+    #[must_use]
+    pub fn weakening_suffix(&self) -> &str {
+        &self.project_weakening_suffix
     }
 
     /// Match a command string against command rules (last-match-wins).
@@ -269,15 +294,16 @@ impl Config {
         ctx: Option<&MatchContext>,
     ) -> Option<Verdict> {
         let mut result = None;
-        for rule in &self.rules {
+        let mut baseline_decision: Option<Decision> = None;
+        let project_range = self.project_rules_range.as_ref();
+
+        for (i, rule) in self.rules.iter().enumerate() {
             if rule.target != target {
                 continue;
             }
-            // Pattern check: structured-only rules use Pattern::any() which always matches.
             if !rule.pattern.matches(input) {
                 continue;
             }
-            // Structured field check (if any are set).
             if rule.has_structured_fields() && !matches_structured(rule, input) {
                 continue;
             }
@@ -287,12 +313,34 @@ impl Config {
                     _ => continue,
                 }
             }
+
+            let is_project_rule = project_range.is_some_and(|r| r.contains(&i));
+            if !is_project_rule {
+                baseline_decision = Some(rule.decision);
+            }
+
+            let mut reason = if is_project_rule
+                && rule.decision == Decision::Allow
+                && baseline_decision.is_some_and(|d| d != Decision::Allow)
+            {
+                let overridden = baseline_decision.map_or("ask", Decision::as_str);
+                format!(
+                    "matched project rule (overrides {overridden}: {})",
+                    rule.pattern.raw()
+                )
+            } else {
+                rule.message
+                    .as_deref()
+                    .map_or_else(|| format_rule_reason(rule, label), String::from)
+            };
+
+            if is_project_rule && rule.decision == Decision::Allow {
+                reason.push_str(&self.project_weakening_suffix);
+            }
+
             result = Some(Verdict {
                 decision: rule.decision,
-                reason: rule
-                    .message
-                    .as_deref()
-                    .map_or_else(|| format_rule_reason(rule, label), String::from),
+                reason,
             });
         }
         result
@@ -304,6 +352,9 @@ impl Config {
             self_protect: true,
             ..Self::default()
         };
+        let mut in_project_section = false;
+        let mut project_start: Option<usize> = None;
+        let mut weakening_notes: Vec<String> = Vec::new();
 
         for directive in directives {
             match directive {
@@ -313,34 +364,60 @@ impl Config {
                             config.after_rules.push((r.pattern, msg.clone()));
                         }
                     } else {
+                        if in_project_section {
+                            detect_broad_allow(&r, &mut weakening_notes);
+                        }
                         config.rules.push(r);
                     }
                 }
                 ConfigDirective::Set { key, value } => {
+                    if in_project_section {
+                        detect_dangerous_setting(&key, &value, &mut weakening_notes);
+                    }
                     apply_setting(&mut config, &key, &value);
                 }
                 ConfigDirective::Alias { source, target } => {
                     config.aliases.push((source, target));
                 }
-                ConfigDirective::CdAllow(path) => {
-                    // Pre-normalize so the cd handler skips per-call normalization.
-                    let mut normalized = PathBuf::new();
-                    for c in path.components() {
-                        match c {
-                            std::path::Component::CurDir => {}
-                            std::path::Component::ParentDir => {
-                                normalized.pop();
-                            }
-                            other => normalized.push(other),
+                ConfigDirective::ProjectBoundary => {
+                    if in_project_section {
+                        if let Some(start) = project_start {
+                            config.project_rules_range = Some(start..config.rules.len());
                         }
+                        in_project_section = false;
+                    } else {
+                        project_start = Some(config.rules.len());
+                        in_project_section = true;
                     }
-                    config.cd_allowed_dirs.push(normalized);
+                }
+                ConfigDirective::CdAllow(path) => {
+                    config.cd_allowed_dirs.push(normalize_path(&path));
                 }
             }
         }
 
+        if in_project_section && project_start.is_some() {
+            config.project_rules_range = project_start.map(|start| start..config.rules.len());
+        }
+
+        config.project_weakening_suffix = build_weakening_suffix(&weakening_notes);
         config
     }
+}
+
+/// Normalize a path by removing `.` and resolving `..` components.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for c in path.components() {
+        match c {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 fn apply_setting(config: &mut Config, key: &str, value: &str) {
@@ -366,6 +443,44 @@ fn apply_setting(config: &mut Config, key: &str, value: &str) {
         }
         _ => {}
     }
+}
+
+/// Detect dangerous settings in project config directives.
+fn detect_dangerous_setting(key: &str, value: &str, notes: &mut Vec<String>) {
+    if key == "default" && value == "allow" {
+        notes.push("sets default action to allow (all unknown commands auto-approved)".to_string());
+    }
+    if key == "self-protect" && value == "off" {
+        notes.push("disables self-protection (AI tools can modify rippy config)".to_string());
+    }
+}
+
+/// Detect overly broad allow rules in project config directives.
+fn detect_broad_allow(rule: &Rule, notes: &mut Vec<String>) {
+    if rule.decision != Decision::Allow {
+        return;
+    }
+    let raw = rule.pattern.raw();
+    if raw == "*" || raw == "**" || raw == "*|" {
+        notes.push(format!("allows all commands with pattern \"{raw}\""));
+    }
+}
+
+/// Pre-format the weakening notes into a suffix string for verdict annotation.
+///
+/// Returns an empty string if there are no notes.
+pub(crate) fn build_weakening_suffix(notes: &[String]) -> String {
+    if notes.is_empty() {
+        return String::new();
+    }
+    let mut suffix = String::from(" | NOTE: project config ");
+    for (i, note) in notes.iter().enumerate() {
+        if i > 0 {
+            suffix.push_str(", ");
+        }
+        suffix.push_str(note);
+    }
+    suffix
 }
 
 // ---------------------------------------------------------------------------
@@ -1320,5 +1435,227 @@ mod tests {
 
         let structured = structured_rule(Decision::Deny, Some("git"), None, None);
         assert!(structured.has_structured_fields());
+    }
+
+    #[test]
+    fn project_rule_override_annotated() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm -rf *")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "rm -rf *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /tmp", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            v.reason.contains("overrides deny"),
+            "reason should mention override, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_rule_no_override_not_annotated() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "echo *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("echo hello", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            !v.reason.contains("overrides"),
+            "no baseline deny → should not mention override, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn baseline_rule_not_annotated() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /", None).unwrap();
+        assert_eq!(v.decision, Decision::Deny);
+        assert!(
+            !v.reason.contains("overrides"),
+            "baseline rule should not be annotated, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_ask_overriding_deny_not_annotated() {
+        // ask overriding deny is not weakening — it's still restrictive.
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Ask, "rm *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /", None).unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+        assert!(
+            !v.reason.contains("overrides"),
+            "ask overriding deny is not weakening, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_allow_overriding_ask_annotated() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(
+                RuleTarget::Command,
+                Decision::Ask,
+                "docker run *",
+            )),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(
+                RuleTarget::Command,
+                Decision::Allow,
+                "docker run *",
+            )),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("docker run nginx", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            v.reason.contains("overrides ask"),
+            "allow overriding ask should be annotated, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_rules_range_set_correctly() {
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "a")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "b")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "c")),
+        ];
+        let config = Config::from_directives(directives);
+        assert_eq!(config.project_rules_range, Some(1..2));
+    }
+
+    #[test]
+    fn env_override_allow_not_annotated_as_project() {
+        // --config rules (after second boundary) should NOT be annotated.
+        let directives = vec![
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "rm *")),
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("rm -rf /", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            !v.reason.contains("overrides"),
+            "env override should not be annotated as project rule, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_default_allow_detected() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Set {
+                key: "default".to_string(),
+                value: "allow".to_string(),
+            },
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config
+                .weakening_suffix()
+                .contains("default action to allow"),
+            "should detect 'set default allow', got: {:?}",
+            config.weakening_suffix()
+        );
+    }
+
+    #[test]
+    fn project_self_protect_off_detected() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Set {
+                key: "self-protect".to_string(),
+                value: "off".to_string(),
+            },
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config.weakening_suffix().contains("self-protection"),
+            "should detect self-protect off, got: {:?}",
+            config.weakening_suffix()
+        );
+    }
+
+    #[test]
+    fn project_broad_allow_detected() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "*")),
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config.weakening_suffix().contains("allows all commands"),
+            "should detect broad allow *, got: {:?}",
+            config.weakening_suffix()
+        );
+    }
+
+    #[test]
+    fn project_deny_only_no_weakening_notes() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::Set {
+                key: "default".to_string(),
+                value: "ask".to_string(),
+            },
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config.weakening_suffix().is_empty(),
+            "deny-only config should have no weakening suffix, got: {:?}",
+            config.weakening_suffix()
+        );
+    }
+
+    #[test]
+    fn weakening_notes_appended_to_project_allow_verdict() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Set {
+                key: "default".to_string(),
+                value: "allow".to_string(),
+            },
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "echo *")),
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("echo hello", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            v.reason.contains("NOTE: project config"),
+            "verdict should include weakening notes, got: {}",
+            v.reason
+        );
+        assert!(
+            v.reason.contains("default action to allow"),
+            "should mention default allow, got: {}",
+            v.reason
+        );
     }
 }
