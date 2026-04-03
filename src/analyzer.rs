@@ -473,11 +473,30 @@ impl Analyzer {
     fn default_verdict(&self, cmd_name: &str) -> Verdict {
         self.config.default_action.map_or_else(
             || Verdict::ask(format!("{cmd_name} (unknown command)")),
-            |action| Verdict {
-                decision: action,
-                reason: format!("{cmd_name} (default action)"),
+            |action| {
+                let mut reason = format!("{cmd_name} (default action)");
+                if action == Decision::Allow {
+                    append_weakening_notes(&mut reason, self.config.weakening_notes());
+                }
+                Verdict {
+                    decision: action,
+                    reason,
+                }
             },
         )
+    }
+}
+
+fn append_weakening_notes(reason: &mut String, notes: &[String]) {
+    if notes.is_empty() {
+        return;
+    }
+    reason.push_str(" | NOTE: project config ");
+    for (i, note) in notes.iter().enumerate() {
+        if i > 0 {
+            reason.push_str(", ");
+        }
+        reason.push_str(note);
     }
 }
 

@@ -166,6 +166,9 @@ pub struct Config {
     /// Rules outside this range are baseline (stdlib + global) or env override.
     project_rules_start: usize,
     project_rules_end: usize,
+    /// Notes about how the project config weakens protections.
+    /// Appended to verdict reasons when project rules are used.
+    project_weakening_notes: Vec<String>,
 }
 
 impl Config {
@@ -208,6 +211,12 @@ impl Config {
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Return notes about how the project config weakens protections.
+    #[must_use]
+    pub fn weakening_notes(&self) -> &[String] {
+        &self.project_weakening_notes
     }
 
     /// Match a command string against command rules (last-match-wins).
@@ -312,7 +321,7 @@ impl Config {
                 baseline_decision = Some(rule.decision);
             }
 
-            let reason = if is_project_rule
+            let mut reason = if is_project_rule
                 && rule.decision == Decision::Allow
                 && baseline_decision.is_some_and(|d| d != Decision::Allow)
             {
@@ -326,6 +335,15 @@ impl Config {
                     .as_deref()
                     .map_or_else(|| format_rule_reason(rule, label), String::from)
             };
+
+            // Append weakening notes when a project allow rule is used.
+            if is_project_rule
+                && rule.decision == Decision::Allow
+                && !self.project_weakening_notes.is_empty()
+            {
+                reason.push_str(" | NOTE: project config ");
+                reason.push_str(&self.project_weakening_notes.join(", "));
+            }
 
             result = Some(Verdict {
                 decision: rule.decision,
@@ -341,6 +359,7 @@ impl Config {
             self_protect: true,
             ..Self::default()
         };
+        let mut in_project_section = false;
 
         for directive in directives {
             match directive {
@@ -350,20 +369,28 @@ impl Config {
                             config.after_rules.push((r.pattern, msg.clone()));
                         }
                     } else {
+                        if in_project_section {
+                            detect_broad_allow(&r, &mut config.project_weakening_notes);
+                        }
                         config.rules.push(r);
                     }
                 }
                 ConfigDirective::Set { key, value } => {
+                    if in_project_section {
+                        detect_dangerous_setting(&key, &value, &mut config.project_weakening_notes);
+                    }
                     apply_setting(&mut config, &key, &value);
                 }
                 ConfigDirective::Alias { source, target } => {
                     config.aliases.push((source, target));
                 }
                 ConfigDirective::ProjectBoundary => {
-                    if config.project_rules_start == 0 && config.project_rules_end == 0 {
-                        config.project_rules_start = config.rules.len();
-                    } else {
+                    if in_project_section {
                         config.project_rules_end = config.rules.len();
+                        in_project_section = false;
+                    } else {
+                        config.project_rules_start = config.rules.len();
+                        in_project_section = true;
                     }
                 }
                 ConfigDirective::CdAllow(path) => {
@@ -409,6 +436,28 @@ fn apply_setting(config: &mut Config, key: &str, value: &str) {
             config.self_protect = value != "off";
         }
         _ => {}
+    }
+}
+
+/// Detect dangerous settings in project config directives.
+fn detect_dangerous_setting(key: &str, value: &str, notes: &mut Vec<String>) {
+    if key == "default" && value == "allow" {
+        notes.push("sets default action to allow (all unknown commands auto-approved)".to_string());
+    }
+    if key == "self-protect" && value == "off" {
+        notes.push("disables self-protection (AI tools can modify rippy config)".to_string());
+    }
+}
+
+/// Detect overly broad allow rules in project config directives.
+fn detect_broad_allow(rule: &Rule, notes: &mut Vec<String>) {
+    if rule.decision != Decision::Allow {
+        return;
+    }
+    let raw = rule.pattern.raw();
+    // Patterns that are just wildcards or very broad.
+    if raw == "*" || raw == "**" || raw == "*|" {
+        notes.push(format!("allows all commands with pattern \"{raw}\""));
     }
 }
 
@@ -1487,6 +1536,111 @@ mod tests {
         assert!(
             !v.reason.contains("overrides"),
             "env override should not be annotated as project rule, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn project_default_allow_detected() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Set {
+                key: "default".to_string(),
+                value: "allow".to_string(),
+            },
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config
+                .weakening_notes()
+                .iter()
+                .any(|n| n.contains("default action to allow")),
+            "should detect 'set default allow', got: {:?}",
+            config.weakening_notes()
+        );
+    }
+
+    #[test]
+    fn project_self_protect_off_detected() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Set {
+                key: "self-protect".to_string(),
+                value: "off".to_string(),
+            },
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config
+                .weakening_notes()
+                .iter()
+                .any(|n| n.contains("self-protection")),
+            "should detect self-protect off, got: {:?}",
+            config.weakening_notes()
+        );
+    }
+
+    #[test]
+    fn project_broad_allow_detected() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "*")),
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config
+                .weakening_notes()
+                .iter()
+                .any(|n| n.contains("allows all commands")),
+            "should detect broad allow *, got: {:?}",
+            config.weakening_notes()
+        );
+    }
+
+    #[test]
+    fn project_deny_only_no_weakening_notes() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Deny, "rm *")),
+            ConfigDirective::Set {
+                key: "default".to_string(),
+                value: "ask".to_string(),
+            },
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        assert!(
+            config.weakening_notes().is_empty(),
+            "deny-only config should have no weakening notes, got: {:?}",
+            config.weakening_notes()
+        );
+    }
+
+    #[test]
+    fn weakening_notes_appended_to_project_allow_verdict() {
+        let directives = vec![
+            ConfigDirective::ProjectBoundary,
+            ConfigDirective::Set {
+                key: "default".to_string(),
+                value: "allow".to_string(),
+            },
+            ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "echo *")),
+            ConfigDirective::ProjectBoundary,
+        ];
+        let config = Config::from_directives(directives);
+        let v = config.match_command("echo hello", None).unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert!(
+            v.reason.contains("NOTE: project config"),
+            "verdict should include weakening notes, got: {}",
+            v.reason
+        );
+        assert!(
+            v.reason.contains("default action to allow"),
+            "should mention default allow, got: {}",
             v.reason
         );
     }
