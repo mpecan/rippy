@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::home_dir;
+use super::loader::home_dir;
 
 /// Walk up from `start` looking for `.rippy` or `.dippy` config files.
 pub fn find_project_config(start: &Path) -> Option<PathBuf> {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::verdict::Decision;
 
-use super::{ConfigDirective, Rule, RuleTarget};
+use super::types::{ConfigDirective, Rule, RuleTarget};
 
 /// A token from a config line, tagged as quoted or unquoted.
 #[derive(Debug)]
@@ -224,5 +224,166 @@ fn parse_rule_kind(word: &str) -> Decision {
         "allow" => Decision::Allow,
         "deny" => Decision::Deny,
         _ => Decision::Ask,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use crate::config::{ConfigDirective, RuleTarget};
+    use crate::verdict::Decision;
+
+    #[test]
+    fn parse_allow_rule() {
+        let d = parse_rule("allow git status").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Command);
+                assert_eq!(r.decision, Decision::Allow);
+                assert_eq!(r.pattern.as_str(), "git status");
+                assert!(r.message.is_none());
+            }
+            _ => panic!("expected Rule"),
+        }
+    }
+
+    #[test]
+    fn parse_deny_with_message() {
+        let d = parse_rule(r#"deny python "Use uv run python""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Command);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "python");
+                assert_eq!(r.message.as_deref(), Some("Use uv run python"));
+            }
+            _ => panic!("expected Rule"),
+        }
+    }
+
+    #[test]
+    fn parse_deny_multi_word_pattern_with_message() {
+        let d = parse_rule(r#"deny rm -rf "use trash instead""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Command);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "rm -rf");
+                assert_eq!(r.message.as_deref(), Some("use trash instead"));
+            }
+            _ => panic!("expected Rule"),
+        }
+    }
+
+    #[test]
+    fn parse_redirect_rule() {
+        let d = parse_rule("deny-redirect **/.env*").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Redirect);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "**/.env*");
+            }
+            _ => panic!("expected Rule"),
+        }
+    }
+
+    #[test]
+    fn parse_after_rule() {
+        let d = parse_rule(r#"after git "committed successfully""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::After);
+                assert_eq!(r.pattern.as_str(), "git");
+                assert_eq!(r.message.as_deref(), Some("committed successfully"));
+            }
+            _ => panic!("expected Rule"),
+        }
+    }
+
+    #[test]
+    fn parse_set_rule() {
+        let d = parse_rule("set default ask").unwrap();
+        match d {
+            ConfigDirective::Set { key, value } => {
+                assert_eq!(key, "default");
+                assert_eq!(value, "ask");
+            }
+            _ => panic!("expected Set"),
+        }
+    }
+
+    #[test]
+    fn parse_alias_rule() {
+        let d = parse_rule("alias ~/custom-git git").unwrap();
+        match d {
+            ConfigDirective::Alias { source, target } => {
+                assert_eq!(source, "~/custom-git");
+                assert_eq!(target, "git");
+            }
+            _ => panic!("expected Alias"),
+        }
+    }
+
+    #[test]
+    fn parse_mcp_rule() {
+        let d = parse_rule("deny-mcp dangerous_tool").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::Mcp);
+                assert_eq!(r.decision, Decision::Deny);
+                assert_eq!(r.pattern.as_str(), "dangerous_tool");
+            }
+            _ => panic!("expected Rule"),
+        }
+    }
+
+    #[test]
+    fn tokenize_quoted_strings() {
+        let tokens = tokenize_config_line(r#"deny python "Use uv run python""#);
+        assert_eq!(tokens.len(), 3);
+        assert!(matches!(&tokens[0], Token::Bare(s) if s == "deny"));
+        assert!(matches!(&tokens[1], Token::Bare(s) if s == "python"));
+        assert!(matches!(&tokens[2], Token::Quoted(s) if s == "Use uv run python"));
+    }
+
+    #[test]
+    fn tokenize_escaped_quote() {
+        let tokens = tokenize_config_line(r#"deny test "say \"hello\"""#);
+        assert_eq!(tokens.len(), 3);
+        assert!(matches!(&tokens[2], Token::Quoted(s) if s == r#"say "hello""#));
+    }
+
+    #[test]
+    fn unknown_directive_errors() {
+        assert!(parse_rule("foobar something").is_err());
+    }
+
+    #[test]
+    fn parse_file_read_rule() {
+        let d = parse_rule(r#"deny-read **/.env* "no env files""#).unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::FileRead);
+                assert_eq!(r.decision, Decision::Deny);
+                assert!(r.pattern.matches(".env"));
+                assert!(r.pattern.matches("foo/.env.local"));
+                assert_eq!(r.message.as_deref(), Some("no env files"));
+            }
+            _ => panic!("expected Rule"),
+        }
+    }
+
+    #[test]
+    fn parse_file_write_rule() {
+        let d = parse_rule("allow-write /tmp/**").unwrap();
+        match d {
+            ConfigDirective::Rule(r) => {
+                assert_eq!(r.target, RuleTarget::FileWrite);
+                assert_eq!(r.decision, Decision::Allow);
+            }
+            _ => panic!("expected Rule"),
+        }
     }
 }
