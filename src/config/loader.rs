@@ -7,21 +7,6 @@ use super::Config;
 use super::parser::{parse_action_word, parse_rule};
 use super::types::{ConfigDirective, Rule};
 
-/// Normalize a path by removing `.` and resolving `..` components.
-pub(super) fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for c in path.components() {
-        match c {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other),
-        }
-    }
-    normalized
-}
-
 pub(super) fn apply_setting(config: &mut Config, key: &str, value: &str) {
     match key {
         "default" => config.default_action = parse_action_word(value),

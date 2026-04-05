@@ -67,7 +67,7 @@ pub(super) fn matches_structured(rule: &Rule, input: &str) -> bool {
 }
 
 /// Check if any required flag matches any arg, handling combined short flags.
-pub(super) fn has_required_flag(args: &[&str], required_flags: &[String]) -> bool {
+fn has_required_flag(args: &[&str], required_flags: &[String]) -> bool {
     for arg in args {
         // Direct match (e.g. "--force" == "--force", "-f" == "-f").
         if required_flags.iter().any(|f| f == arg) {

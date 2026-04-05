@@ -11,7 +11,7 @@ pub use types::{ConfigDirective, Rule, RuleTarget};
 
 use loader::{
     apply_setting, build_weakening_suffix, detect_broad_allow, detect_dangerous_setting,
-    has_trust_setting, load_first_existing, load_project_config_if_trusted, normalize_path,
+    has_trust_setting, load_first_existing, load_project_config_if_trusted,
 };
 use matching::{format_rule_reason, matches_structured};
 
@@ -270,7 +270,9 @@ impl Config {
                     }
                 }
                 ConfigDirective::CdAllow(path) => {
-                    config.cd_allowed_dirs.push(normalize_path(&path));
+                    config
+                        .cd_allowed_dirs
+                        .push(crate::handlers::normalize_path(&path));
                 }
             }
         }

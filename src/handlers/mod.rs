@@ -11,8 +11,8 @@ mod git;
 mod helm;
 mod mkdir;
 mod npm;
-mod packaging;
 mod python;
+mod python_tools;
 mod shell;
 mod system;
 mod text_tools;
@@ -192,7 +192,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &env_xargs::XARGS_HANDLER,
         &unix_utils::TAR_HANDLER,
         &unix_utils::WGET_HANDLER,
-        &packaging::UV_HANDLER,
+        &python_tools::UV_HANDLER,
         &unix_utils::GZIP_HANDLER,
         &unix_utils::UNZIP_HANDLER,
         &unix_utils::MKTEMP_HANDLER,
@@ -200,8 +200,8 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &unix_utils::SORT_HANDLER,
         &unix_utils::OPEN_HANDLER,
         &unix_utils::YQ_HANDLER,
-        &packaging::RUFF_HANDLER,
-        &packaging::BLACK_HANDLER,
+        &python_tools::RUFF_HANDLER,
+        &python_tools::BLACK_HANDLER,
         &system::FD_HANDLER,
         &system::DMESG_HANDLER,
         &system::IP_HANDLER,

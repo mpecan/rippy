@@ -6,14 +6,14 @@ use super::types::{ConfigDirective, Rule, RuleTarget};
 
 /// A token from a config line, tagged as quoted or unquoted.
 #[derive(Debug)]
-pub(super) enum Token {
+enum Token {
     Bare(String),
     Quoted(String),
 }
 
 /// Tokenize a config line, respecting quoted strings.
 /// Returns tagged tokens so callers can distinguish patterns from messages.
-pub(super) fn tokenize_config_line(line: &str) -> Vec<Token> {
+fn tokenize_config_line(line: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
 
@@ -220,11 +220,7 @@ fn parse_cd_allow_directive(rest: &[Token]) -> Result<ConfigDirective, String> {
 }
 
 fn parse_rule_kind(word: &str) -> Decision {
-    match word {
-        "allow" => Decision::Allow,
-        "deny" => Decision::Deny,
-        _ => Decision::Ask,
-    }
+    parse_action_word(word).unwrap_or(Decision::Ask)
 }
 
 #[cfg(test)]
