@@ -4,17 +4,19 @@ mod cloud;
 mod curl;
 mod database;
 mod docker;
+mod env_xargs;
 mod find;
 mod gh;
 mod git;
 mod helm;
-mod misc;
 mod mkdir;
 mod npm;
+mod packaging;
 mod python;
 mod shell;
 mod system;
 mod text_tools;
+mod unix_utils;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -186,20 +188,20 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &database::SQLITE3_HANDLER,
         &text_tools::SED_HANDLER,
         &text_tools::AWK_HANDLER,
-        &misc::ENV_HANDLER,
-        &misc::XARGS_HANDLER,
-        &misc::TAR_HANDLER,
-        &misc::WGET_HANDLER,
-        &misc::UV_HANDLER,
-        &misc::GZIP_HANDLER,
-        &misc::UNZIP_HANDLER,
-        &misc::MKTEMP_HANDLER,
-        &misc::TEE_HANDLER,
-        &misc::SORT_HANDLER,
-        &misc::OPEN_HANDLER,
-        &misc::YQ_HANDLER,
-        &misc::RUFF_HANDLER,
-        &misc::BLACK_HANDLER,
+        &env_xargs::ENV_HANDLER,
+        &env_xargs::XARGS_HANDLER,
+        &unix_utils::TAR_HANDLER,
+        &unix_utils::WGET_HANDLER,
+        &packaging::UV_HANDLER,
+        &unix_utils::GZIP_HANDLER,
+        &unix_utils::UNZIP_HANDLER,
+        &unix_utils::MKTEMP_HANDLER,
+        &unix_utils::TEE_HANDLER,
+        &unix_utils::SORT_HANDLER,
+        &unix_utils::OPEN_HANDLER,
+        &unix_utils::YQ_HANDLER,
+        &packaging::RUFF_HANDLER,
+        &packaging::BLACK_HANDLER,
         &system::FD_HANDLER,
         &system::DMESG_HANDLER,
         &system::IP_HANDLER,
