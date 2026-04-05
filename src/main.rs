@@ -217,6 +217,7 @@ fn run() -> Result<ExitCode, RippyError> {
         Some(Command::Init(ref a)) => rippy_cli::stdlib::run_init(a),
         Some(Command::Discover(ref a)) => rippy_cli::discover::run(a),
         Some(Command::Trust(ref a)) => rippy_cli::trust_cmd::run(a),
+        Some(Command::Debug(ref a)) => rippy_cli::debug_cmd::run(a),
         None => run_hook(&cli.hook_args),
     }
 }

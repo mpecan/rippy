@@ -68,6 +68,8 @@ pub enum Command {
     Discover(DiscoverArgs),
     /// Manage trust for project-level config files
     Trust(TrustArgs),
+    /// Trace the full decision path for a command
+    Debug(DebugArgs),
 }
 
 #[derive(Args, Debug)]
@@ -169,6 +171,21 @@ pub struct SuggestArgs {
 pub struct InspectArgs {
     /// Command to trace through the decision pipeline (omit to list all rules)
     pub command: Option<String>,
+
+    /// Output in JSON format
+    #[arg(long)]
+    pub json: bool,
+
+    /// Override config file path
+    #[arg(long, env = "RIPPY_CONFIG")]
+    pub config: Option<PathBuf>,
+}
+
+/// Arguments for `rippy debug` — trace the decision path for a command.
+#[derive(Args, Debug)]
+pub struct DebugArgs {
+    /// The shell command to trace (e.g. "git push --force")
+    pub command: String,
 
     /// Output in JSON format
     #[arg(long)]

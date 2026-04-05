@@ -5,6 +5,7 @@ pub mod cc_permissions;
 pub mod cli;
 pub mod condition;
 pub mod config;
+pub mod debug_cmd;
 pub mod discover;
 pub mod error;
 pub mod git_styles;
