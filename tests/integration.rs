@@ -2149,3 +2149,92 @@ fn config_no_override_normal_reason() {
         "no override config → no annotation, got: {reason}"
     );
 }
+
+// ---- Debug command tests ----
+
+#[test]
+fn debug_shows_allow_verdict() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["debug", "git status"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code().unwrap_or(-1),
+        0,
+        "debug always exits 0"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ALLOW"), "should show ALLOW, got: {stdout}");
+    assert!(stdout.contains("Config sources:"), "should show sources");
+    assert!(stdout.contains("Decision trace:"), "should show trace");
+}
+
+#[test]
+fn debug_shows_deny_with_reason() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join("test.toml");
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"deny\"\npattern = \"rm -rf *\"\nmessage = \"use trash\"\n",
+    )
+    .unwrap();
+    let config_str = config_path.to_str().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["debug", "rm -rf /tmp", "--config", config_str])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("DENY"), "should show DENY, got: {stdout}");
+    assert!(
+        stdout.contains("use trash"),
+        "should show reason, got: {stdout}"
+    );
+}
+
+#[test]
+fn debug_json_output_valid() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["debug", "ls", "--json"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["decision"], "allow");
+    assert!(v["sources"].is_array());
+    assert!(v["steps"].is_array());
+}
+
+#[test]
+fn debug_shows_config_source_override() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join("custom.toml");
+    std::fs::write(&config_path, "").unwrap();
+    let config_str = config_path.to_str().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["debug", "echo hello", "--config", config_str])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("override"),
+        "should show override, got: {stdout}"
+    );
+}
+
+#[test]
+fn debug_unknown_command_shows_ask() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["debug", "totally_unknown_command_xyz"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code().unwrap_or(-1),
+        0,
+        "debug always exits 0"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ASK"),
+        "unknown cmd should show ASK, got: {stdout}"
+    );
+}

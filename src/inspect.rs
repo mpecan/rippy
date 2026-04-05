@@ -76,38 +76,24 @@ fn list_rules(args: &InspectArgs) -> Result<(), RippyError> {
 fn collect_list_data(cwd: &Path, config_override: Option<&Path>) -> Result<ListOutput, RippyError> {
     let mut config_sources = Vec::new();
 
-    // Stdlib rules (lowest priority).
-    let stdlib_directives = crate::stdlib::stdlib_directives()?;
-    let stdlib_displays: Vec<RuleDisplay> = stdlib_directives
-        .iter()
-        .filter_map(directive_to_display)
-        .collect();
-    if !stdlib_displays.is_empty() {
-        config_sources.push(SourceRules {
-            path: "(stdlib)".to_string(),
-            rules: stdlib_displays,
-        });
-    }
-
-    // Global config.
-    if let Some(home) = config::home_dir() {
-        for candidate in &[
-            home.join(".rippy/config.toml"),
-            home.join(".rippy/config"),
-            home.join(".dippy/config"),
-        ] {
-            if candidate.is_file() {
-                config_sources.push(load_source_rules(candidate)?);
-                break;
+    for source in config::enumerate_config_sources(cwd, config_override) {
+        match source.path {
+            None => {
+                // Stdlib — load from embedded directives.
+                let directives = crate::stdlib::stdlib_directives()?;
+                let displays: Vec<RuleDisplay> =
+                    directives.iter().filter_map(directive_to_display).collect();
+                if !displays.is_empty() {
+                    config_sources.push(SourceRules {
+                        path: "(stdlib)".to_string(),
+                        rules: displays,
+                    });
+                }
+            }
+            Some(path) => {
+                config_sources.push(load_source_rules(&path)?);
             }
         }
-    }
-
-    // Project config (or override).
-    if let Some(override_path) = config_override {
-        config_sources.push(load_source_rules(override_path)?);
-    } else if let Some(project) = config::find_project_config(cwd) {
-        config_sources.push(load_source_rules(&project)?);
     }
 
     // CC permissions.
@@ -230,18 +216,18 @@ fn print_list_text(output: &ListOutput) {
 
 /// Structured trace of a command's decision path.
 #[derive(Debug, Serialize)]
-struct TraceOutput {
-    command: String,
-    decision: String,
-    reason: String,
-    steps: Vec<TraceStep>,
+pub(crate) struct TraceOutput {
+    pub command: String,
+    pub decision: String,
+    pub reason: String,
+    pub steps: Vec<TraceStep>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct TraceStep {
-    stage: String,
-    matched: bool,
-    detail: String,
+pub(crate) struct TraceStep {
+    pub stage: String,
+    pub matched: bool,
+    pub detail: String,
 }
 
 fn trace_command(command: &str, args: &InspectArgs) -> Result<(), RippyError> {
@@ -258,7 +244,7 @@ fn trace_command(command: &str, args: &InspectArgs) -> Result<(), RippyError> {
     Ok(())
 }
 
-fn collect_trace_data(
+pub(crate) fn collect_trace_data(
     command: &str,
     cwd: &Path,
     config_override: Option<&Path>,
