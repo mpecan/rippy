@@ -85,7 +85,8 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
         | NodeKind::ParamLength { .. }
         | NodeKind::AnsiCQuote { .. }
         | NodeKind::LocaleString { .. }
-        | NodeKind::ArithmeticExpansion { .. } => true,
+        | NodeKind::ArithmeticExpansion { .. }
+        | NodeKind::BraceExpansion { .. } => true,
         NodeKind::Word { value, parts, .. } => {
             value.contains("$(") || value.contains('`') || parts.iter().any(has_expansions)
         }
@@ -336,6 +337,18 @@ mod tests {
     #[test]
     fn detect_arithmetic_expansion_inline() {
         let nodes = parse_first("echo $((1+1))");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_brace_expansion() {
+        let nodes = parse_first("echo {a,b,c}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_brace_expansion_range() {
+        let nodes = parse_first("echo {1..10}");
         assert!(has_expansions(&nodes[0]));
     }
 

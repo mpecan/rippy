@@ -150,7 +150,8 @@ impl Analyzer {
             | NodeKind::ParamExpansion { .. }
             | NodeKind::ParamIndirect { .. }
             | NodeKind::ParamLength { .. }
-            | NodeKind::ArithmeticExpansion { .. } => Verdict::ask("shell expansion"),
+            | NodeKind::ArithmeticExpansion { .. }
+            | NodeKind::BraceExpansion { .. } => Verdict::ask("shell expansion"),
             _ => Verdict::allow(""),
         }
     }
@@ -928,6 +929,13 @@ mod tests {
     fn arithmetic_expansion_in_safe_command_asks() {
         let mut a = make_analyzer();
         let v = a.analyze("echo $((1+1))").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn brace_expansion_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo {a,b,c}").unwrap();
         assert_eq!(v.decision, Decision::Ask);
     }
 
