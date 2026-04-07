@@ -145,13 +145,7 @@ impl Analyzer {
                 let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
                 Verdict::combine(&redirect_verdicts)
             }
-            NodeKind::AnsiCQuote { .. }
-            | NodeKind::LocaleString { .. }
-            | NodeKind::ParamExpansion { .. }
-            | NodeKind::ParamIndirect { .. }
-            | NodeKind::ParamLength { .. }
-            | NodeKind::ArithmeticExpansion { .. }
-            | NodeKind::BraceExpansion { .. } => Verdict::ask("shell expansion"),
+            _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
             _ => Verdict::allow(""),
         }
     }

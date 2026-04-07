@@ -76,19 +76,34 @@ pub fn has_expansions_in_slices(words: &[Node], redirects: &[Node]) -> bool {
     words.iter().any(has_expansions) || redirects.iter().any(has_expansions)
 }
 
-fn has_expansions_kind(kind: &NodeKind) -> bool {
-    match kind {
+/// Returns `true` if the node kind is itself a shell expansion.
+///
+/// This is the single source of truth for which `NodeKind` variants
+/// represent expansions. Used by both `has_expansions_kind` (AST walking)
+/// and `analyze_node` (verdict generation).
+#[must_use]
+pub const fn is_expansion_node(kind: &NodeKind) -> bool {
+    matches!(
+        kind,
         NodeKind::CommandSubstitution { .. }
-        | NodeKind::ProcessSubstitution { .. }
-        | NodeKind::ParamExpansion { .. }
-        | NodeKind::ParamIndirect { .. }
-        | NodeKind::ParamLength { .. }
-        | NodeKind::AnsiCQuote { .. }
-        | NodeKind::LocaleString { .. }
-        | NodeKind::ArithmeticExpansion { .. }
-        | NodeKind::BraceExpansion { .. } => true,
+            | NodeKind::ProcessSubstitution { .. }
+            | NodeKind::ParamExpansion { .. }
+            | NodeKind::ParamIndirect { .. }
+            | NodeKind::ParamLength { .. }
+            | NodeKind::AnsiCQuote { .. }
+            | NodeKind::LocaleString { .. }
+            | NodeKind::ArithmeticExpansion { .. }
+            | NodeKind::BraceExpansion { .. }
+    )
+}
+
+fn has_expansions_kind(kind: &NodeKind) -> bool {
+    if is_expansion_node(kind) {
+        return true;
+    }
+    match kind {
         NodeKind::Word { value, parts, .. } => {
-            value.contains("$(") || value.contains('`') || parts.iter().any(has_expansions)
+            has_shell_expansion_pattern(value) || parts.iter().any(has_expansions)
         }
         NodeKind::Command {
             words, redirects, ..
