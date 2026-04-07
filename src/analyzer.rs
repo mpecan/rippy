@@ -328,7 +328,7 @@ impl Analyzer {
             }
             let mut v = Verdict::allow(format!("{cmd_name} is safe"));
             if ast::has_expansions_in_slices(words, redirects) {
-                v = most_restrictive(v, Verdict::ask("command substitution"));
+                v = most_restrictive(v, Verdict::ask("shell expansion"));
             }
             for rv in self.analyze_redirects(redirects, cwd, depth) {
                 v = most_restrictive(v, rv);
@@ -428,7 +428,7 @@ impl Analyzer {
             return Verdict::allow("heredoc");
         }
         if let Some(body) = content
-            && (body.contains("$(") || body.contains('`') || body.contains("${"))
+            && ast::has_shell_expansion_pattern(body)
         {
             return Verdict::ask("heredoc with expansion");
         }
@@ -915,5 +915,40 @@ mod tests {
         let mut a = make_analyzer();
         let v = a.analyze("echo hello").unwrap();
         assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn locale_string_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $\"hello\"").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn arithmetic_expansion_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $((1+1))").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn param_length_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo ${#var}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn param_indirect_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo ${!ref}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn heredoc_bare_var_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<EOF\n$HOME\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
     }
 }

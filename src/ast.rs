@@ -108,9 +108,35 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
         NodeKind::Subshell { body, .. } | NodeKind::BraceGroup { body, .. } => has_expansions(body),
         NodeKind::HereDoc {
             content, quoted, ..
-        } => !quoted && (content.contains("$(") || content.contains('`')),
+        } => !quoted && has_shell_expansion_pattern(content),
         _ => false,
     }
+}
+
+/// Check if a string contains shell expansion patterns (`$(`, `` ` ``, `${`, or `$` + identifier).
+///
+/// Used for heredoc content and other string-level expansion detection where
+/// structured AST nodes are not available.
+#[must_use]
+pub fn has_shell_expansion_pattern(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'`' {
+            return true;
+        }
+        if b == b'$'
+            && let Some(&next) = bytes.get(i + 1)
+            && (next == b'('
+                || next == b'{'
+                || next == b'\''
+                || next == b'"'
+                || next.is_ascii_alphabetic()
+                || next == b'_')
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Check if a redirect target is inherently safe (e.g., /dev/null).
@@ -330,5 +356,37 @@ mod tests {
         assert_eq!(strip_quotes("'hello'"), "hello");
         assert_eq!(strip_quotes("\"hello\""), "hello");
         assert_eq!(strip_quotes("hello"), "hello");
+    }
+
+    // ---- Shell expansion pattern detection ----
+
+    #[test]
+    fn expansion_pattern_detects_dollar_var() {
+        assert!(has_shell_expansion_pattern("$HOME"));
+        assert!(has_shell_expansion_pattern("hello $USER world"));
+        assert!(has_shell_expansion_pattern("$_private"));
+    }
+
+    #[test]
+    fn expansion_pattern_detects_braced() {
+        assert!(has_shell_expansion_pattern("${HOME}"));
+    }
+
+    #[test]
+    fn expansion_pattern_detects_command_sub() {
+        assert!(has_shell_expansion_pattern("$(whoami)"));
+        assert!(has_shell_expansion_pattern("`whoami`"));
+    }
+
+    #[test]
+    fn expansion_pattern_detects_ansi_c() {
+        assert!(has_shell_expansion_pattern("$'hello'"));
+    }
+
+    #[test]
+    fn expansion_pattern_no_false_positive() {
+        assert!(!has_shell_expansion_pattern("hello world"));
+        assert!(!has_shell_expansion_pattern("price is $5"));
+        assert!(!has_shell_expansion_pattern(""));
     }
 }
