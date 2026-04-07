@@ -145,6 +145,12 @@ impl Analyzer {
                 let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
                 Verdict::combine(&redirect_verdicts)
             }
+            NodeKind::AnsiCQuote { .. }
+            | NodeKind::LocaleString { .. }
+            | NodeKind::ParamExpansion { .. }
+            | NodeKind::ParamIndirect { .. }
+            | NodeKind::ParamLength { .. }
+            | NodeKind::ArithmeticExpansion { .. } => Verdict::ask("shell expansion"),
             _ => Verdict::allow(""),
         }
     }
@@ -422,9 +428,9 @@ impl Analyzer {
             return Verdict::allow("heredoc");
         }
         if let Some(body) = content
-            && (body.contains("$(") || body.contains('`'))
+            && (body.contains("$(") || body.contains('`') || body.contains("${"))
         {
-            return Verdict::ask("heredoc with command substitution");
+            return Verdict::ask("heredoc with expansion");
         }
         Verdict::allow("heredoc")
     }
@@ -865,5 +871,49 @@ mod tests {
         let mut a = make_analyzer();
         let v = a.analyze("ls || echo fail > log.txt").unwrap();
         assert_eq!(v.decision, Decision::Ask);
+    }
+
+    // ---- Expansion hardening tests ----
+
+    #[test]
+    fn param_expansion_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo ${HOME}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn simple_var_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $HOME").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn ansi_c_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $'\\x41'").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn heredoc_with_param_expansion_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<EOF\n${HOME}\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn heredoc_quoted_with_param_expansion_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<'EOF'\n${HOME}\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn safe_command_without_expansion_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo hello").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
     }
 }

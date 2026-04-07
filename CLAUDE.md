@@ -5,13 +5,13 @@
 1. **Transparent in all** — users know exactly what gets approved or blocked. Rules are predictable, diagnostics are clear, defaults are documented.
 2. **Simplicity is king** — solve the problem with the least complexity. No premature abstractions, no over-engineering.
 3. **If it is not tested, it is not shipped** — every feature has unit tests and integration tests. No exceptions.
-4. **Correctness over speed** — use tree-sitter-bash for parsing, never hand-roll a shell parser. Get the right answer first.
+4. **Correctness over speed** — use rable for bash AST parsing, never hand-roll a shell parser. Get the right answer first.
 5. **User first** — sensible defaults, zero-config experience, clear error messages.
 6. **No gatekeeping** — contributions of all kinds are welcome. Keep the codebase approachable.
 
 ## Project overview
 
-`rippy` is a shell command safety hook for AI coding tools (Claude Code, Cursor, Gemini CLI). It reads tool-use JSON from stdin, parses the shell command with tree-sitter-bash, evaluates it against safety rules, and returns a verdict (approve, block, or deny-redirect). It is a Rust rewrite of [Dippy](https://github.com/ldayton/Dippy).
+`rippy` is a shell command safety hook for AI coding tools (Claude Code, Cursor, Gemini CLI). It reads tool-use JSON from stdin, parses the shell command with rable (a standalone bash AST parser), evaluates it against safety rules, and returns a verdict (approve, block, or deny-redirect). It is a Rust rewrite of [Dippy](https://github.com/ldayton/Dippy).
 
 - **Binary:** `rippy` (crate name is `rippy-cli` on crates.io)
 - **Config:** `~/.rippy/config` (global) and `.rippy` (project-level override)
@@ -27,7 +27,7 @@
 | `src/cli.rs` | CLI argument parsing (clap) |
 | `src/config.rs` | Config file loading and merging (global + project) |
 | `src/pattern.rs` | Glob-style pattern matching for config rules |
-| `src/parser.rs` | tree-sitter-bash command parsing |
+| `src/parser.rs` | rable bash AST parsing |
 | `src/ast.rs` | AST node helpers (command name/args/redirects extraction) |
 | `src/analyzer.rs` | Recursive AST walker: Tree + Config + Handlers → Verdict |
 | `src/allowlists.rs` | SIMPLE_SAFE (~200 cmds) and WRAPPER_COMMANDS sets |
@@ -44,7 +44,7 @@
 1. Read JSON from stdin (hook payload from AI tool)
 2. Detect mode (Claude Code / Cursor / Gemini) from payload or CLI flags
 3. Extract the shell command string
-4. Parse with tree-sitter-bash into an AST
+4. Parse with rable into a bash AST
 5. Load config (global `~/.rippy/config` merged with project `.rippy`)
 6. Evaluate rules against the parsed AST
 7. Return JSON verdict on stdout

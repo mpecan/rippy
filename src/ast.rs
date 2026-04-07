@@ -78,7 +78,14 @@ pub fn has_expansions_in_slices(words: &[Node], redirects: &[Node]) -> bool {
 
 fn has_expansions_kind(kind: &NodeKind) -> bool {
     match kind {
-        NodeKind::CommandSubstitution { .. } | NodeKind::ProcessSubstitution { .. } => true,
+        NodeKind::CommandSubstitution { .. }
+        | NodeKind::ProcessSubstitution { .. }
+        | NodeKind::ParamExpansion { .. }
+        | NodeKind::ParamIndirect { .. }
+        | NodeKind::ParamLength { .. }
+        | NodeKind::AnsiCQuote { .. }
+        | NodeKind::LocaleString { .. }
+        | NodeKind::ArithmeticExpansion { .. } => true,
         NodeKind::Word { value, parts, .. } => {
             value.contains("$(") || value.contains('`') || parts.iter().any(has_expansions)
         }
@@ -159,6 +166,11 @@ fn strip_quotes(s: &str) -> String {
     let s = s.trim();
     if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
         s[1..s.len() - 1].to_owned()
+    } else if s.len() >= 3
+        && ((s.starts_with("$'") && s.ends_with('\''))
+            || (s.starts_with("$\"") && s.ends_with('"')))
+    {
+        s[2..s.len() - 1].to_owned()
     } else {
         s.to_owned()
     }
@@ -255,5 +267,68 @@ mod tests {
         let (op, target) = redirect_info(&redirects[0]).unwrap();
         assert_eq!(op, RedirectOp::Append);
         assert_eq!(target, "log.txt");
+    }
+
+    // ---- Expansion detection for hardened node types ----
+
+    #[test]
+    fn detect_param_expansion() {
+        let nodes = parse_first("echo ${HOME}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_simple_var_expansion() {
+        let nodes = parse_first("echo $HOME");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_param_length() {
+        let nodes = parse_first("echo ${#var}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_param_indirect() {
+        let nodes = parse_first("echo ${!ref}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_ansi_c_quote() {
+        let nodes = parse_first("echo $'\\x41'");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_locale_string() {
+        let nodes = parse_first("echo $\"hello\"");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_arithmetic_expansion_inline() {
+        let nodes = parse_first("echo $((1+1))");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    // ---- Quote stripping for ANSI-C and locale ----
+
+    #[test]
+    fn strip_ansi_c_quotes() {
+        assert_eq!(strip_quotes("$'hello'"), "hello");
+    }
+
+    #[test]
+    fn strip_locale_quotes() {
+        assert_eq!(strip_quotes("$\"hello\""), "hello");
+    }
+
+    #[test]
+    fn strip_regular_quotes_unchanged() {
+        assert_eq!(strip_quotes("'hello'"), "hello");
+        assert_eq!(strip_quotes("\"hello\""), "hello");
+        assert_eq!(strip_quotes("hello"), "hello");
     }
 }
