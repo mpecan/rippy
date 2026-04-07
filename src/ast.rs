@@ -76,11 +76,34 @@ pub fn has_expansions_in_slices(words: &[Node], redirects: &[Node]) -> bool {
     words.iter().any(has_expansions) || redirects.iter().any(has_expansions)
 }
 
+/// Returns `true` if the node kind is itself a shell expansion.
+///
+/// This is the single source of truth for which `NodeKind` variants
+/// represent expansions. Used by both `has_expansions_kind` (AST walking)
+/// and `analyze_node` (verdict generation).
+#[must_use]
+pub const fn is_expansion_node(kind: &NodeKind) -> bool {
+    matches!(
+        kind,
+        NodeKind::CommandSubstitution { .. }
+            | NodeKind::ProcessSubstitution { .. }
+            | NodeKind::ParamExpansion { .. }
+            | NodeKind::ParamIndirect { .. }
+            | NodeKind::ParamLength { .. }
+            | NodeKind::AnsiCQuote { .. }
+            | NodeKind::LocaleString { .. }
+            | NodeKind::ArithmeticExpansion { .. }
+            | NodeKind::BraceExpansion { .. }
+    )
+}
+
 fn has_expansions_kind(kind: &NodeKind) -> bool {
+    if is_expansion_node(kind) {
+        return true;
+    }
     match kind {
-        NodeKind::CommandSubstitution { .. } | NodeKind::ProcessSubstitution { .. } => true,
         NodeKind::Word { value, parts, .. } => {
-            value.contains("$(") || value.contains('`') || parts.iter().any(has_expansions)
+            has_shell_expansion_pattern(value) || parts.iter().any(has_expansions)
         }
         NodeKind::Command {
             words, redirects, ..
@@ -101,9 +124,35 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
         NodeKind::Subshell { body, .. } | NodeKind::BraceGroup { body, .. } => has_expansions(body),
         NodeKind::HereDoc {
             content, quoted, ..
-        } => !quoted && (content.contains("$(") || content.contains('`')),
+        } => !quoted && has_shell_expansion_pattern(content),
         _ => false,
     }
+}
+
+/// Check if a string contains shell expansion patterns (`$(`, `` ` ``, `${`, or `$` + identifier).
+///
+/// Used for heredoc content and other string-level expansion detection where
+/// structured AST nodes are not available.
+#[must_use]
+pub fn has_shell_expansion_pattern(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'`' {
+            return true;
+        }
+        if b == b'$'
+            && let Some(&next) = bytes.get(i + 1)
+            && (next == b'('
+                || next == b'{'
+                || next == b'\''
+                || next == b'"'
+                || next.is_ascii_alphabetic()
+                || next == b'_')
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Check if a redirect target is inherently safe (e.g., /dev/null).
@@ -159,6 +208,11 @@ fn strip_quotes(s: &str) -> String {
     let s = s.trim();
     if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
         s[1..s.len() - 1].to_owned()
+    } else if s.len() >= 3
+        && ((s.starts_with("$'") && s.ends_with('\''))
+            || (s.starts_with("$\"") && s.ends_with('"')))
+    {
+        s[2..s.len() - 1].to_owned()
     } else {
         s.to_owned()
     }
@@ -255,5 +309,112 @@ mod tests {
         let (op, target) = redirect_info(&redirects[0]).unwrap();
         assert_eq!(op, RedirectOp::Append);
         assert_eq!(target, "log.txt");
+    }
+
+    // ---- Expansion detection for hardened node types ----
+
+    #[test]
+    fn detect_param_expansion() {
+        let nodes = parse_first("echo ${HOME}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_simple_var_expansion() {
+        let nodes = parse_first("echo $HOME");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_param_length() {
+        let nodes = parse_first("echo ${#var}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_param_indirect() {
+        let nodes = parse_first("echo ${!ref}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_ansi_c_quote() {
+        let nodes = parse_first("echo $'\\x41'");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_locale_string() {
+        let nodes = parse_first("echo $\"hello\"");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_arithmetic_expansion_inline() {
+        let nodes = parse_first("echo $((1+1))");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_brace_expansion() {
+        let nodes = parse_first("echo {a,b,c}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    #[test]
+    fn detect_brace_expansion_range() {
+        let nodes = parse_first("echo {1..10}");
+        assert!(has_expansions(&nodes[0]));
+    }
+
+    // ---- Quote stripping for ANSI-C and locale ----
+
+    #[test]
+    fn strip_ansi_c_quotes() {
+        assert_eq!(strip_quotes("$'hello'"), "hello");
+    }
+
+    #[test]
+    fn strip_locale_quotes() {
+        assert_eq!(strip_quotes("$\"hello\""), "hello");
+    }
+
+    #[test]
+    fn strip_regular_quotes_unchanged() {
+        assert_eq!(strip_quotes("'hello'"), "hello");
+        assert_eq!(strip_quotes("\"hello\""), "hello");
+        assert_eq!(strip_quotes("hello"), "hello");
+    }
+
+    // ---- Shell expansion pattern detection ----
+
+    #[test]
+    fn expansion_pattern_detects_dollar_var() {
+        assert!(has_shell_expansion_pattern("$HOME"));
+        assert!(has_shell_expansion_pattern("hello $USER world"));
+        assert!(has_shell_expansion_pattern("$_private"));
+    }
+
+    #[test]
+    fn expansion_pattern_detects_braced() {
+        assert!(has_shell_expansion_pattern("${HOME}"));
+    }
+
+    #[test]
+    fn expansion_pattern_detects_command_sub() {
+        assert!(has_shell_expansion_pattern("$(whoami)"));
+        assert!(has_shell_expansion_pattern("`whoami`"));
+    }
+
+    #[test]
+    fn expansion_pattern_detects_ansi_c() {
+        assert!(has_shell_expansion_pattern("$'hello'"));
+    }
+
+    #[test]
+    fn expansion_pattern_no_false_positive() {
+        assert!(!has_shell_expansion_pattern("hello world"));
+        assert!(!has_shell_expansion_pattern("price is $5"));
+        assert!(!has_shell_expansion_pattern(""));
     }
 }

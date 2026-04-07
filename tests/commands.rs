@@ -264,3 +264,28 @@ message = "No force push"
     let (_, code2) = run_rippy_in_dir(json2, "claude", dir.path());
     assert_eq!(code2, 2);
 }
+
+// ---- Expansion hardening integration tests ----
+
+#[test]
+fn param_expansion_in_echo_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo ${HOME}"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2, "echo with param expansion should ask");
+}
+
+#[test]
+fn ansi_c_quote_in_echo_asks() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo $'\\x41'"}}"#;
+    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2, "echo with ANSI-C quote should ask");
+}
+
+#[test]
+fn plain_echo_still_allows() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0, "plain echo should still allow");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}

@@ -145,6 +145,7 @@ impl Analyzer {
                 let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
                 Verdict::combine(&redirect_verdicts)
             }
+            _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
             _ => Verdict::allow(""),
         }
     }
@@ -322,7 +323,7 @@ impl Analyzer {
             }
             let mut v = Verdict::allow(format!("{cmd_name} is safe"));
             if ast::has_expansions_in_slices(words, redirects) {
-                v = most_restrictive(v, Verdict::ask("command substitution"));
+                v = most_restrictive(v, Verdict::ask("shell expansion"));
             }
             for rv in self.analyze_redirects(redirects, cwd, depth) {
                 v = most_restrictive(v, rv);
@@ -422,9 +423,9 @@ impl Analyzer {
             return Verdict::allow("heredoc");
         }
         if let Some(body) = content
-            && (body.contains("$(") || body.contains('`'))
+            && ast::has_shell_expansion_pattern(body)
         {
-            return Verdict::ask("heredoc with command substitution");
+            return Verdict::ask("heredoc with expansion");
         }
         Verdict::allow("heredoc")
     }
@@ -864,6 +865,92 @@ mod tests {
     fn or_harmless_fallback_with_redirect_asks() {
         let mut a = make_analyzer();
         let v = a.analyze("ls || echo fail > log.txt").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    // ---- Expansion hardening tests ----
+
+    #[test]
+    fn param_expansion_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo ${HOME}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn simple_var_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $HOME").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn ansi_c_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $'\\x41'").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn heredoc_with_param_expansion_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<EOF\n${HOME}\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn heredoc_quoted_with_param_expansion_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<'EOF'\n${HOME}\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn safe_command_without_expansion_allows() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo hello").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn locale_string_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $\"hello\"").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn arithmetic_expansion_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $((1+1))").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn brace_expansion_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo {a,b,c}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn param_length_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo ${#var}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn param_indirect_in_safe_command_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo ${!ref}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn heredoc_bare_var_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<EOF\n$HOME\nEOF").unwrap();
         assert_eq!(v.decision, Decision::Ask);
     }
 }
