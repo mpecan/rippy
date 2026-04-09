@@ -103,7 +103,18 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
     }
     match kind {
         NodeKind::Word { value, parts, .. } => {
-            has_shell_expansion_pattern(value) || parts.iter().any(has_expansions)
+            // Trust the parsed parts when present: rable decomposes words into
+            // typed expansion nodes, so a `Word` whose parts are all literal
+            // (e.g., `WordLiteral` for `'$(whoami)'`) contains no expansion
+            // even though its raw value has metacharacters.
+            //
+            // Only fall back to the textual scan when parts are absent (e.g.,
+            // synthetic words from heredoc content).
+            if parts.is_empty() {
+                has_shell_expansion_pattern(value)
+            } else {
+                parts.iter().any(has_expansions)
+            }
         }
         NodeKind::Command {
             words, redirects, ..

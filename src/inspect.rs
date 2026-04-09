@@ -352,30 +352,37 @@ fn trace_parse_and_classify(
     // the resolved form is captured in the verdict's `resolved_command` field
     // and bubbled up to `TraceOutput.resolved`. Plain safe commands without
     // expansions short-circuit to avoid the analyzer cost.
-    if is_safe && !command_has_expansions(command) {
+    let has_expansions = crate::ast::has_shell_expansion_pattern(command);
+    if is_safe && !has_expansions {
         return Ok(make_output(command, "allow", &cmd_name, steps));
     }
     if is_safe || crate::handlers::get_handler(&cmd_name).is_none() {
         // Safe command WITH expansions, or unknown command — go through the
         // analyzer to resolve and re-classify.
-        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd.to_path_buf(), false)?;
-        let verdict = analyzer.analyze(command)?;
-        return Ok(make_output_with_resolution(
-            command,
-            verdict.decision.as_str(),
-            &verdict.reason,
-            verdict.resolved_command,
-            steps,
-        ));
+        return run_analyzer_for_trace(command, config, cwd, steps);
     }
 
     trace_handler_step(command, &cmd_name, config, cwd, steps)
 }
 
-/// Cheap textual check for expansion patterns. Used to decide whether the
-/// trace path should run the full analyzer (to capture resolved-command info).
-fn command_has_expansions(command: &str) -> bool {
-    crate::ast::has_shell_expansion_pattern(command)
+/// Run the full analyzer and convert its verdict to a `TraceOutput`. Shared
+/// between the safe-with-expansions path and the handler path so resolution
+/// info propagates uniformly.
+fn run_analyzer_for_trace(
+    command: &str,
+    config: Config,
+    cwd: &Path,
+    steps: &[TraceStep],
+) -> Result<TraceOutput, RippyError> {
+    let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd.to_path_buf(), false)?;
+    let verdict = analyzer.analyze(command)?;
+    Ok(make_output_with_resolution(
+        command,
+        verdict.decision.as_str(),
+        &verdict.reason,
+        verdict.resolved_command,
+        steps,
+    ))
 }
 
 fn trace_handler_step(
@@ -397,15 +404,7 @@ fn trace_handler_step(
     });
 
     if has_handler {
-        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd.to_path_buf(), false)?;
-        let verdict = analyzer.analyze(command)?;
-        return Ok(make_output_with_resolution(
-            command,
-            verdict.decision.as_str(),
-            &verdict.reason,
-            verdict.resolved_command,
-            steps,
-        ));
+        return run_analyzer_for_trace(command, config, cwd, steps);
     }
 
     let default = config.default_action.unwrap_or(Decision::Ask);

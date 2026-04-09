@@ -109,6 +109,10 @@ fn resolve_word_node(value: &str, parts: &[Node], vars: &dyn VarLookup) -> WordR
 
 /// Combine resolved parts. Mixing `Multiple` parts with literals produces a
 /// cartesian expansion (`file.{a,b}` → `[file.a, file.b]`).
+///
+/// Refuses patterns whose cartesian product would exceed `MAX_BRACE_EXPANSION`
+/// items, returning `Unresolvable` so the caller falls back to Ask. This
+/// prevents `{1..32}{1..32}{1..32}` (32k items) from exhausting memory.
 fn combine_parts(parts: &[WordResolution]) -> WordResolution {
     let mut variants: Vec<String> = vec![String::new()];
     for part in parts {
@@ -119,7 +123,15 @@ fn combine_parts(parts: &[WordResolution]) -> WordResolution {
                 }
             }
             WordResolution::Multiple(items) => {
-                let mut next = Vec::with_capacity(variants.len() * items.len());
+                let projected = variants.len().saturating_mul(items.len());
+                if projected > MAX_BRACE_EXPANSION {
+                    return WordResolution::Unresolvable {
+                        reason: format!(
+                            "brace expansion would produce {projected} items (cap: {MAX_BRACE_EXPANSION})"
+                        ),
+                    };
+                }
+                let mut next = Vec::with_capacity(projected);
                 for v in &variants {
                     for item in items {
                         let mut combined = v.clone();
@@ -241,10 +253,17 @@ fn apply_unary(op: &str, v: i64) -> Option<i64> {
     }
 }
 
+/// Maximum number of items a single brace expansion may produce.
+///
+/// Bash has no built-in cap, but we refuse to materialize anything larger
+/// to prevent `{1..1000000000}` from exhausting memory. Patterns that would
+/// exceed this cap are treated as `Unresolvable` (caller falls back to Ask).
+const MAX_BRACE_EXPANSION: usize = 1024;
+
 /// Expand a brace pattern like `{a,b,c}` or `{1..10}`.
 ///
 /// Returns `None` if the pattern is malformed, contains nested braces,
-/// or contains expansions we can't handle.
+/// or would produce more than `MAX_BRACE_EXPANSION` items.
 fn expand_brace(content: &str) -> Option<Vec<String>> {
     let bytes = content.as_bytes();
     if bytes.len() < 2 || bytes[0] != b'{' || bytes[bytes.len() - 1] != b'}' {
@@ -255,11 +274,15 @@ fn expand_brace(content: &str) -> Option<Vec<String>> {
         return None; // nested braces — defer to follow-up
     }
     if let Some(range) = parse_range(inner) {
-        return Some(range);
+        return if range.len() <= MAX_BRACE_EXPANSION {
+            Some(range)
+        } else {
+            None
+        };
     }
     let items: Vec<String> = inner.split(',').map(str::to_string).collect();
-    if items.len() < 2 {
-        return None; // {x} alone is not a valid expansion
+    if items.len() < 2 || items.len() > MAX_BRACE_EXPANSION {
+        return None;
     }
     Some(items)
 }
@@ -270,7 +293,7 @@ fn parse_range(inner: &str) -> Option<Vec<String>> {
         return None;
     }
     if let (Ok(start), Ok(end)) = (parts[0].parse::<i64>(), parts[1].parse::<i64>()) {
-        return Some(numeric_range(start, end));
+        return numeric_range(start, end);
     }
     if parts[0].len() == 1 && parts[1].len() == 1 {
         let start = parts[0].chars().next()?;
@@ -282,15 +305,23 @@ fn parse_range(inner: &str) -> Option<Vec<String>> {
     None
 }
 
-fn numeric_range(start: i64, end: i64) -> Vec<String> {
-    if start <= end {
+/// Build a numeric range, refusing patterns that would exceed
+/// `MAX_BRACE_EXPANSION` items (returns `None` so the caller falls back to Ask).
+fn numeric_range(start: i64, end: i64) -> Option<Vec<String>> {
+    let span = (end - start).unsigned_abs();
+    if span >= MAX_BRACE_EXPANSION as u64 {
+        return None;
+    }
+    Some(if start <= end {
         (start..=end).map(|n| n.to_string()).collect()
     } else {
         (end..=start).rev().map(|n| n.to_string()).collect()
-    }
+    })
 }
 
 fn char_range(start: char, end: char) -> Vec<String> {
+    // Character ranges are bounded by the ASCII range (max 128 items),
+    // well under MAX_BRACE_EXPANSION, so no extra check needed.
     let s = start as u8;
     let e = end as u8;
     if s <= e {
