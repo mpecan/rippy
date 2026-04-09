@@ -696,6 +696,34 @@ pub(crate) mod tests {
         );
     }
 
+    #[test]
+    fn resolve_two_adjacent_brace_expansions() {
+        // Two `Multiple` parts in the same word — exercises the cartesian
+        // branch of `combine_parts` where `variants.len() > 1` AND a new
+        // `Multiple` part is folded in.
+        let node = first_arg_node("ls {a,b}{c,d}");
+        let lookup = MockLookup::new();
+        assert_eq!(
+            resolve_word(&node, &lookup),
+            WordResolution::Multiple(vec!["ac".into(), "ad".into(), "bc".into(), "bd".into(),])
+        );
+    }
+
+    #[test]
+    fn resolve_three_adjacent_brace_expansions() {
+        // Three brace expansions: 2*2*2 = 8 variants. Exercises chained
+        // cartesian products under the brace-cap limit.
+        let node = first_arg_node("ls {a,b}{c,d}{e,f}");
+        let lookup = MockLookup::new();
+        let result = resolve_word(&node, &lookup);
+        let WordResolution::Multiple(items) = result else {
+            panic!("expected Multiple, got {result:?}");
+        };
+        assert_eq!(items.len(), 8);
+        assert!(items.contains(&"ace".to_string()));
+        assert!(items.contains(&"bdf".to_string()));
+    }
+
     // ---- Command substitution: unresolvable ----
 
     #[test]
@@ -792,6 +820,56 @@ pub(crate) mod tests {
             "ok".to_string(),
         ];
         assert_eq!(shell_join(&args), "echo 'hello world' ok");
+    }
+
+    // ---- strip_outer_quotes ----
+
+    #[test]
+    fn strip_outer_quotes_double() {
+        assert_eq!(strip_outer_quotes("\"hello\""), "hello");
+    }
+
+    #[test]
+    fn strip_outer_quotes_single() {
+        assert_eq!(strip_outer_quotes("'hello'"), "hello");
+    }
+
+    #[test]
+    fn strip_outer_quotes_unquoted_unchanged() {
+        assert_eq!(strip_outer_quotes("hello"), "hello");
+    }
+
+    #[test]
+    fn strip_outer_quotes_mismatched_unchanged() {
+        // Mismatched quote chars: only strips when both ends are the same.
+        assert_eq!(strip_outer_quotes("'hello\""), "'hello\"");
+        assert_eq!(strip_outer_quotes("\"hello'"), "\"hello'");
+    }
+
+    #[test]
+    fn strip_outer_quotes_only_left_unchanged() {
+        // A single quote at one end is not a pair — leave it alone.
+        assert_eq!(strip_outer_quotes("'hello"), "'hello");
+        assert_eq!(strip_outer_quotes("hello'"), "hello'");
+    }
+
+    #[test]
+    fn strip_outer_quotes_empty_string() {
+        assert_eq!(strip_outer_quotes(""), "");
+    }
+
+    #[test]
+    fn strip_outer_quotes_single_char_unchanged() {
+        // A single character can't be a quoted pair (need at least 2).
+        assert_eq!(strip_outer_quotes("'"), "'");
+        assert_eq!(strip_outer_quotes("\""), "\"");
+    }
+
+    #[test]
+    fn strip_outer_quotes_just_quote_pair() {
+        // Empty quoted string: both quotes get stripped → empty string.
+        assert_eq!(strip_outer_quotes("''"), "");
+        assert_eq!(strip_outer_quotes("\"\""), "");
     }
 
     // ---- EnvLookup ----

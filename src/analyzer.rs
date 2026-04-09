@@ -1010,7 +1010,7 @@ mod tests {
     // ---- Expansion resolution tests ----
 
     #[test]
-    fn param_expansion_in_safe_command_resolves_via_env() {
+    fn param_expansion_in_safe_command_resolves_to_value() {
         let mut a = make_analyzer_with(MockLookup::new().with("HOME", "/Users/test"));
         let v = a.analyze("echo ${HOME}").unwrap();
         assert_eq!(v.decision, Decision::Allow);
@@ -1019,7 +1019,7 @@ mod tests {
     }
 
     #[test]
-    fn simple_var_in_safe_command_resolves_via_env() {
+    fn simple_var_in_safe_command_resolves_to_value() {
         let mut a = make_analyzer_with(MockLookup::new().with("HOME", "/Users/test"));
         let v = a.analyze("echo $HOME").unwrap();
         assert_eq!(v.decision, Decision::Allow);

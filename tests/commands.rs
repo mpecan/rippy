@@ -303,6 +303,24 @@ fn arithmetic_expansion_in_echo_resolves_to_allow() {
 }
 
 #[test]
+fn hook_json_reason_contains_resolved_annotation() {
+    // The user-facing transparency contract: when rippy resolves an
+    // expansion, the AI tool's verdict reason includes `(resolved: <cmd>)`
+    // so the user (or the tool) sees exactly what will execute.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo $'\\x41'"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0, "should allow, stdout: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        reason.contains("(resolved: echo A)"),
+        "reason should contain resolved annotation, got: {reason}"
+    );
+}
+
+#[test]
 fn brace_expansion_in_ls_resolves_to_allow() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls {a,b,c}"}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
