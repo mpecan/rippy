@@ -367,3 +367,32 @@ fn debug_unknown_command_shows_ask() {
         "unknown cmd should show ASK, got: {stdout}"
     );
 }
+
+#[test]
+fn debug_shows_resolved_command_for_arithmetic() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["debug", "echo $((2+2))"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Resolved: echo 4"),
+        "should show resolved arithmetic, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("ALLOW"),
+        "resolved arithmetic should allow, got: {stdout}"
+    );
+}
+
+#[test]
+fn debug_json_includes_resolved_field() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["debug", "echo $'\\x41'", "--json"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["resolved"], "echo A");
+    assert_eq!(v["decision"], "allow");
+}

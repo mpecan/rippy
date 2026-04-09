@@ -19,7 +19,7 @@ pub fn run(args: &DebugArgs) -> Result<ExitCode, RippyError> {
     let sources = config::enumerate_config_sources(&cwd, args.config.as_deref());
 
     if args.json {
-        let json_output = serde_json::json!({
+        let mut json_output = serde_json::json!({
             "command": trace.command,
             "sources": sources,
             "decision": trace.decision,
@@ -30,6 +30,9 @@ pub fn run(args: &DebugArgs) -> Result<ExitCode, RippyError> {
                 "detail": s.detail,
             })).collect::<Vec<_>>(),
         });
+        if let Some(resolved) = &trace.resolved {
+            json_output["resolved"] = serde_json::Value::String(resolved.clone());
+        }
         let json = serde_json::to_string_pretty(&json_output)
             .map_err(|e| RippyError::Setup(format!("JSON serialization failed: {e}")))?;
         println!("{json}");
@@ -41,7 +44,11 @@ pub fn run(args: &DebugArgs) -> Result<ExitCode, RippyError> {
 }
 
 fn print_debug_text(trace: &inspect::TraceOutput, sources: &[ConfigSourceInfo]) {
-    println!("Command: {}\n", trace.command);
+    println!("Command: {}", trace.command);
+    if let Some(resolved) = &trace.resolved {
+        println!("Resolved: {resolved}");
+    }
+    println!();
 
     println!("Config sources:");
     for (i, source) in sources.iter().enumerate() {

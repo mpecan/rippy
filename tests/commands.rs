@@ -265,20 +265,96 @@ message = "No force push"
     assert_eq!(code2, 2);
 }
 
-// ---- Expansion hardening integration tests ----
+// ---- Static expansion resolution integration tests ----
+
+use serial_test::serial;
 
 #[test]
-fn param_expansion_in_echo_asks() {
+#[serial(env)]
+fn param_expansion_in_echo_resolves_to_allow() {
+    // The integration binary uses real `EnvLookup`. Set HOME to a known value.
+    // SAFETY: serial_test guarantees no concurrent env mutation.
+    unsafe {
+        std::env::set_var("HOME", "/tmp/test-home");
+    }
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo ${HOME}"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2, "echo with param expansion should ask");
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0, "resolved echo should allow, stdout: {stdout}");
 }
 
 #[test]
-fn ansi_c_quote_in_echo_asks() {
+fn ansi_c_quote_in_echo_resolves_to_allow() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo $'\\x41'"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2, "echo with ANSI-C quote should ask");
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(
+        code, 0,
+        "resolved ANSI-C echo should allow, stdout: {stdout}"
+    );
+}
+
+#[test]
+fn arithmetic_expansion_in_echo_resolves_to_allow() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo $((2+2))"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(
+        code, 0,
+        "resolved arithmetic echo should allow, stdout: {stdout}"
+    );
+}
+
+#[test]
+fn hook_json_reason_contains_resolved_annotation() {
+    // The user-facing transparency contract: when rippy resolves an
+    // expansion, the AI tool's verdict reason includes `(resolved: <cmd>)`
+    // so the user (or the tool) sees exactly what will execute.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo $'\\x41'"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0, "should allow, stdout: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        reason.contains("(resolved: echo A)"),
+        "reason should contain resolved annotation, got: {reason}"
+    );
+}
+
+#[test]
+fn brace_expansion_in_ls_resolves_to_allow() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls {a,b,c}"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0, "brace-expanded ls should allow, stdout: {stdout}");
+}
+
+#[test]
+fn git_with_quoted_subcommand_resolves_via_handler() {
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git $'status'"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(
+        code, 0,
+        "resolved git status should allow, stdout: {stdout}"
+    );
+}
+
+#[test]
+#[serial(env)]
+fn unset_variable_asks_with_diagnostic() {
+    // SAFETY: serial_test guarantees no concurrent env mutation.
+    unsafe {
+        std::env::remove_var("TOTALLY_UNSET_VAR_XYZ_42");
+    }
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cat $TOTALLY_UNSET_VAR_XYZ_42"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 2, "unset variable should ask, stdout: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        reason.contains("$TOTALLY_UNSET_VAR_XYZ_42 is not set"),
+        "reason should mention unset var, got: {reason}"
+    );
 }
 
 #[test]

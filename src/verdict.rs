@@ -13,6 +13,10 @@ pub enum Decision {
 pub struct Verdict {
     pub decision: Decision,
     pub reason: String,
+    /// The fully-resolved command (after expansion of `$VAR`, `$'...'`, `$((...))`,
+    /// etc.) when the analyzer was able to statically resolve all expansions.
+    /// `None` when no resolution occurred or it failed.
+    pub resolved_command: Option<String>,
 }
 
 impl Verdict {
@@ -21,6 +25,7 @@ impl Verdict {
         Self {
             decision: Decision::Allow,
             reason: reason.into(),
+            resolved_command: None,
         }
     }
 
@@ -29,6 +34,7 @@ impl Verdict {
         Self {
             decision: Decision::Ask,
             reason: reason.into(),
+            resolved_command: None,
         }
     }
 
@@ -37,18 +43,34 @@ impl Verdict {
         Self {
             decision: Decision::Deny,
             reason: reason.into(),
+            resolved_command: None,
         }
+    }
+
+    /// Attach a resolved command form to this verdict for transparency.
+    #[must_use]
+    pub fn with_resolution(mut self, resolved: impl Into<String>) -> Self {
+        self.resolved_command = Some(resolved.into());
+        self
     }
 
     /// Combine multiple verdicts, keeping the most restrictive decision
     /// and the reason from whichever verdict drove that decision.
+    ///
+    /// The resolved command is preserved from the chosen verdict, or from any
+    /// other verdict in the input if the chosen one has none — so resolution
+    /// info is never accidentally dropped during combination.
     #[must_use]
     pub fn combine(verdicts: &[Self]) -> Self {
-        verdicts
+        let mut chosen = verdicts
             .iter()
             .max_by_key(|v| v.decision)
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if chosen.resolved_command.is_none() {
+            chosen.resolved_command = verdicts.iter().find_map(|v| v.resolved_command.clone());
+        }
+        chosen
     }
 
     /// Serialize this verdict as JSON for the given AI tool mode.
@@ -79,6 +101,7 @@ impl Default for Verdict {
         Self {
             decision: Decision::Allow,
             reason: String::new(),
+            resolved_command: None,
         }
     }
 }
@@ -161,5 +184,43 @@ mod tests {
         assert_eq!(json["permission"], "deny");
         assert_eq!(json["userMessage"], "dangerous");
         assert_eq!(json["agentMessage"], "dangerous");
+    }
+
+    #[test]
+    fn with_resolution_attaches_resolved_command() {
+        let v = Verdict::allow("ls is safe").with_resolution("ls /tmp");
+        assert_eq!(v.resolved_command.as_deref(), Some("ls /tmp"));
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn combine_preserves_resolved_command_from_chosen() {
+        let verdicts = vec![
+            Verdict::allow("safe"),
+            Verdict::ask("review").with_resolution("rm -rf /tmp"),
+        ];
+        let combined = Verdict::combine(&verdicts);
+        assert_eq!(combined.decision, Decision::Ask);
+        assert_eq!(combined.resolved_command.as_deref(), Some("rm -rf /tmp"));
+    }
+
+    #[test]
+    fn combine_borrows_resolved_command_from_other_when_chosen_has_none() {
+        let verdicts = vec![
+            Verdict::ask("review"),
+            Verdict::allow("safe").with_resolution("ls /tmp"),
+        ];
+        let combined = Verdict::combine(&verdicts);
+        assert_eq!(combined.decision, Decision::Ask);
+        assert_eq!(combined.resolved_command.as_deref(), Some("ls /tmp"));
+    }
+
+    #[test]
+    fn json_output_unchanged_when_resolved_present() {
+        // resolved_command is internal-only, not part of any wire format
+        let v = Verdict::allow("ls is safe").with_resolution("ls /tmp");
+        let json = v.to_json(Mode::Claude);
+        assert!(json.get("resolved_command").is_none());
+        assert!(json["hookSpecificOutput"].get("resolved_command").is_none());
     }
 }

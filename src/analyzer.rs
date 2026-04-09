@@ -10,9 +10,22 @@ use crate::config::Config;
 use crate::error::RippyError;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::parser::BashParser;
+use crate::resolve::{self, EnvLookup, VarLookup};
 use crate::verdict::{Decision, Verdict};
 
 const MAX_DEPTH: usize = 256;
+
+/// Maximum length (bytes) of a resolved command string. Resolution that
+/// would produce a longer string falls back to Ask, preventing pathological
+/// expansions (e.g., variables that contain other expansions, deeply
+/// recursive aliases) from blowing up memory.
+const MAX_RESOLVED_LEN: usize = 16_384;
+
+/// Maximum number of nested resolution passes. Each call to `try_resolve`
+/// re-parses the resolved command and may resolve again; this cap is
+/// independent of `MAX_DEPTH` (which bounds AST node nesting) and prevents
+/// `A=$B; B=$C; C=$A` cycles from blowing the stack.
+const MAX_RESOLUTION_DEPTH: usize = 8;
 
 /// The core analysis engine: parses a command and produces a safety verdict.
 pub struct Analyzer {
@@ -26,10 +39,16 @@ pub struct Analyzer {
     git_branch: Option<String>,
     /// Set to true when analyzing a command that receives piped input.
     piped: bool,
+    /// Variable lookup used for static expansion resolution.
+    /// Defaults to `EnvLookup` (real process environment); tests inject mocks.
+    var_lookup: Box<dyn VarLookup>,
+    /// Tracks how many nested expansion-resolution passes have run for the
+    /// current command. Bounded by `MAX_RESOLUTION_DEPTH` to prevent cycles.
+    resolution_depth: usize,
 }
 
 impl Analyzer {
-    /// Create a new analyzer.
+    /// Create a new analyzer using the real process environment for variable lookups.
     ///
     /// # Errors
     ///
@@ -39,6 +58,28 @@ impl Analyzer {
         remote: bool,
         working_directory: PathBuf,
         verbose: bool,
+    ) -> Result<Self, RippyError> {
+        Self::new_with_var_lookup(
+            config,
+            remote,
+            working_directory,
+            verbose,
+            Box::new(EnvLookup),
+        )
+    }
+
+    /// Create a new analyzer with a custom variable lookup (used by tests
+    /// to inject deterministic env values via `MockLookup`).
+    ///
+    /// # Errors
+    ///
+    /// Returns `RippyError::Parse` if the bash parser cannot be initialized.
+    pub fn new_with_var_lookup(
+        config: Config,
+        remote: bool,
+        working_directory: PathBuf,
+        verbose: bool,
+        var_lookup: Box<dyn VarLookup>,
     ) -> Result<Self, RippyError> {
         let cc_rules = cc_permissions::load_cc_rules(&working_directory);
         let git_branch = crate::condition::detect_git_branch(&working_directory);
@@ -51,6 +92,8 @@ impl Analyzer {
             cc_rules,
             git_branch,
             piped: false,
+            var_lookup,
+            resolution_depth: 0,
         })
     }
 
@@ -292,6 +335,19 @@ impl Analyzer {
         cwd: &Path,
         depth: usize,
     ) -> Verdict {
+        // Static expansion resolution: if any words contain expansions, attempt
+        // to resolve them and re-classify the resolved command through the full
+        // pipeline. This applies uniformly to safe-list, wrapper, and handler
+        // paths — the resolved command goes back through analyze_inner_command.
+        if let Some(resolved_verdict) = self.try_resolve(words, cwd, depth) {
+            // Use Verdict::combine (not most_restrictive) so the resolved_command
+            // field is preserved even when a redirect verdict dominates the
+            // decision — combine borrows resolved_command from any input verdict.
+            let mut verdicts = vec![resolved_verdict];
+            verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+            return Verdict::combine(&verdicts);
+        }
+
         let Some(raw_name) = ast::command_name_from_words(words) else {
             return Verdict::allow("empty command");
         };
@@ -322,9 +378,6 @@ impl Analyzer {
                 eprintln!("[rippy] allowlist: {cmd_name} is safe");
             }
             let mut v = Verdict::allow(format!("{cmd_name} is safe"));
-            if ast::has_expansions_in_slices(words, redirects) {
-                v = most_restrictive(v, Verdict::ask("shell expansion"));
-            }
             for rv in self.analyze_redirects(redirects, cwd, depth) {
                 v = most_restrictive(v, rv);
             }
@@ -437,6 +490,58 @@ impl Analyzer {
         self.analyze_nodes(&nodes, cwd, depth)
     }
 
+    /// Attempt to statically resolve any shell expansions in `words` and
+    /// re-classify the resolved command through the full pipeline.
+    ///
+    /// Returns:
+    /// - `None` when there are no expansions to resolve (caller proceeds normally)
+    /// - `Some(verdict)` when expansions were present:
+    ///   - On unresolvable expansions, an `Ask` verdict with a diagnostic reason
+    ///   - On command-position dynamic execution (`$cmd args`), an `Ask` verdict
+    ///     regardless of whether resolution succeeded
+    ///   - Otherwise, the verdict of re-analyzing the resolved command
+    ///     (annotated with the resolved form for transparency)
+    fn try_resolve(&mut self, words: &[Node], cwd: &Path, depth: usize) -> Option<Verdict> {
+        if !ast::has_expansions_in_slices(words, &[]) {
+            return None;
+        }
+        // Bail out on runaway resolution before doing any work. Each nested
+        // call increments `resolution_depth`; cycles like `A=$B; B=$A` are
+        // caught here even if individual depths are small.
+        if self.resolution_depth >= MAX_RESOLUTION_DEPTH {
+            return Some(Verdict::ask("shell expansion (resolution depth exceeded)"));
+        }
+        let resolved = resolve::resolve_command_args(words, self.var_lookup.as_ref());
+        let Some(args) = resolved.args else {
+            let reason = resolved.failure_reason.map_or_else(
+                || "shell expansion".to_string(),
+                |r| format!("shell expansion ({r})"),
+            );
+            return Some(Verdict::ask(reason));
+        };
+        let resolved_command = resolve::shell_join(&args);
+        // Refuse to materialize pathologically large resolved commands.
+        if resolved_command.len() > MAX_RESOLVED_LEN {
+            return Some(Verdict::ask(format!(
+                "shell expansion (resolved command exceeds {MAX_RESOLVED_LEN}-byte limit)"
+            )));
+        }
+        if self.verbose {
+            eprintln!("[rippy] resolved: {resolved_command}");
+        }
+        if resolved.command_position_dynamic {
+            return Some(
+                Verdict::ask(format!("dynamic command (resolved: {resolved_command})"))
+                    .with_resolution(resolved_command),
+            );
+        }
+        // Track nesting around the recursive analyze_inner_command call.
+        self.resolution_depth += 1;
+        let inner = self.analyze_inner_command(&resolved_command, cwd, depth + 1);
+        self.resolution_depth -= 1;
+        Some(annotate_with_resolution(inner, &resolved_command))
+    }
+
     fn apply_classification(&mut self, class: Classification, cwd: &Path, depth: usize) -> Verdict {
         match class {
             Classification::Allow(desc) => Verdict::allow(desc),
@@ -462,6 +567,7 @@ impl Analyzer {
                 let mut verdicts = vec![Verdict {
                     decision,
                     reason: desc,
+                    resolved_command: None,
                 }];
                 for target in &targets {
                     verdicts.push(self.analyze_redirect(ast::RedirectOp::Write, target));
@@ -482,6 +588,7 @@ impl Analyzer {
                 Verdict {
                     decision: action,
                     reason,
+                    resolved_command: None,
                 }
             },
         )
@@ -494,7 +601,25 @@ fn cc_decision_to_verdict(decision: Decision, command: &str) -> Verdict {
         Decision::Ask => format!("{command} (CC permission: ask)"),
         Decision::Deny => format!("{command} (CC permission: deny)"),
     };
-    Verdict { decision, reason }
+    Verdict {
+        decision,
+        reason,
+        resolved_command: None,
+    }
+}
+
+/// Annotate a verdict with the resolved command form: appends `(resolved: <cmd>)`
+/// to the reason (idempotent) and stores the resolved command in `resolved_command`.
+fn annotate_with_resolution(mut v: Verdict, resolved: &str) -> Verdict {
+    if !v.reason.contains("(resolved:") {
+        v.reason = if v.reason.is_empty() {
+            format!("(resolved: {resolved})")
+        } else {
+            format!("{} (resolved: {resolved})", v.reason)
+        };
+    }
+    v.resolved_command = Some(resolved.to_string());
+    v
 }
 
 fn extract_cd_target(node: &Node) -> Option<String> {
@@ -511,13 +636,27 @@ fn most_restrictive(a: Verdict, b: Verdict) -> Verdict {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::literal_string_with_formatting_args)]
 mod tests {
     use super::*;
+    use crate::resolve::tests::MockLookup;
     use crate::verdict::Decision;
 
     fn make_analyzer() -> Analyzer {
-        Analyzer::new(Config::empty(), false, PathBuf::from("/tmp"), false).unwrap()
+        // Use an empty MockLookup so default tests are deterministic regardless
+        // of the host environment.
+        make_analyzer_with(MockLookup::new())
+    }
+
+    fn make_analyzer_with(lookup: MockLookup) -> Analyzer {
+        Analyzer::new_with_var_lookup(
+            Config::empty(),
+            false,
+            PathBuf::from("/tmp"),
+            false,
+            Box::new(lookup),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -868,28 +1007,58 @@ mod tests {
         assert_eq!(v.decision, Decision::Ask);
     }
 
-    // ---- Expansion hardening tests ----
+    // ---- Expansion resolution tests ----
 
     #[test]
-    fn param_expansion_in_safe_command_asks() {
-        let mut a = make_analyzer();
+    fn param_expansion_in_safe_command_resolves_to_value() {
+        let mut a = make_analyzer_with(MockLookup::new().with("HOME", "/Users/test"));
         let v = a.analyze("echo ${HOME}").unwrap();
-        assert_eq!(v.decision, Decision::Ask);
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo /Users/test"));
+        assert!(v.reason.contains("(resolved: echo /Users/test)"));
     }
 
     #[test]
-    fn simple_var_in_safe_command_asks() {
-        let mut a = make_analyzer();
+    fn simple_var_in_safe_command_resolves_to_value() {
+        let mut a = make_analyzer_with(MockLookup::new().with("HOME", "/Users/test"));
         let v = a.analyze("echo $HOME").unwrap();
-        assert_eq!(v.decision, Decision::Ask);
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo /Users/test"));
     }
 
     #[test]
-    fn ansi_c_in_safe_command_asks() {
+    fn ansi_c_in_safe_command_resolves_to_literal() {
         let mut a = make_analyzer();
         let v = a.analyze("echo $'\\x41'").unwrap();
-        assert_eq!(v.decision, Decision::Ask);
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo A"));
     }
+
+    #[test]
+    fn locale_string_in_safe_command_resolves_to_literal() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $\"hello\"").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo hello"));
+    }
+
+    #[test]
+    fn arithmetic_expansion_in_safe_command_resolves_to_literal() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $((1+1))").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo 2"));
+    }
+
+    #[test]
+    fn brace_expansion_in_safe_command_resolves_to_literal() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo {a,b,c}").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo a b c"));
+    }
+
+    // ---- Heredoc tests (resolution NOT in scope for heredocs in this PR) ----
 
     #[test]
     fn heredoc_with_param_expansion_asks() {
@@ -906,32 +1075,21 @@ mod tests {
     }
 
     #[test]
+    fn heredoc_bare_var_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("cat <<EOF\n$HOME\nEOF").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
     fn safe_command_without_expansion_allows() {
         let mut a = make_analyzer();
         let v = a.analyze("echo hello").unwrap();
         assert_eq!(v.decision, Decision::Allow);
+        assert!(v.resolved_command.is_none());
     }
 
-    #[test]
-    fn locale_string_in_safe_command_asks() {
-        let mut a = make_analyzer();
-        let v = a.analyze("echo $\"hello\"").unwrap();
-        assert_eq!(v.decision, Decision::Ask);
-    }
-
-    #[test]
-    fn arithmetic_expansion_in_safe_command_asks() {
-        let mut a = make_analyzer();
-        let v = a.analyze("echo $((1+1))").unwrap();
-        assert_eq!(v.decision, Decision::Ask);
-    }
-
-    #[test]
-    fn brace_expansion_in_safe_command_asks() {
-        let mut a = make_analyzer();
-        let v = a.analyze("echo {a,b,c}").unwrap();
-        assert_eq!(v.decision, Decision::Ask);
-    }
+    // ---- Tests for unresolvable expansions (still Ask) ----
 
     #[test]
     fn param_length_in_safe_command_asks() {
@@ -948,9 +1106,155 @@ mod tests {
     }
 
     #[test]
-    fn heredoc_bare_var_asks() {
+    fn unset_var_asks_with_diagnostic_reason() {
         let mut a = make_analyzer();
-        let v = a.analyze("cat <<EOF\n$HOME\nEOF").unwrap();
+        let v = a.analyze("echo $UNSET").unwrap();
         assert_eq!(v.decision, Decision::Ask);
+        assert!(
+            v.reason.contains("$UNSET is not set"),
+            "expected diagnostic about unset var, got: {}",
+            v.reason
+        );
+    }
+
+    #[test]
+    fn command_substitution_still_asks() {
+        // Command substitution can never be resolved statically.
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $(whoami)").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn arithmetic_division_by_zero_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $((1/0))").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    // ---- Resolution that triggers handler-side Ask ----
+
+    #[test]
+    fn rm_with_resolved_arg_still_asks_via_handler() {
+        let mut a = make_analyzer_with(MockLookup::new().with("TARGET", "/tmp/file"));
+        let v = a.analyze("rm $TARGET").unwrap();
+        // rm always asks via the handler, regardless of arg
+        assert_eq!(v.decision, Decision::Ask);
+        // But the verdict carries the resolved form
+        assert_eq!(v.resolved_command.as_deref(), Some("rm /tmp/file"));
+    }
+
+    // ---- Command-position protection ----
+
+    #[test]
+    fn dynamic_command_position_asks_even_when_resolved() {
+        // `$cmd args` with cmd=ls would normally allow ls, but command-position
+        // dynamic execution is always Ask regardless of resolution.
+        let mut a = make_analyzer_with(MockLookup::new().with("cmd", "ls"));
+        let v = a.analyze("$cmd args").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+        assert!(
+            v.reason.contains("dynamic command"),
+            "expected dynamic-command reason, got: {}",
+            v.reason
+        );
+        assert_eq!(v.resolved_command.as_deref(), Some("ls args"));
+    }
+
+    // ---- Handler-path resolution ----
+
+    #[test]
+    fn handler_path_resolves_quoted_subcommand() {
+        // `git $'status'` should resolve to `git status` and let the git handler
+        // classify it normally (status is safe).
+        let mut a = make_analyzer();
+        let v = a.analyze("git $'status'").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("git status"));
+    }
+
+    // ---- Default with literal ----
+
+    #[test]
+    fn param_default_resolves_when_unset() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo ${UNSET:-default}").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo default"));
+    }
+
+    // ---- Safety: variable values containing shell metacharacters ----
+
+    #[test]
+    fn var_value_with_command_substitution_stays_literal() {
+        // If a variable's value LOOKS like command substitution (`$(whoami)`),
+        // shell_join_arg must single-quote it so the re-parsed command sees a
+        // literal string, not an expansion. echo is safe regardless of arg
+        // content, so this should Allow with the value treated as data.
+        let mut a = make_analyzer_with(MockLookup::new().with("CMD_STR", "$(whoami)"));
+        let v = a.analyze("echo $CMD_STR").unwrap();
+        assert_eq!(
+            v.decision,
+            Decision::Allow,
+            "echo with literal-looking command sub should allow, got: {v:?}"
+        );
+        // The resolved form quotes the value to keep it literal.
+        assert_eq!(v.resolved_command.as_deref(), Some("echo '$(whoami)'"));
+    }
+
+    #[test]
+    fn var_value_with_dangerous_command_string_still_safe_for_echo() {
+        // The killer test for the "content drives the verdict" claim:
+        // a variable holding what LOOKS like `rm -rf /` is just a string when
+        // passed to echo. echo is safe; the value is data, not execution.
+        let mut a = make_analyzer_with(MockLookup::new().with("CMD_STR", "rm -rf /"));
+        let v = a.analyze("echo $CMD_STR").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        // The dangerous-looking string is single-quoted in the resolved form
+        // so it's parsed as a single literal arg.
+        assert_eq!(v.resolved_command.as_deref(), Some("echo 'rm -rf /'"));
+    }
+
+    #[test]
+    fn var_value_with_backticks_stays_literal() {
+        // Similar to command sub: `\`whoami\`` in a variable value should
+        // become a quoted literal arg, not a re-evaluated substitution.
+        let mut a = make_analyzer_with(MockLookup::new().with("X", "`whoami`"));
+        let v = a.analyze("echo $X").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        assert_eq!(v.resolved_command.as_deref(), Some("echo '`whoami`'"));
+    }
+
+    // ---- Safety limits ----
+
+    #[test]
+    fn huge_brace_expansion_falls_back_to_ask() {
+        // {1..100000} would produce 100k items; brace expansion is capped
+        // at MAX_BRACE_EXPANSION (1024), so this returns Unresolvable → Ask.
+        let mut a = make_analyzer();
+        let v = a.analyze("echo {1..100000}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn cartesian_brace_explosion_falls_back_to_ask() {
+        // {1..32}{1..32}{1..32} = 32k items, well over the cap.
+        let mut a = make_analyzer();
+        let v = a.analyze("echo {1..32}{1..32}{1..32}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn variable_value_containing_dollar_is_not_re_expanded() {
+        // bash does NOT recursively expand variable values, and neither do we:
+        // A="$B" stores the literal string "$B", not the expansion of $B.
+        // When `echo $A` resolves, the result is `echo '$B'` — the value is
+        // single-quoted in the resolved form so it stays literal, and the
+        // re-parse sees a quoted string with no expansions to follow.
+        let mut a = make_analyzer_with(MockLookup::new().with("A", "$B").with("B", "actual"));
+        let v = a.analyze("echo $A").unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+        // The literal `$B` ends up single-quoted to prevent re-expansion.
+        assert_eq!(v.resolved_command.as_deref(), Some("echo '$B'"));
     }
 }
