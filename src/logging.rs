@@ -158,6 +158,7 @@ mod tests {
         let v2 = Verdict {
             decision: Decision::Ask,
             reason: "dangerous".into(),
+            resolved_command: None,
         };
 
         write_log_entry(&entry_to(&log_path, false, Some("ls"), &v1, None));

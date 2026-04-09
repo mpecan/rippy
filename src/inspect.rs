@@ -220,6 +220,11 @@ pub(crate) struct TraceOutput {
     pub command: String,
     pub decision: String,
     pub reason: String,
+    /// The fully-resolved command form (after `$VAR`, `$'...'`, `$((...))`, `{a,b}`
+    /// expansion) when the analyzer resolved expansions statically. `None` when
+    /// no resolution occurred.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<String>,
     pub steps: Vec<TraceStep>,
 }
 
@@ -280,6 +285,7 @@ fn trace_cc_step(
         command: command.to_string(),
         decision: decision.as_str().to_string(),
         reason: format!("CC permission: {command}"),
+        resolved: None,
         steps: steps.clone(),
     })
 }
@@ -302,6 +308,7 @@ fn trace_config_step(
         command: command.to_string(),
         decision: verdict.decision.as_str().to_string(),
         reason: verdict.reason,
+        resolved: verdict.resolved_command,
         steps: steps.clone(),
     })
 }
@@ -340,11 +347,35 @@ fn trace_parse_and_classify(
             "not in allowlist".to_string()
         },
     });
-    if is_safe {
+
+    // When the command may contain expansions, always run the full analyzer so
+    // the resolved form is captured in the verdict's `resolved_command` field
+    // and bubbled up to `TraceOutput.resolved`. Plain safe commands without
+    // expansions short-circuit to avoid the analyzer cost.
+    if is_safe && !command_has_expansions(command) {
         return Ok(make_output(command, "allow", &cmd_name, steps));
+    }
+    if is_safe || crate::handlers::get_handler(&cmd_name).is_none() {
+        // Safe command WITH expansions, or unknown command — go through the
+        // analyzer to resolve and re-classify.
+        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd.to_path_buf(), false)?;
+        let verdict = analyzer.analyze(command)?;
+        return Ok(make_output_with_resolution(
+            command,
+            verdict.decision.as_str(),
+            &verdict.reason,
+            verdict.resolved_command,
+            steps,
+        ));
     }
 
     trace_handler_step(command, &cmd_name, config, cwd, steps)
+}
+
+/// Cheap textual check for expansion patterns. Used to decide whether the
+/// trace path should run the full analyzer (to capture resolved-command info).
+fn command_has_expansions(command: &str) -> bool {
+    crate::ast::has_shell_expansion_pattern(command)
 }
 
 fn trace_handler_step(
@@ -368,10 +399,11 @@ fn trace_handler_step(
     if has_handler {
         let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd.to_path_buf(), false)?;
         let verdict = analyzer.analyze(command)?;
-        return Ok(make_output(
+        return Ok(make_output_with_resolution(
             command,
             verdict.decision.as_str(),
             &verdict.reason,
+            verdict.resolved_command,
             steps,
         ));
     }
@@ -387,10 +419,21 @@ fn trace_handler_step(
 }
 
 fn make_output(command: &str, decision: &str, reason: &str, steps: &[TraceStep]) -> TraceOutput {
+    make_output_with_resolution(command, decision, reason, None, steps)
+}
+
+fn make_output_with_resolution(
+    command: &str,
+    decision: &str,
+    reason: &str,
+    resolved: Option<String>,
+    steps: &[TraceStep],
+) -> TraceOutput {
     TraceOutput {
         command: command.to_string(),
         decision: decision.to_string(),
         reason: reason.to_string(),
+        resolved,
         steps: steps.to_vec(),
     }
 }
@@ -405,8 +448,11 @@ fn parse_command_name(command: &str) -> Option<String> {
 
 fn print_trace_text(output: &TraceOutput) {
     println!("Decision: {}", output.decision.to_uppercase());
-    println!("Reason: {}\n", output.reason);
-    println!("Trace:");
+    println!("Reason: {}", output.reason);
+    if let Some(resolved) = &output.resolved {
+        println!("Resolved: {resolved}");
+    }
+    println!("\nTrace:");
     for (i, step) in output.steps.iter().enumerate() {
         let status = if step.matched { "✓" } else { "·" };
         println!("  {}. {:<16} {status} {}", i + 1, step.stage, step.detail);
@@ -588,6 +634,7 @@ mod tests {
             command: "git status".to_string(),
             decision: "allow".to_string(),
             reason: "git is safe".to_string(),
+            resolved: None,
             steps: vec![TraceStep {
                 stage: "Allowlist".to_string(),
                 matched: true,

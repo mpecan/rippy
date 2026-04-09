@@ -220,6 +220,7 @@ impl Config {
             result = Some(Verdict {
                 decision: rule.decision,
                 reason,
+                resolved_command: None,
             });
         }
         result

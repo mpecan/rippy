@@ -18,6 +18,7 @@ pub mod parser;
 pub mod pattern;
 pub mod payload;
 pub mod python_safety;
+pub mod resolve;
 pub mod risk;
 pub mod rule_cmd;
 pub mod self_protect;
