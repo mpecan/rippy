@@ -100,3 +100,8 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
 - Unit tests: `#[cfg(test)]` module in the source file
 - Test modules use `#[allow(clippy::unwrap_used)]`
 - Integration tests in `tests/`
+- Property-based tests in `tests/proptest_robustness.rs` — proptest covers
+  the four parsing/analysis surfaces (`Payload::parse`, `BashParser` +
+  `Analyzer`, `Pattern::matches`, `Config::load_from_str`) against random
+  input. They run as part of `cargo test`. Failures auto-persist to
+  `proptest-regressions/` and should be committed as permanent regression seeds.
