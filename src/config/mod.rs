@@ -2,11 +2,13 @@ mod loader;
 mod matching;
 mod parser;
 mod sources;
+mod string_loader;
 mod types;
 
 pub use loader::{home_dir, load_file};
 pub use parser::{parse_action_word, parse_rule};
 pub use sources::{ConfigSourceInfo, enumerate_config_sources, find_project_config};
+pub use string_loader::ConfigFormat;
 pub use types::{ConfigDirective, Rule, RuleTarget};
 
 use loader::{
