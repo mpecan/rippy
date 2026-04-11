@@ -1,0 +1,3 @@
+# proptest auto-persists failing inputs to this directory.
+# These regression files MUST be committed so they re-run on every `cargo test`,
+# acting as permanent regression seeds for any property failure ever observed.

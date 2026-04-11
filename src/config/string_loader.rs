@@ -5,9 +5,10 @@
 //! the home directory, or project discovery — it parses exactly the given
 //! string and returns the resulting `Config`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use super::{Config, ConfigDirective, parse_rule};
+use super::Config;
+use super::loader::load_file_from_content;
 use crate::error::RippyError;
 
 /// Format hint for `Config::load_from_str`.
@@ -29,35 +30,27 @@ impl Config {
     /// can distinguish in-memory parses from file-based ones.
     pub fn load_from_str(content: &str, format: ConfigFormat) -> Result<Self, RippyError> {
         let sentinel: &Path = Path::new("<memory>");
-        let directives = match format {
-            ConfigFormat::Toml => crate::toml_config::parse_toml_config(content, sentinel)?,
-            ConfigFormat::Lines => parse_lines(content, sentinel)?,
-        };
+        let mut directives = Vec::new();
+        match format {
+            ConfigFormat::Toml => {
+                directives.extend(crate::toml_config::parse_toml_config(content, sentinel)?);
+            }
+            ConfigFormat::Lines => {
+                // Reuse the file-based loader's line parser. The sentinel path
+                // has no `.toml` extension, so the loader routes it through the
+                // line-based branch.
+                load_file_from_content(content, sentinel, &mut directives)?;
+            }
+        }
         Ok(Self::from_directives(directives))
     }
-}
-
-/// Parse the legacy line-based config syntax from a string.
-fn parse_lines(content: &str, sentinel: &Path) -> Result<Vec<ConfigDirective>, RippyError> {
-    let mut directives = Vec::new();
-    for (idx, line) in content.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let directive = parse_rule(trimmed).map_err(|message| RippyError::Config {
-            path: PathBuf::from(sentinel),
-            line: idx + 1,
-            message,
-        })?;
-        directives.push(directive);
-    }
-    Ok(directives)
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::verdict::Decision;
 
