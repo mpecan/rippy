@@ -29,6 +29,7 @@ rkyv = "0.8.15"
 sha2 = "0.10"
 
 [dev-dependencies]
+proptest = "1.5"
 serial_test = "3.4.0"
 tempfile = "3"
 
