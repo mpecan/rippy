@@ -10,9 +10,12 @@ mod gh;
 mod git;
 mod helm;
 mod mkdir;
+mod node;
 mod npm;
+mod perl;
 mod python;
 mod python_tools;
+mod ruby;
 mod shell;
 mod system;
 mod text_tools;
@@ -172,7 +175,10 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &mkdir::MKDIR_HANDLER,
         &git::GIT_HANDLER,
         &docker::DOCKER_HANDLER,
+        &node::NODE_HANDLER,
+        &perl::PERL_HANDLER,
         &python::PYTHON_HANDLER,
+        &ruby::RUBY_HANDLER,
         &shell::SHELL_HANDLER,
         &find::FIND_HANDLER,
         &curl::CURL_HANDLER,
