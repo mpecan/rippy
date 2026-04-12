@@ -11,6 +11,7 @@ pub mod error;
 pub mod git_styles;
 pub mod handlers;
 pub mod inspect;
+pub mod list;
 pub mod logging;
 pub mod migrate;
 pub mod mode;

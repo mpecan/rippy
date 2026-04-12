@@ -195,6 +195,22 @@ pub fn wrapper_count() -> usize {
     WRAPPER_COMMANDS.len()
 }
 
+/// Return all simple-safe commands, sorted alphabetically.
+#[must_use]
+pub fn all_simple_safe() -> Vec<&'static str> {
+    let mut cmds: Vec<_> = SIMPLE_SAFE.iter().copied().collect();
+    cmds.sort_unstable();
+    cmds
+}
+
+/// Return all wrapper commands, sorted alphabetically.
+#[must_use]
+pub fn all_wrappers() -> Vec<&'static str> {
+    let mut cmds: Vec<_> = WRAPPER_COMMANDS.iter().copied().collect();
+    cmds.sort_unstable();
+    cmds
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
