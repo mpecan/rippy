@@ -18,7 +18,9 @@
 //! - `eval_with_command_substitution_asks`
 //! - `nested_bash_c_asks`
 //! - `semicolon_injection_asks`
-//! - `backtick_substitution_in_simple_safe_allows` (FINDING: gap in expansion checking)
+//! - `backtick_substitution_in_simple_safe_asks`
+//! - `backtick_in_other_simple_safe_commands_asks`
+//! - `backtick_with_safe_inner_command_asks`
 //! - `process_substitution_asks`
 //! - `subshell_with_dangerous_command_asks`
 //! - `logical_and_with_dangerous_command_asks`
@@ -161,16 +163,27 @@ fn semicolon_injection_asks() {
 }
 
 #[test]
-fn backtick_substitution_in_simple_safe_allows() {
-    // FINDING: backtick command substitution inside a SIMPLE_SAFE command's
-    // arguments is NOT caught — the analyzer short-circuits on "echo is safe"
-    // before inspecting argument expansions. In bash, `rm -rf /` WOULD execute.
-    // This should be filed as a separate issue.
-    //
-    // Paired test: deeply_nested_command_substitution_asks (Category 4) shows
-    // that $(...) at the top level IS caught. The gap is specific to backticks
-    // (and $(...)) inside SIMPLE_SAFE command arguments.
-    assert_allows("echo `rm -rf /`");
+fn backtick_substitution_in_simple_safe_asks() {
+    // Fixed in #90: backtick command substitution inside a SIMPLE_SAFE
+    // command's arguments is now caught. In bash, `rm -rf /` WOULD execute,
+    // so the analyzer must detect the expansion and return Ask.
+    assert_asks("echo `rm -rf /`");
+}
+
+#[test]
+fn backtick_in_other_simple_safe_commands_asks() {
+    // Backtick substitution is caught across all SIMPLE_SAFE commands, not
+    // just echo. cat and grep are both in the SIMPLE_SAFE list.
+    assert_asks("cat `rm -rf /`");
+    assert_asks("grep `whoami` /etc/passwd");
+}
+
+#[test]
+fn backtick_with_safe_inner_command_asks() {
+    // Even safe inner commands inside backticks return Ask — the analyzer
+    // cannot know whether the substitution result will be benign, so it
+    // must conservatively ask.
+    assert_asks("echo `date`");
 }
 
 #[test]
@@ -306,9 +319,8 @@ fn arithmetic_expansion_safe_allows() {
 
 #[test]
 fn dollar_paren_substitution_in_simple_safe_asks() {
-    // Contrast with backtick_substitution_in_simple_safe_allows (Category 2):
-    // $(...) in echo args IS caught (unlike backticks). The analyzer detects
-    // the command substitution expansion in the AST and applies an Ask floor.
+    // Both $(...) and backtick forms in SIMPLE_SAFE args are caught.
+    // The analyzer detects command substitution in the AST and applies Ask.
     assert_asks("echo $(rm -rf /)");
 }
 
