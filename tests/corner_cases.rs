@@ -33,7 +33,7 @@
 //! - `single_quoted_expansion_in_echo_allows`
 //! - `quoted_heredoc_with_expansion_syntax_allows`
 //! - `safe_compound_command_allows`
-//! - `python_safe_print_allows`
+//! - `escaped_dollar_sign_not_expansion_allows`
 //!
 //! ## Category 4: Parser stress tests
 //! - `deeply_nested_command_substitution_asks`
@@ -41,9 +41,9 @@
 //! - `ansi_c_quoting_safe_allows`
 //! - `brace_expansion_safe_allows`
 //! - `arithmetic_expansion_safe_allows`
-//! - `here_string_allows`
+//! - `dollar_paren_substitution_in_simple_safe_asks`
 //! - `unicode_in_command_allows`
-//! - `empty_command_allows`
+//! - `empty_command_does_not_panic`
 //!
 //! ## Category 5: Real-world AI tool patterns
 //! - `sed_filter_allows`
@@ -259,10 +259,11 @@ fn safe_compound_command_allows() {
 }
 
 #[test]
-fn python_safe_print_allows() {
-    // The python handler parses the -c argument. print("hello") is safe
-    // Python code — no os.system, subprocess, or other dangerous calls.
-    assert_allows("python -c 'print(\"hello\")'");
+fn escaped_dollar_sign_not_expansion_allows() {
+    // Backslash-escaped $ prevents expansion. echo sees the literal string
+    // $(rm -rf /) without executing it. The parser should produce literal
+    // word nodes, not a CommandSubstitution node.
+    assert_allows("echo \\$\\(rm -rf /\\)");
 }
 
 // ===========================================================================
@@ -304,9 +305,11 @@ fn arithmetic_expansion_safe_allows() {
 }
 
 #[test]
-fn here_string_allows() {
-    // <<< feeds a single string to stdin. "hello" is safe data.
-    assert_allows("cat <<< \"hello\"");
+fn dollar_paren_substitution_in_simple_safe_asks() {
+    // Contrast with backtick_substitution_in_simple_safe_allows (Category 2):
+    // $(...) in echo args IS caught (unlike backticks). The analyzer detects
+    // the command substitution expansion in the AST and applies an Ask floor.
+    assert_asks("echo $(rm -rf /)");
 }
 
 #[test]
@@ -317,7 +320,7 @@ fn unicode_in_command_allows() {
 }
 
 #[test]
-fn empty_command_allows() {
+fn empty_command_does_not_panic() {
     // An empty command (just whitespace) should not panic or block.
     // Rippy should handle this gracefully.
     let json = claude_bash("   ");
