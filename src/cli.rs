@@ -70,6 +70,31 @@ pub enum Command {
     Trust(TrustArgs),
     /// Trace the full decision path for a command
     Debug(DebugArgs),
+    /// List safe commands, handlers, or effective rules
+    List(ListArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ListArgs {
+    #[command(subcommand)]
+    pub target: ListTarget,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ListTarget {
+    /// Show all auto-approved safe commands
+    Safe,
+    /// Show all commands with dedicated handlers
+    Handlers,
+    /// Show effective rules from all config sources
+    Rules(ListRulesArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ListRulesArgs {
+    /// Filter rules by pattern
+    #[arg(long)]
+    pub filter: Option<String>,
 }
 
 #[derive(Args, Debug)]

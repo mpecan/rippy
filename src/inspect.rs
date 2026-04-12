@@ -34,25 +34,25 @@ pub fn run(args: &InspectArgs) -> Result<ExitCode, RippyError> {
 
 /// Collected rules from a single source file.
 #[derive(Debug, Serialize)]
-struct SourceRules {
-    path: String,
-    rules: Vec<RuleDisplay>,
+pub(crate) struct SourceRules {
+    pub(crate) path: String,
+    pub(crate) rules: Vec<RuleDisplay>,
 }
 
 /// A single rule formatted for display.
 #[derive(Debug, Serialize)]
-struct RuleDisplay {
-    action: String,
-    pattern: String,
+pub(crate) struct RuleDisplay {
+    pub(crate) action: String,
+    pub(crate) pattern: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
+    pub(crate) message: Option<String>,
 }
 
 /// Summary of active configuration for JSON output.
 #[derive(Debug, Serialize)]
-struct ListOutput {
-    config_sources: Vec<SourceRules>,
-    cc_sources: Vec<SourceRules>,
+pub(crate) struct ListOutput {
+    pub(crate) config_sources: Vec<SourceRules>,
+    pub(crate) cc_sources: Vec<SourceRules>,
     default_action: Option<String>,
     handler_count: usize,
     simple_safe_count: usize,
@@ -73,7 +73,10 @@ fn list_rules(args: &InspectArgs) -> Result<(), RippyError> {
     Ok(())
 }
 
-fn collect_list_data(cwd: &Path, config_override: Option<&Path>) -> Result<ListOutput, RippyError> {
+pub(crate) fn collect_list_data(
+    cwd: &Path,
+    config_override: Option<&Path>,
+) -> Result<ListOutput, RippyError> {
     let mut config_sources = Vec::new();
 
     for source in config::enumerate_config_sources(cwd, config_override) {

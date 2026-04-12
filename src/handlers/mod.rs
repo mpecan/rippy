@@ -164,6 +164,14 @@ pub fn handler_count() -> usize {
     HANDLER_REGISTRY.len()
 }
 
+/// Return all handler-registered command names, sorted alphabetically.
+#[must_use]
+pub fn all_handler_commands() -> Vec<&'static str> {
+    let mut cmds: Vec<_> = HANDLER_REGISTRY.keys().copied().collect();
+    cmds.sort_unstable();
+    cmds
+}
+
 static HANDLER_REGISTRY: LazyLock<HashMap<&'static str, &'static dyn Handler>> =
     LazyLock::new(build_registry);
 
