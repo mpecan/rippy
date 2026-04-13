@@ -1,0 +1,13 @@
+# Package: review
+# Full supervision. Every command asks.
+#
+# For security reviews, unfamiliar codebases, compliance environments,
+# and open-source maintainers worried about supply chain attacks.
+
+[meta]
+name = "review"
+tagline = "Full supervision. Every command asks."
+shield = "==="
+
+[git]
+style = "cautious"

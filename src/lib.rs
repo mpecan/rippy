@@ -17,6 +17,7 @@ pub mod logging;
 pub mod migrate;
 pub mod mode;
 pub mod node_safety;
+pub mod packages;
 pub mod parser;
 pub mod pattern;
 pub mod payload;

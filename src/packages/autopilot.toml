@@ -1,0 +1,36 @@
+# Package: autopilot
+# Maximum AI autonomy. Only catastrophic ops are blocked.
+#
+# For prototyping, personal projects, and vibe coding.
+# The AI runs freely with minimal interruption.
+
+[meta]
+name = "autopilot"
+tagline = "Maximum AI autonomy. Only catastrophic ops are blocked."
+shield = "=.."
+
+[settings]
+default = "allow"
+
+[git]
+style = "permissive"
+
+[[git.branches]]
+pattern = "main"
+style = "standard"
+
+[[git.branches]]
+pattern = "master"
+style = "standard"
+
+# --- Safety nets ---
+
+[[rules]]
+action = "deny"
+pattern = "rm -rf /"
+message = "This would delete your entire filesystem"
+
+[[rules]]
+action = "deny"
+pattern = "rm -rf ~"
+message = "This would delete your entire home directory"

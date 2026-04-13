@@ -1,0 +1,206 @@
+# Package: develop
+# Auto-approves builds, tests, VCS. Asks for destructive ops.
+#
+# For active development. Build tools, test runners, version control,
+# and file operations flow without interruption.
+
+[meta]
+name = "develop"
+tagline = "Let me code. Ask when it matters."
+shield = "==."
+
+[git]
+style = "standard"
+
+[[git.branches]]
+pattern = "main"
+style = "cautious"
+
+[[git.branches]]
+pattern = "master"
+style = "cautious"
+
+[[git.branches]]
+pattern = "feat/*"
+style = "permissive"
+
+[[git.branches]]
+pattern = "fix/*"
+style = "permissive"
+
+# --- Build tools & test runners ---
+
+[[rules]]
+action = "allow"
+command = "cargo"
+subcommands = [
+    "build", "test", "check", "clippy", "fmt", "doc",
+    "clean", "bench", "fetch", "metadata", "tree", "vendor",
+    "add", "remove", "update", "search", "install",
+]
+
+[[rules]]
+action = "allow"
+command = "npm"
+subcommands = ["test", "run", "install", "ci", "start", "build", "init"]
+
+[[rules]]
+action = "allow"
+command = "npx"
+
+[[rules]]
+action = "allow"
+command = "yarn"
+subcommands = ["test", "run", "install", "add", "build", "start", "init"]
+
+[[rules]]
+action = "allow"
+command = "pnpm"
+subcommands = ["test", "run", "install", "add", "build", "start", "init"]
+
+[[rules]]
+action = "allow"
+command = "go"
+subcommands = ["build", "test", "run", "vet", "fmt", "mod", "get", "install"]
+
+[[rules]]
+action = "allow"
+command = "make"
+
+[[rules]]
+action = "allow"
+command = "pip"
+
+[[rules]]
+action = "allow"
+command = "pip3"
+
+[[rules]]
+action = "allow"
+command = "uv"
+
+[[rules]]
+action = "allow"
+command = "pytest"
+
+[[rules]]
+action = "allow"
+command = "python"
+
+[[rules]]
+action = "allow"
+command = "python3"
+
+[[rules]]
+action = "allow"
+command = "node"
+
+[[rules]]
+action = "allow"
+command = "ruby"
+
+# --- Linters & formatters ---
+
+[[rules]]
+action = "allow"
+command = "ruff"
+
+[[rules]]
+action = "allow"
+command = "black"
+
+[[rules]]
+action = "allow"
+command = "mypy"
+
+[[rules]]
+action = "allow"
+command = "eslint"
+
+[[rules]]
+action = "allow"
+command = "prettier"
+
+[[rules]]
+action = "allow"
+command = "rustfmt"
+
+# --- File operations ---
+
+[[rules]]
+action = "allow"
+command = "rm"
+
+[[rules]]
+action = "allow"
+command = "mv"
+
+[[rules]]
+action = "allow"
+command = "cp"
+
+[[rules]]
+action = "allow"
+command = "touch"
+
+[[rules]]
+action = "allow"
+command = "mkdir"
+
+[[rules]]
+action = "allow"
+command = "ln"
+
+[[rules]]
+action = "allow"
+command = "chmod"
+
+# --- Docker ---
+
+[[rules]]
+action = "allow"
+command = "docker"
+
+[[rules]]
+action = "ask"
+command = "docker"
+subcommands = ["system"]
+message = "Docker system commands can remove data"
+
+# --- Network ---
+
+[[rules]]
+action = "allow"
+command = "curl"
+
+[[rules]]
+action = "allow"
+command = "wget"
+
+# --- GitHub CLI ---
+
+[[rules]]
+action = "allow"
+command = "gh"
+
+# --- File access ---
+
+[[rules]]
+action = "allow-redirect"
+pattern = "/tmp/**"
+
+[[rules]]
+action = "allow-write"
+pattern = "/tmp/**"
+
+# --- Safety nets ---
+
+[[rules]]
+action = "deny"
+pattern = "rm -rf /"
+message = "This would delete your entire filesystem"
+
+[[rules]]
+action = "deny"
+pattern = "rm -rf ~"
+message = "This would delete your entire home directory"
