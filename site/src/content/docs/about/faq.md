@@ -29,9 +29,9 @@ outbound network call of any kind.
 ## Can I use rippy without any config?
 
 Yes. Out of the box rippy ships with its built-in safe allowlist and
-command handlers, which cover most common tools. Add a `.rippy` only when
-you want to customize the defaults (e.g. `deny git push --force` with a
-specific message).
+command handlers, which cover most common tools. Add a `.rippy.toml`
+only when you want to customize the defaults (e.g. a `deny` rule on
+`git push --force` with a specific message).
 
 ## What about tokf?
 
@@ -45,8 +45,9 @@ and safety checks from one coherent pair of tools. See
 
 Two options:
 
-1. Add an explicit rule in your `.rippy` file — `allow`, `ask`, or `deny`
-   works for any command.
+1. Add an explicit rule in your `.rippy.toml` file — `allow`, `ask`, or
+   `deny` works for any command. (`rippy allow <pattern>` /
+   `rippy deny <pattern>` will append the rule for you.)
 2. Open an issue (or even better, a PR) at
    [github.com/mpecan/rippy](https://github.com/mpecan/rippy) so the
    handler can ship for everyone.

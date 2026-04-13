@@ -18,7 +18,7 @@ without rewriting anything.
 | **Runtime** | Python 3.9+, `pip` | Single static binary |
 | **Startup** | ~200 ms | < 1 ms |
 | **Parser** | `bash-parser` (Parable) | [rable](https://crates.io/crates/rable), pure Rust |
-| **Config files** | `.dippy` | `.rippy` **and** `.dippy` (both work) |
+| **Config files** | `.dippy` (flat) | `.rippy.toml` (structured; also reads legacy `.rippy` / `.dippy` flat) |
 | **Handlers** | ~50 commands | 100+ commands |
 | **File analysis** | — | Reads `.py`, `.sql`, `.sh`, `.awk`, `.graphql` for informed decisions |
 | **Claude Code permission integration** | — | Reads `~/.claude/settings.json` `allow/deny/ask` rules |

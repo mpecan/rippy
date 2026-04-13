@@ -34,7 +34,7 @@ rewrites history, or pushes.
 
 When a command arrives, rippy evaluates in this order:
 
-1. **Explicit `.rippy` rules** — your config has the final say.
+1. **Explicit `.rippy.toml` rules** — your config has the final say.
 2. **Claude Code `permissions.*` rules** — imported from
    `~/.claude/settings.json`.
 3. **Safe allowlist** — the ~130 read-only tools that are always fine.
@@ -42,9 +42,9 @@ When a command arrives, rippy evaluates in this order:
 5. **Default** — whatever you set via `set default` (usually `ask`).
 
 The first layer that produces a decision wins. That means you can always
-override a handler with an explicit rule: `deny git push` in your
-`.rippy` blocks every `git push`, even the variants the handler considers
-"needs approval" but not "deny".
+override a handler with an explicit rule — an `action = "deny"` rule
+matching `git push` in your `.rippy.toml` blocks every `git push`, even
+the variants the handler considers "needs approval" but not "deny".
 
 ## Where to find them in the source
 
