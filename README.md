@@ -172,10 +172,11 @@ The easiest way to get started is with a package (see [Packages](#packages) abov
 
 1. **Built-in stdlib:** safe allowlist + 100+ CLI handlers
 2. **Package:** `package = "develop"` in settings (optional, loaded from built-in TOML)
-3. **Claude Code settings:** `~/.claude/settings.json` → `permissions.allow/deny/ask` rules
-4. **Global config:** `~/.rippy/config.toml` (or `~/.dippy/config`)
-5. **Project config:** `.rippy.toml` walked up from cwd (or `.rippy` / `.dippy`)
-6. **Environment:** `RIPPY_CONFIG` or `DIPPY_CONFIG` env var
+3. **Global config:** `~/.rippy/config.toml` (or `~/.dippy/config`)
+4. **Project config:** `.rippy.toml` walked up from cwd (or `.rippy` / `.dippy`)
+5. **Environment:** `RIPPY_CONFIG` or `DIPPY_CONFIG` env var
+
+Additionally, **Claude Code settings** (`~/.claude/settings.json` → `permissions.allow/deny/ask`) are checked as a separate pre-analysis step before config rules are evaluated.
 
 See [`examples/recommended.rippy.toml`](examples/recommended.rippy.toml) for a starter config, or [`examples/review.rippy.toml`](examples/review.rippy.toml) and [`examples/autopilot.rippy.toml`](examples/autopilot.rippy.toml) for package-based examples.
 
