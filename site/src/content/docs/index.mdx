@@ -1,0 +1,95 @@
+---
+title: rippy
+description: A fast shell command safety hook for AI coding tools — written in Rust.
+hero:
+  tagline: A fast shell command safety hook for Claude Code, Cursor, Gemini CLI, and Codex — written in Rust.
+  actions:
+    - text: Get started
+      link: /getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/mpecan/rippy
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Tabs, TabItem, Code } from '@astrojs/starlight/components';
+
+## Why rippy?
+
+<CardGrid>
+  <Card title="Static binary, sub-millisecond startup" icon="rocket">
+    No Python, no virtualenv, no `pip install`. A single Rust binary launches
+    in under a millisecond — fast enough to run on every single `Bash` hook
+    without your AI tool noticing.
+  </Card>
+  <Card title="Real bash AST parsing" icon="setting">
+    Commands are parsed into a proper AST by
+    [rable](https://crates.io/crates/rable), a pure-Rust bash parser with 100%
+    Parable compatibility. No regex hacks, no string-split guesses.
+  </Card>
+  <Card title="100+ commands understood in depth" icon="approve-check">
+    Built-in handlers for `git`, `docker`, `cargo`, `kubectl`, `psql`, `gh`,
+    `ansible`, and 80+ more — each one knows which subcommands are safe and
+    which need a human in the loop.
+  </Card>
+  <Card title="Transparent, predictable rules" icon="document">
+    Plain-text `.rippy` config files with a simple rule grammar. Unknown
+    commands default to **ask** — nothing dangerous slips through silently.
+  </Card>
+</CardGrid>
+
+## Install
+
+<Tabs syncKey="installer">
+  <TabItem label="Homebrew">
+    <Code code="brew install mpecan/tools/rippy" lang="sh" />
+  </TabItem>
+  <TabItem label="Cargo">
+    <Code code="cargo install rippy-cli" lang="sh" />
+  </TabItem>
+  <TabItem label="cargo-binstall">
+    <Code code="cargo binstall rippy-cli" lang="sh" />
+  </TabItem>
+  <TabItem label="GitHub Releases">
+    <Code
+      code={`# macOS (Apple Silicon / Intel), Linux (x86_64 / aarch64)
+# Download from https://github.com/mpecan/rippy/releases`}
+      lang="sh"
+    />
+  </TabItem>
+</Tabs>
+
+Then wire it up to your AI tool — it takes one line of JSON in
+`settings.json`. See the [Claude Code guide](/getting-started/claude-code/)
+or pick your tool from the sidebar.
+
+## What gets auto-approved?
+
+rippy ships with **130+ commands** in its safe allowlist (read-only tools
+like `cat`, `ls`, `grep`, `jq`, `rg`) plus **40+ CLI-specific handlers** that
+understand subcommand safety:
+
+| Command | Safe | Needs approval |
+|---------|------|----------------|
+| `git` | `status`, `log`, `diff`, `branch` | `push`, `reset`, `rebase` |
+| `docker` | `ps`, `images`, `logs` | `run`, `exec`, `rm` |
+| `cargo` | `test`, `build`, `check`, `clippy` | `run`, `publish`, `install` |
+| `python` | `-c 'print(1)'`, safe scripts | `-c 'import os'`, unknown scripts |
+| `kubectl` | `get`, `describe`, `logs` | `apply`, `delete`, `exec` |
+| `psql` | read-only `SELECT` queries | write SQL, interactive |
+| `gh` | `pr view`, `issue list` | `pr create`, `pr merge` |
+| `ansible` | `--check`, `--syntax-check`, `ansible-doc` | playbook runs, vault encrypt |
+
+Everything else defaults to **ask** — fail-safe by design.
+
+## A Rust rewrite of Dippy
+
+rippy is fully inspired by and config-compatible with
+[Dippy](https://github.com/ldayton/Dippy) by
+[@ldayton](https://github.com/ldayton). The rewrite trades Python for Rust,
+a 200ms cold start for sub-millisecond, and adds file analysis and Claude
+Code permission integration. Your existing `.dippy` files keep working.
+
+See the [comparison page](/about/comparison/) for the full breakdown.

@@ -6,6 +6,8 @@
 
 A fast shell command safety hook for AI coding tools — written in Rust.
 
+**Docs & homepage:** https://rippy.pecan.si
+
 rippy intercepts shell commands from **Claude Code**, **Cursor**, **Gemini CLI**, and **Codex CLI**, parses them with [rable](https://crates.io/crates/rable) (a pure-Rust bash parser), and automatically approves safe commands while blocking dangerous ones.
 
 **Fully inspired by [Dippy](https://github.com/ldayton/Dippy) by [@ldayton](https://github.com/ldayton)** — rippy is a Rust rewrite with drop-in config compatibility, faster startup, and no runtime dependencies.

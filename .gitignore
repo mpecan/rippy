@@ -1,1 +1,6 @@
 /target
+
+# Astro site (site/)
+site/node_modules
+site/dist
+site/.astro

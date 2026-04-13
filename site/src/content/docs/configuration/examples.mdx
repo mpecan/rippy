@@ -1,0 +1,53 @@
+---
+title: Example configs
+description: Annotated starter configs in both plain-text and TOML formats.
+---
+
+import { Code } from '@astrojs/starlight/components';
+import recommendedToml from '../../../../../examples/recommended.rippy.toml?raw';
+
+Two ready-to-use starter configs ship in the repo's
+[`examples/` directory](https://github.com/mpecan/rippy/tree/main/examples).
+Copy one, drop it at `~/.rippy/config.toml` (global) or `.rippy.toml` in
+your project, and edit as needed.
+
+## Plain-text starter (`.rippy`)
+
+```bash
+# Block dangerous commands with guidance
+deny rm -rf        "use trash instead"
+deny python        "use uv run python"
+
+# Allow specific safe patterns
+allow git status
+allow uv run python -c
+
+# Redirect rules (block writes to sensitive paths)
+deny-redirect **/.env*
+deny-redirect /etc/*
+
+# MCP tool rules
+deny-mcp dangerous_tool
+
+# Post-execution feedback
+after git commit "committed successfully"
+
+# Settings
+set default ask
+set log ~/.rippy/audit.log
+
+# Aliases
+alias ~/custom-git git
+```
+
+## TOML starter (`.rippy.toml`)
+
+This block is imported verbatim from
+[`examples/recommended.rippy.toml`](https://github.com/mpecan/rippy/blob/main/examples/recommended.rippy.toml)
+so it can never drift from the checked-in source:
+
+<Code code={recommendedToml} lang="toml" title=".rippy.toml" />
+
+Both files cover the same ground: guarding destructive git operations,
+stopping writes to secrets and system paths, asking before installing
+packages, and wrapping container and MCP tool usage in review.
