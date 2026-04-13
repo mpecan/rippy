@@ -12,7 +12,9 @@ config from five tiers, merged in ascending priority:
    into the binary. Always active.
 2. **Package** — if your config has `package = "develop"` (or `"review"` /
    `"autopilot"`) in its `[settings]` block, the matching package TOML is
-   loaded from the binary as a baseline.
+   loaded from the binary as a baseline. Custom packages from
+   `~/.rippy/packages/<name>.toml` are also loadable the same way —
+   see [Custom packages](/getting-started/packages/#custom-packages).
 3. **Global config** — `~/.rippy/config.toml`. (Falls back to
    `~/.rippy/config` or `~/.dippy/config` in the legacy flat format for
    backward compatibility.)
