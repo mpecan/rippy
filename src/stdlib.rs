@@ -3,12 +3,14 @@
 //! These are loaded as the lowest-priority tier in the config system.
 //! User and project config override stdlib rules via last-match-wins.
 
+use std::io::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
 
 use crate::cli::InitArgs;
 use crate::config::{self, ConfigDirective};
 use crate::error::RippyError;
+use crate::packages::Package;
 
 // Simple tool rules (split from simple.toml)
 const CARGO_TOML: &str = include_str!("stdlib/cargo.toml");
@@ -76,18 +78,18 @@ pub fn stdlib_toml() -> String {
     out
 }
 
-/// Run the `rippy init` command — copy stdlib to user config.
+/// Run the `rippy init` command — create config with a safety package.
 ///
 /// # Errors
 ///
 /// Returns `RippyError::Setup` if the file cannot be written.
 pub fn run_init(args: &InitArgs) -> Result<ExitCode, RippyError> {
-    let content = stdlib_toml();
-
     if args.stdout {
-        print!("{content}");
+        print!("{}", stdlib_toml());
         return Ok(ExitCode::SUCCESS);
     }
+
+    let package = resolve_init_package(args)?;
 
     let path = if args.global {
         config::home_dir()
@@ -104,27 +106,75 @@ pub fn run_init(args: &InitArgs) -> Result<ExitCode, RippyError> {
         )));
     }
 
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            RippyError::Setup(format!("could not create {}: {e}", parent.display()))
-        })?;
-    }
-
-    std::fs::write(&path, &content)
-        .map_err(|e| RippyError::Setup(format!("could not write {}: {e}", path.display())))?;
+    crate::profile_cmd::write_package_setting(&path, package.name())?;
 
     if !args.global {
         crate::trust::TrustGuard::for_new_file(&path).commit();
     }
 
     eprintln!(
-        "[rippy] Created {} with default stdlib rules.\n\
-         Edit to customize safety rules for this project.",
-        path.display()
+        "[rippy] Created {} with package \"{}\"\n  \
+         \"{}\"\n  \
+         Run `rippy profile show {}` for details, or edit {} to customize.",
+        path.display(),
+        package.name(),
+        package.tagline(),
+        package.name(),
+        path.display(),
     );
     Ok(ExitCode::SUCCESS)
+}
+
+/// Determine which package to use: from `--package` flag, interactive prompt,
+/// or default to `develop` when stdin is not a terminal.
+fn resolve_init_package(args: &InitArgs) -> Result<Package, RippyError> {
+    if let Some(name) = &args.package {
+        return Package::parse(name).map_err(RippyError::Setup);
+    }
+
+    if is_interactive() {
+        return prompt_package_selection();
+    }
+
+    // Non-interactive: default to develop.
+    Ok(Package::Develop)
+}
+
+fn is_interactive() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
+}
+
+fn prompt_package_selection() -> Result<Package, RippyError> {
+    eprintln!("\nWhich package fits your workflow?\n");
+    for (i, pkg) in Package::all().iter().enumerate() {
+        let recommended = if *pkg == Package::Develop {
+            "  (recommended)"
+        } else {
+            ""
+        };
+        eprintln!(
+            "  [{}] {:<12}[{}]  {}{recommended}",
+            i + 1,
+            pkg.name(),
+            pkg.shield(),
+            pkg.tagline(),
+        );
+    }
+    eprint!("\nSelect [1-3] (default: 2): ");
+    let _ = std::io::stderr().flush();
+
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_err() {
+        return Ok(Package::Develop);
+    }
+
+    match input.trim() {
+        "" | "2" => Ok(Package::Develop),
+        "1" => Ok(Package::Review),
+        "3" => Ok(Package::Autopilot),
+        other => Package::parse(other).map_err(RippyError::Setup),
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +252,7 @@ mod tests {
         let result = run_init(&InitArgs {
             global: false,
             stdout: false,
+            package: Some("develop".into()),
         });
         std::env::set_current_dir(original).unwrap();
 

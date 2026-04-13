@@ -186,8 +186,35 @@ fn init_creates_config_file() {
     assert!(output.status.success());
 
     let content = std::fs::read_to_string(dir.path().join(".rippy.toml")).unwrap();
-    assert!(content.contains("[[rules]]"));
-    assert!(content.contains("cargo"));
+    // Non-interactive init defaults to develop package
+    assert!(content.contains("[settings]"));
+    assert!(content.contains("package = \"develop\""));
+}
+
+#[test]
+fn init_with_package_flag() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["init", "--package", "review"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let content = std::fs::read_to_string(dir.path().join(".rippy.toml")).unwrap();
+    assert!(content.contains("package = \"review\""));
+}
+
+#[test]
+fn init_stdout_still_works() {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["init", "--stdout"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[[rules]]"));
+    assert!(stdout.contains("cargo"));
 }
 
 #[test]
