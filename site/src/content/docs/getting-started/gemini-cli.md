@@ -1,0 +1,37 @@
+---
+title: Gemini CLI
+description: Wire rippy into Google's Gemini CLI as a PreToolUse hook.
+---
+
+## One-line setup
+
+```sh
+rippy setup gemini
+```
+
+writes the hook stanza into Gemini CLI's settings for you.
+
+## Manual setup
+
+[Gemini CLI](https://github.com/google-gemini/gemini-cli) supports the
+same `PreToolUse` hook shape. Use `--mode gemini` so rippy formats
+verdicts the way Gemini expects:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "rippy --mode gemini" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+All [`.rippy.toml` config rules](/configuration/overview/) apply
+identically across Claude Code, Cursor, and Gemini CLI — the mode flag
+only controls output formatting.

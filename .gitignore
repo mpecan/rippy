@@ -1,1 +1,9 @@
 /target
+
+# Astro site (site/)
+site/node_modules
+site/dist
+site/.astro
+
+# Playwright MCP session artifacts (browser logs, snapshots, screenshots)
+.playwright-mcp/

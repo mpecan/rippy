@@ -1,0 +1,71 @@
+---
+title: Example configs
+description: Ready-to-copy starter configs for each package (review, develop, autopilot).
+---
+
+import { Code, Tabs, TabItem } from '@astrojs/starlight/components';
+import reviewToml from '../../../../../examples/review.rippy.toml?raw';
+import recommendedToml from '../../../../../examples/recommended.rippy.toml?raw';
+import autopilotToml from '../../../../../examples/autopilot.rippy.toml?raw';
+
+Three package-specific starter configs ship in the repo's
+[`examples/` directory](https://github.com/mpecan/rippy/tree/main/examples).
+Each corresponds to a [package](/getting-started/packages/) and is meant
+to be copied as-is and then customized. Pick the one that matches how
+much friction you want.
+
+All three are imported verbatim from the checked-in files in this repo,
+so the snippets below can never drift from what you actually get by
+running `rippy init --package <name>`.
+
+<Tabs syncKey="package">
+  <TabItem label="review">
+    **Full supervision.** Every command asks by default. The starter adds
+    hard denies for force-push, hard reset, recursive delete, and a few
+    other footguns so they can't be accidentally approved away.
+
+    Copy as `.rippy.toml` or `~/.rippy/config.toml`:
+
+    <Code code={reviewToml} lang="toml" title="examples/review.rippy.toml" />
+  </TabItem>
+  <TabItem label="develop">
+    **Balanced default.** Auto-approves builds, tests, and read-only VCS;
+    asks for destructive or network-altering operations. Good starting
+    point if you're not sure which package to pick.
+
+    <Code code={recommendedToml} lang="toml" title="examples/recommended.rippy.toml" />
+  </TabItem>
+  <TabItem label="autopilot">
+    **Maximum AI autonomy.** Default is `allow`; only catastrophic
+    operations (root filesystem ops, secret file writes, force-push) are
+    blocked. Use with guardrails elsewhere (branch protection, sandboxed
+    environments).
+
+    <Code code={autopilotToml} lang="toml" title="examples/autopilot.rippy.toml" />
+  </TabItem>
+</Tabs>
+
+## Legacy plain-text format
+
+The original Dippy-compatible `.rippy` format is still supported. One
+rule per line, no `[[rules]]` tables:
+
+```bash
+# Block dangerous commands with guidance
+deny rm -rf        "use trash instead"
+deny python        "use uv run python"
+
+# Allow specific safe patterns
+allow git status
+allow uv run python -c
+
+# Redirect rules (block writes to sensitive paths)
+deny-redirect **/.env*
+deny-redirect /etc/*
+
+# Settings
+set default ask
+```
+
+New configs should prefer TOML. If you have an existing `.rippy` file,
+`rippy migrate` converts it automatically.
