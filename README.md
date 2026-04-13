@@ -100,6 +100,38 @@ Add to `~/.claude/settings.json` (or `.claude/settings.json` in your project):
 
 That's it. rippy reads JSON from stdin and returns a verdict on stdout. Your AI tool handles the rest.
 
+## Packages
+
+Packages are preconfigured safety profiles. Pick one that matches how you work:
+
+```
+  review      [===]     Full supervision. Every command asks.
+  develop     [==.]     Auto-approves builds, tests, VCS. Asks for destructive ops.
+  autopilot   [=..]     Maximum AI autonomy. Only catastrophic ops are blocked.
+```
+
+Set up with interactive package selection:
+
+```bash
+rippy init
+```
+
+Or specify directly:
+
+```bash
+rippy init --package develop
+```
+
+Manage packages anytime with `rippy profile`:
+
+```bash
+rippy profile list              # see all packages
+rippy profile show develop      # see what a package does
+rippy profile set autopilot     # switch packages
+```
+
+Packages are a starting point — layer your own rules on top. See the [Packages wiki](https://github.com/mpecan/rippy/wiki/Packages) for full details on what each package auto-approves, asks, and blocks.
+
 ## How It Works
 
 ```
@@ -136,43 +168,43 @@ rippy has **130+ commands** in its safe allowlist (read-only tools like `cat`, `
 
 ## Configuration
 
-rippy loads config from three tiers (lowest to highest priority):
+The easiest way to get started is with a package (see [Packages](#packages) above). For full control, rippy loads config from these tiers (lowest to highest priority):
 
-1. **Claude Code settings:** `~/.claude/settings.json` → `permissions.allow/deny/ask` rules
-2. **Global config:** `~/.rippy/config` (or `~/.dippy/config`)
-3. **Project config:** `.rippy` file walked up from cwd (or `.dippy`)
-4. **Environment:** `RIPPY_CONFIG` or `DIPPY_CONFIG` env var
+1. **Built-in stdlib:** safe allowlist + 100+ CLI handlers
+2. **Package:** `package = "develop"` in settings (optional, loaded from built-in TOML)
+3. **Claude Code settings:** `~/.claude/settings.json` → `permissions.allow/deny/ask` rules
+4. **Global config:** `~/.rippy/config.toml` (or `~/.dippy/config`)
+5. **Project config:** `.rippy.toml` walked up from cwd (or `.rippy` / `.dippy`)
+6. **Environment:** `RIPPY_CONFIG` or `DIPPY_CONFIG` env var
 
-See [`examples/recommended.rippy`](examples/recommended.rippy) for a starter config covering macOS system tools, process management, network utilities, and more.
+See [`examples/recommended.rippy.toml`](examples/recommended.rippy.toml) for a starter config, or [`examples/review.rippy.toml`](examples/review.rippy.toml) and [`examples/autopilot.rippy.toml`](examples/autopilot.rippy.toml) for package-based examples.
 
-### Example config
+### Example config (TOML)
 
-```bash
+```toml
+[settings]
+default = "ask"
+package = "develop"    # start with a safety package
+
 # Block dangerous commands with guidance
-deny rm -rf "use trash instead"
-deny python "use uv run python"
+[[rules]]
+action = "deny"
+pattern = "rm -rf /"
+message = "Never delete the root filesystem"
 
 # Allow specific safe patterns
-allow git status
-allow uv run python -c
+[[rules]]
+action = "allow"
+pattern = "git status"
 
 # Redirect rules (block writes to sensitive paths)
-deny-redirect **/.env*
-deny-redirect /etc/*
-
-# MCP tool rules
-deny-mcp dangerous_tool
-
-# Post-execution feedback
-after git commit "committed successfully"
-
-# Settings
-set default ask
-set log ~/.rippy/audit.log
-
-# Aliases
-alias ~/custom-git git
+[[rules]]
+action = "deny-redirect"
+pattern = "**/.env*"
+message = "Do not write to environment files"
 ```
+
+The legacy `.rippy` / `.dippy` flat format is still supported. See [`examples/recommended.rippy`](examples/recommended.rippy) for that format.
 
 ### Rule types
 
@@ -190,6 +222,32 @@ alias ~/custom-git git
 - Default: **prefix matching** — `git` matches `git status`, `git push`, etc.
 - `*` matches any characters, `?` matches one, `[abc]` character class, `**` globstar
 - Trailing `|` forces **exact matching** — `git|` only matches bare `git`
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `rippy --mode claude` | Run as a hook (reads JSON from stdin, returns verdict) |
+| `rippy init` | Initialize config with interactive package selection |
+| `rippy profile list` | List available safety packages |
+| `rippy profile show <name>` | Show details of a safety package |
+| `rippy profile set <name>` | Activate a safety package |
+| `rippy inspect [command]` | Show configured rules or trace a command decision |
+| `rippy debug <command>` | Trace the full decision path for a command |
+| `rippy list safe` | List all auto-approved safe commands |
+| `rippy list handlers` | List commands with dedicated handlers |
+| `rippy list rules` | Show effective rules from all config sources |
+| `rippy allow <pattern>` | Add an allow rule to config |
+| `rippy deny <pattern>` | Add a deny rule to config |
+| `rippy ask <pattern>` | Add an ask rule to config |
+| `rippy suggest` | Analyze tracking data and suggest config rules |
+| `rippy stats` | Show aggregate decision tracking statistics |
+| `rippy trust` | Manage trust for project-level config files |
+| `rippy setup claude-code` | Install rippy as a hook for Claude Code |
+| `rippy setup gemini` | Install rippy as a hook for Gemini CLI |
+| `rippy setup cursor` | Install rippy as a hook for Cursor |
+| `rippy discover <cmd>` | Discover flag aliases from command help output |
+| `rippy migrate` | Convert `.rippy` config to `.rippy.toml` format |
 
 ## Migrating from Dippy
 

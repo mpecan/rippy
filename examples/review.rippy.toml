@@ -1,0 +1,69 @@
+# Review package — full supervision
+#
+# Starts from the "review" package (every command asks) and adds
+# strict rules for security-sensitive environments.
+#
+# Usage:  rippy init --package review
+#         Then customize this file as needed.
+#
+# See: https://github.com/mpecan/rippy/wiki/Packages
+
+[settings]
+default = "ask"
+package = "review"
+
+# --- Extra restrictions for review mode ---
+
+# Block force operations outright
+[[rules]]
+action = "deny"
+pattern = "git push --force"
+message = "Force push is not allowed in review mode — use --force-with-lease if you must"
+
+[[rules]]
+action = "deny"
+pattern = "git reset --hard"
+message = "Hard reset discards changes — use `git stash` or `git reset --soft` instead"
+
+[[rules]]
+action = "deny"
+pattern = "git clean -f"
+message = "This permanently deletes untracked files — review them manually first"
+
+# Block destructive filesystem operations
+[[rules]]
+action = "deny"
+pattern = "rm -rf"
+message = "Recursive force delete is not allowed in review mode"
+
+[[rules]]
+action = "deny"
+pattern = "chmod 777"
+message = "World-writable permissions are a security risk"
+
+# Block network commands that could exfiltrate data
+[[rules]]
+action = "deny"
+pattern = "curl -X POST"
+message = "Outbound POST requests require manual review"
+
+[[rules]]
+action = "deny"
+pattern = "wget"
+message = "Downloads require manual review in review mode"
+
+# Protect sensitive paths
+[[rules]]
+action = "deny-redirect"
+pattern = "**/.env*"
+message = "Do not write to environment files — they may contain secrets"
+
+[[rules]]
+action = "deny-redirect"
+pattern = "**/*.pem"
+message = "Do not write to PEM files — they contain private keys"
+
+[[rules]]
+action = "deny-redirect"
+pattern = "**/credentials*"
+message = "Do not write to credential files"
