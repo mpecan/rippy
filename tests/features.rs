@@ -218,6 +218,22 @@ fn init_stdout_still_works() {
 }
 
 #[test]
+fn init_invalid_package_fails() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["init", "--package", "bogus"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("unknown package"),
+        "expected 'unknown package' in output, got: {stdout}"
+    );
+}
+
+#[test]
 fn init_refuses_existing() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::write(dir.path().join(".rippy.toml"), "existing").unwrap();

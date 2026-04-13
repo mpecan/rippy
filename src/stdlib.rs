@@ -146,9 +146,15 @@ fn is_interactive() -> bool {
 }
 
 fn prompt_package_selection() -> Result<Package, RippyError> {
+    let packages = Package::all();
+    let default_idx = packages
+        .iter()
+        .position(|p| *p == Package::Develop)
+        .unwrap_or(0);
+
     eprintln!("\nWhich package fits your workflow?\n");
-    for (i, pkg) in Package::all().iter().enumerate() {
-        let recommended = if *pkg == Package::Develop {
+    for (i, pkg) in packages.iter().enumerate() {
+        let recommended = if i == default_idx {
             "  (recommended)"
         } else {
             ""
@@ -161,20 +167,32 @@ fn prompt_package_selection() -> Result<Package, RippyError> {
             pkg.tagline(),
         );
     }
-    eprint!("\nSelect [1-3] (default: 2): ");
+    eprint!(
+        "\nSelect [1-{}] (default: {}): ",
+        packages.len(),
+        default_idx + 1
+    );
     let _ = std::io::stderr().flush();
 
     let mut input = String::new();
     if std::io::stdin().read_line(&mut input).is_err() {
-        return Ok(Package::Develop);
+        return Ok(packages[default_idx]);
     }
 
-    match input.trim() {
-        "" | "2" => Ok(Package::Develop),
-        "1" => Ok(Package::Review),
-        "3" => Ok(Package::Autopilot),
-        other => Package::parse(other).map_err(RippyError::Setup),
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(packages[default_idx]);
     }
+
+    // Try as a 1-based index first, then as a package name.
+    if let Ok(n) = trimmed.parse::<usize>()
+        && n >= 1
+        && n <= packages.len()
+    {
+        return Ok(packages[n - 1]);
+    }
+
+    Package::parse(trimmed).map_err(RippyError::Setup)
 }
 
 #[cfg(test)]
