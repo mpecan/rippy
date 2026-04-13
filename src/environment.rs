@@ -40,6 +40,19 @@ impl Environment {
         }
     }
 
+    /// Build an isolated environment for tests: no home directory, no remote,
+    /// no verbose, real env-var lookup for variable resolution.
+    #[must_use]
+    pub fn for_test(working_directory: PathBuf) -> Self {
+        Self {
+            home: None,
+            working_directory,
+            var_lookup: Box::new(EnvLookup),
+            remote: false,
+            verbose: false,
+        }
+    }
+
     /// Override the home directory (builder pattern).
     #[must_use]
     pub fn with_home(mut self, home: Option<PathBuf>) -> Self {

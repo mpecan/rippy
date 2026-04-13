@@ -13,24 +13,17 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::path::PathBuf;
+mod common;
+
+use std::sync::LazyLock;
 
 use proptest::prelude::*;
 use rippy_cli::allowlists;
-use rippy_cli::analyzer::Analyzer;
-use rippy_cli::config::Config;
-use rippy_cli::environment::Environment;
 use rippy_cli::verdict::Decision;
 
-/// Build an analyzer with stdlib rules, fully isolated from developer config.
-/// No HOME means no `~/.rippy/config` or `~/.claude/settings.json`.
-fn stdlib_analyzer() -> Analyzer {
-    let tmp = PathBuf::from("/tmp/rippy-proptest-security");
-    std::fs::create_dir_all(&tmp).ok();
-    let config = Config::load_with_home(&tmp, None, None).expect("stdlib config loads");
-    let env = Environment::from_system(tmp, false, false).with_home(None);
-    Analyzer::from_env(config, env).expect("analyzer init")
-}
+/// Cached sorted lists — avoid re-sorting on every proptest iteration.
+static SAFE_CMDS: LazyLock<Vec<&'static str>> = LazyLock::new(allowlists::all_simple_safe);
+static WRAPPERS: LazyLock<Vec<&'static str>> = LazyLock::new(allowlists::all_wrappers);
 
 /// Commands known to be dangerous — curated for proptest composition.
 const DANGEROUS_COMMANDS: &[&str] = &[
@@ -85,14 +78,10 @@ proptest! {
     /// Any `SIMPLE_SAFE` command with typical arguments must be allowed.
     #[test]
     fn safe_command_passthrough(
-        cmd_idx in 0..164_usize,
+        cmd_idx in 0..SAFE_CMDS.len(),
         arg_idx in 0..SAFE_ARGS.len(),
     ) {
-        let safe_cmds = allowlists::all_simple_safe();
-        if cmd_idx >= safe_cmds.len() {
-            return Ok(());
-        }
-        let cmd = safe_cmds[cmd_idx];
+        let cmd = SAFE_CMDS[cmd_idx];
         let arg = SAFE_ARGS[arg_idx];
         let full = if arg.is_empty() {
             cmd.to_string()
@@ -100,7 +89,7 @@ proptest! {
             format!("{cmd} {arg}")
         };
 
-        let mut analyzer = stdlib_analyzer();
+        let mut analyzer = common::isolated_analyzer();
         let verdict = analyzer.analyze(&full).expect("analyze succeeds");
         let msg = format!(
             "SIMPLE_SAFE command {:?} was not allowed: {:?}",
@@ -126,7 +115,7 @@ proptest! {
         let vector = INJECTION_VECTORS[vector_idx];
         let full = format!("{safe}{vector}{danger}");
 
-        let mut analyzer = stdlib_analyzer();
+        let mut analyzer = common::isolated_analyzer();
         let verdict = analyzer.analyze(&full).expect("analyze succeeds");
         let msg = format!(
             "Injection not caught: {:?} => {:?} ({:?})",
@@ -149,7 +138,7 @@ proptest! {
         let inner = SAFE_INNER_COMMANDS[inner_idx];
         let cmd = template.replace("{CMD}", inner);
 
-        let mut analyzer = stdlib_analyzer();
+        let mut analyzer = common::isolated_analyzer();
         let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
         let msg = format!(
             "Safe inner blocked: {:?} => {:?}",
@@ -168,7 +157,7 @@ proptest! {
         let danger = DANGEROUS_COMMANDS[danger_idx];
         let cmd = template.replace("{CMD}", danger);
 
-        let mut analyzer = stdlib_analyzer();
+        let mut analyzer = common::isolated_analyzer();
         let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
         let msg = format!(
             "Dangerous inner allowed: {:?} => {:?}",
@@ -184,18 +173,14 @@ proptest! {
     /// Wrapper commands must be transparent: wrapping a safe command allows.
     #[test]
     fn wrapper_safe_passthrough(
-        wrapper_idx in 0..8_usize,
+        wrapper_idx in 0..WRAPPERS.len(),
         inner_idx in 0..SAFE_INNER_COMMANDS.len(),
     ) {
-        let wrappers = allowlists::all_wrappers();
-        if wrapper_idx >= wrappers.len() {
-            return Ok(());
-        }
-        let wrapper = wrappers[wrapper_idx];
+        let wrapper = WRAPPERS[wrapper_idx];
         let inner = SAFE_INNER_COMMANDS[inner_idx];
         let cmd = format!("{wrapper} {inner}");
 
-        let mut analyzer = stdlib_analyzer();
+        let mut analyzer = common::isolated_analyzer();
         let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
         let msg = format!(
             "Wrapper {} blocked safe inner: {:?} => {:?}",
@@ -207,18 +192,14 @@ proptest! {
     /// Wrapper commands wrapping a dangerous command must Ask or Deny.
     #[test]
     fn wrapper_dangerous_detected(
-        wrapper_idx in 0..8_usize,
+        wrapper_idx in 0..WRAPPERS.len(),
         danger_idx in 0..DANGEROUS_COMMANDS.len(),
     ) {
-        let wrappers = allowlists::all_wrappers();
-        if wrapper_idx >= wrappers.len() {
-            return Ok(());
-        }
-        let wrapper = wrappers[wrapper_idx];
+        let wrapper = WRAPPERS[wrapper_idx];
         let danger = DANGEROUS_COMMANDS[danger_idx];
         let cmd = format!("{wrapper} {danger}");
 
-        let mut analyzer = stdlib_analyzer();
+        let mut analyzer = common::isolated_analyzer();
         let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
         let msg = format!(
             "Wrapper {} missed dangerous: {:?} => {:?}",

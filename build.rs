@@ -130,12 +130,7 @@ fn emit_cases(
     }
 }
 
-fn emit_contrasts(
-    output: &mut String,
-    _file_stem: &str,
-    catalog: &TestCatalog,
-    seen: &mut HashSet<String>,
-) {
+fn emit_contrasts(output: &mut String, catalog: &TestCatalog, seen: &mut HashSet<String>) {
     for (gi, group) in catalog.contrast.iter().enumerate() {
         let desc: String = sanitize(group.description.as_deref().unwrap_or("contrast"))
             .chars()
@@ -211,7 +206,7 @@ fn main() {
             toml::from_str(&content).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
 
         emit_cases(&mut output, &file_stem, &catalog, &mut seen);
-        emit_contrasts(&mut output, &file_stem, &catalog, &mut seen);
+        emit_contrasts(&mut output, &catalog, &mut seen);
     }
 
     fs::write(&dest, output).unwrap();

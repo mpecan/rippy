@@ -9,31 +9,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::sync::LazyLock;
+mod common;
 
+use common::isolated_analyzer;
 use rippy_cli::analyzer::Analyzer;
-use rippy_cli::config::Config;
-use rippy_cli::environment::Environment;
 use rippy_cli::verdict::Decision;
-
-// ---------------------------------------------------------------------------
-// Shared config (built once, cloned per test)
-// ---------------------------------------------------------------------------
-
-/// Stdlib config isolated from the developer machine — no HOME means no
-/// `~/.rippy/config` and no `~/.claude/settings.json` leaking in.
-static STDLIB_CONFIG: LazyLock<Config> = LazyLock::new(|| {
-    let tmp = std::env::temp_dir().join("rippy-catalog-tests");
-    std::fs::create_dir_all(&tmp).ok();
-    Config::load_with_home(&tmp, None, None).expect("stdlib config loads")
-});
-
-/// Build a fresh `Analyzer` with stdlib rules and no HOME.
-fn isolated_analyzer() -> Analyzer {
-    let tmp = std::env::temp_dir().join("rippy-catalog-tests");
-    let env = Environment::from_system(tmp, false, false).with_home(None);
-    Analyzer::from_env(STDLIB_CONFIG.clone(), env).expect("Analyzer::from_env succeeds")
-}
 
 // ---------------------------------------------------------------------------
 // Assertion helpers called by generated test functions
@@ -48,7 +28,7 @@ fn parse_decision(s: &str) -> Decision {
     }
 }
 
-/// A single catalog test case for `run_case`.
+/// A single catalog test case.
 struct Case<'a> {
     file: &'a str,
     idx: usize,
@@ -88,17 +68,64 @@ fn run_case(analyzer: &mut Analyzer, c: &Case<'_>) {
     }
 }
 
-fn run_contrast_safe(analyzer: &mut Analyzer, desc: &str, template: &str, inner: &str) {
-    let cmd = template.replace("{CMD}", inner);
+/// A contrast test case — template + inner command.
+struct Contrast<'a> {
+    desc: &'a str,
+    template: &'a str,
+    inner: &'a str,
+    expect_allow: bool,
+    reason_contains: Option<&'a str>,
+}
+
+fn run_contrast(analyzer: &mut Analyzer, c: &Contrast<'_>) {
+    let cmd = c.template.replace("{CMD}", c.inner);
     let verdict = analyzer
         .analyze(&cmd)
-        .unwrap_or_else(|e| panic!("[{desc} safe] analyze({cmd:?}) failed: {e}"));
-    assert_eq!(
-        verdict.decision,
-        Decision::Allow,
-        "[{desc} safe] {cmd:?}: expected Allow, got {:?}. reason: {:?}",
-        verdict.decision,
-        verdict.reason,
+        .unwrap_or_else(|e| panic!("[{}] analyze({cmd:?}) failed: {e}", c.desc));
+
+    if c.expect_allow {
+        assert_eq!(
+            verdict.decision,
+            Decision::Allow,
+            "[{} safe] {cmd:?}: expected Allow, got {:?}. reason: {:?}",
+            c.desc,
+            verdict.decision,
+            verdict.reason,
+        );
+    } else {
+        assert!(
+            verdict.decision >= Decision::Ask,
+            "[{} danger] {cmd:?}: expected Ask/Deny, got {:?}. reason: {:?}",
+            c.desc,
+            verdict.decision,
+            verdict.reason,
+        );
+    }
+
+    if let Some(pattern) = c.reason_contains {
+        assert!(
+            verdict
+                .reason
+                .to_lowercase()
+                .contains(&pattern.to_lowercase()),
+            "[{}] {cmd:?}: reason {:?} missing {:?}",
+            c.desc,
+            verdict.reason,
+            pattern,
+        );
+    }
+}
+
+fn run_contrast_safe(analyzer: &mut Analyzer, desc: &str, template: &str, inner: &str) {
+    run_contrast(
+        analyzer,
+        &Contrast {
+            desc,
+            template,
+            inner,
+            expect_allow: true,
+            reason_contains: None,
+        },
     );
 }
 
@@ -109,27 +136,16 @@ fn run_contrast_danger(
     inner: &str,
     reason_contains: Option<&str>,
 ) {
-    let cmd = template.replace("{CMD}", inner);
-    let verdict = analyzer
-        .analyze(&cmd)
-        .unwrap_or_else(|e| panic!("[{desc} danger] analyze({cmd:?}) failed: {e}"));
-    assert!(
-        verdict.decision >= Decision::Ask,
-        "[{desc} danger] {cmd:?}: expected Ask/Deny, got {:?}. reason: {:?}",
-        verdict.decision,
-        verdict.reason,
+    run_contrast(
+        analyzer,
+        &Contrast {
+            desc,
+            template,
+            inner,
+            expect_allow: false,
+            reason_contains,
+        },
     );
-    if let Some(pattern) = reason_contains {
-        assert!(
-            verdict
-                .reason
-                .to_lowercase()
-                .contains(&pattern.to_lowercase()),
-            "[{desc} danger] {cmd:?}: reason {:?} missing {:?}",
-            verdict.reason,
-            pattern,
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------
