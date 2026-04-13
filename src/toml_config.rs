@@ -20,6 +20,9 @@ use crate::verdict::Decision;
 /// Top-level structure of a `.rippy.toml` file.
 #[derive(Debug, Deserialize)]
 pub struct TomlConfig {
+    /// Optional metadata section — used by packages for display purposes,
+    /// ignored during directive generation.
+    pub meta: Option<TomlMeta>,
     pub settings: Option<TomlSettings>,
     pub cd: Option<TomlCd>,
     pub git: Option<TomlGit>,
@@ -27,6 +30,17 @@ pub struct TomlConfig {
     pub rules: Vec<TomlRule>,
     #[serde(default)]
     pub aliases: Vec<TomlAlias>,
+}
+
+/// Metadata section for packages and config files.
+///
+/// This is purely informational — it is not converted to config directives.
+#[derive(Debug, Deserialize)]
+pub struct TomlMeta {
+    pub name: Option<String>,
+    pub tagline: Option<String>,
+    pub shield: Option<String>,
+    pub description: Option<String>,
 }
 
 /// Configuration for `cd` directory navigation.
