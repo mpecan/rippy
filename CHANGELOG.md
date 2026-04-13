@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3](https://github.com/mpecan/rippy/compare/rippy-cli-v0.1.2...rippy-cli-v0.1.3) (2026-04-13)
+
+
+### Features
+
+* support user-defined custom packages ([#116](https://github.com/mpecan/rippy/issues/116)) ([8ab2578](https://github.com/mpecan/rippy/commit/8ab257858c80a1fa6f75162c47611f7141eb2654))
+
+
+### Documentation
+
+* prefer .rippy.toml over the legacy flat config format ([#114](https://github.com/mpecan/rippy/issues/114)) ([7c6a0ee](https://github.com/mpecan/rippy/commit/7c6a0ee6535521b58ac2f08c99ffd855d2e0020b))
+
 ## [0.1.2](https://github.com/mpecan/rippy/compare/rippy-cli-v0.1.1...rippy-cli-v0.1.2) (2026-04-13)
 
 
