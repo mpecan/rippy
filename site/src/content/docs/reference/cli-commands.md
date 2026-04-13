@@ -57,7 +57,7 @@ config. Here's the full list.
 | `rippy ask <pattern>` | Add an `ask` rule to your config |
 | `rippy suggest` | Analyze your tracking data and suggest new rules |
 | `rippy discover <cmd>` | Discover flag aliases from a command's help output |
-| `rippy migrate` | Convert a legacy `.rippy` plain-text config to `.rippy.toml` |
+| `rippy migrate` | Convert a legacy flat `.rippy` config to `.rippy.toml` |
 
 ## Trust and safety
 
@@ -73,6 +73,6 @@ config. Here's the full list.
 - `rippy suggest` pairs well with `rippy stats`: let rippy watch your
   sessions for a while, then ask it which rules would have saved you
   approval prompts.
-- `rippy migrate` is a one-shot converter for the legacy plain-text
-  `.rippy` / `.dippy` format — the TOML form is preferred for new configs
-  but the flat format stays supported for compatibility.
+- `rippy migrate` is a one-shot converter for the legacy flat
+  `.rippy` / `.dippy` format. Write new configs as `.rippy.toml`; the
+  flat format stays loaded for backward compatibility.

@@ -4,19 +4,20 @@ description: Where rippy looks for config files, how the tiers are merged, and w
 ---
 
 The easiest way to get started is with a [package](/getting-started/packages/) —
-`rippy init` will walk you through picking one. For full control, rippy
-loads config from five tiers, merged in ascending priority:
+`rippy init` will walk you through picking one and drop a
+`.rippy.toml` in your home directory. For full control, rippy loads
+config from five tiers, merged in ascending priority:
 
 1. **Built-in stdlib** — the safe allowlist + 100+ CLI handlers compiled
    into the binary. Always active.
 2. **Package** — if your config has `package = "develop"` (or `"review"` /
    `"autopilot"`) in its `[settings]` block, the matching package TOML is
    loaded from the binary as a baseline.
-3. **Global config** — `~/.rippy/config.toml` (or `~/.rippy/config` for
-   the legacy plain-text form). Also reads `~/.dippy/config` for
-   backward compatibility.
-4. **Project config** — a `.rippy.toml` or `.rippy` file walked up from
-   the current directory. `.dippy` is also accepted.
+3. **Global config** — `~/.rippy/config.toml`. (Falls back to
+   `~/.rippy/config` or `~/.dippy/config` in the legacy flat format for
+   backward compatibility.)
+4. **Project config** — a `.rippy.toml` file walked up from the current
+   directory. (Falls back to `.rippy` or `.dippy` in the flat format.)
 5. **Environment override** — the `RIPPY_CONFIG` env var (or
    `DIPPY_CONFIG`) can point at a config file explicitly.
 
@@ -35,18 +36,35 @@ that decision and skips its own analysis.
 
 You do not need to duplicate Claude Code rules into `.rippy.toml`.
 
-## Two file formats
+## Config format: prefer `.rippy.toml`
 
-rippy accepts either:
+Write new configs as `.rippy.toml`. TOML is where new features land —
+every command, redirect, MCP, and `after` rule is a `[[rules]]` table,
+aliases go in `[[aliases]]`, settings go in `[settings]`, and
+[structured matching](/configuration/rules/#structured-matching)
+(`command` / `subcommand` / `flags` / `args-contain`) is TOML-only. The
+CLI reflects this: `rippy init`, `rippy allow`, `rippy deny`, and
+`rippy ask` all write to `.rippy.toml`.
 
-- A **TOML `.rippy.toml`** file — the structured format with explicit
-  `[[rules]]` tables. Recommended for new configs.
-- A **plain-text `.rippy`** file — the legacy Dippy format, one rule per
-  line. Still fully supported; run `rippy migrate` to convert it to
-  TOML.
+```toml
+[settings]
+default = "ask"
+package = "develop"
 
-Both formats support the same rule types. See
-[Example configs](/configuration/examples/) for ready-to-copy starters.
+[[rules]]
+action = "deny"
+pattern = "git push --force"
+message = "Use --force-with-lease instead"
+```
+
+The legacy **flat `.rippy` / `.dippy` format** (one rule per line, a
+carry-over from [Dippy](https://github.com/ldayton/Dippy)) is still
+loaded so existing configs keep working unchanged, but it doesn't
+support structured matching and won't see new features. Run
+`rippy migrate` to convert a flat file to `.rippy.toml` in one shot.
+
+See [Rules](/configuration/rules/) for the full grammar and
+[Examples](/configuration/examples/) for ready-to-copy starter configs.
 
 ## Project config trust
 

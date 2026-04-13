@@ -57,9 +57,9 @@ code `1` into `2`.
 
 ## Trust model for project configs
 
-Project-level `.rippy` files could theoretically weaken protections if
-loaded from a cloned repo unconditionally. rippy mitigates this with an
-explicit trust step — see
+Project-level `.rippy.toml` (or legacy `.rippy` / `.dippy`) files could
+theoretically weaken protections if loaded from a cloned repo
+unconditionally. rippy mitigates this with an explicit trust step — see
 [Configuration overview → Project config trust](/configuration/overview/#project-config-trust).
 
 ## In summary

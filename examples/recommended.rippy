@@ -1,4 +1,10 @@
 # Recommended rippy config — sensible defaults for common tools
+#
+# NOTE: This is the legacy flat format, kept for backward compatibility and
+# as a reference for users migrating from Dippy. New configs should prefer
+# the TOML format — see examples/recommended.rippy.toml. Run `rippy migrate`
+# to convert an existing flat file to .rippy.toml.
+#
 # Copy to ~/.rippy/config or include the rules you want in your project .rippy
 #
 # rippy's built-in handlers already cover: git, docker, kubectl, aws, gcloud,

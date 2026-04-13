@@ -3,104 +3,241 @@ title: Rules
 description: The complete rule grammar for rippy config files.
 ---
 
-Every line in a `.rippy` file is either a comment (`#`), a blank line, or
-a **rule**. The TOML form wraps the same rules into `[[rules]]` tables —
-the semantics are identical.
+Write rippy config as a `.rippy.toml` file — a list of rules plus an
+optional `[settings]` block:
+
+```toml
+[settings]
+default = "ask"
+
+[[rules]]
+action = "deny"
+pattern = "git push --force"
+message = "Use --force-with-lease instead"
+```
+
+Each rule type below is one `[[rules]]` table with an `action`, a
+`pattern` (or [structured fields](#structured-matching)), and an
+optional `message`. The legacy flat `.rippy` / `.dippy` format is still
+read for backward compatibility — see [Legacy flat format](#legacy-flat-format)
+at the bottom — but new configs should use `.rippy.toml`, and
+`rippy migrate` will convert an existing flat file for you.
 
 ## Command rules
 
-```
-allow|ask|deny PATTERN ["message"]
+Match a command by its name and arguments and decide what to do with it:
+
+```toml
+[[rules]]
+action = "allow"        # "allow" | "ask" | "deny"
+pattern = "git status"
+message = "optional guidance shown on deny"
 ```
 
 - `allow` — auto-approve. rippy exits with code `0` and lets the command run.
 - `ask` — prompt the AI tool to confirm with the user.
-- `deny` — block and (optionally) return a guidance message explaining
+- `deny` — block and (optionally) return a `message` explaining
   what the model should do instead.
 
-Example:
+A fuller example:
 
+```toml
+[[rules]]
+action = "allow"
+pattern = "git status"
+
+[[rules]]
+action = "deny"
+pattern = "git push --force"
+message = "Use --force-with-lease instead"
+
+[[rules]]
+action = "ask"
+pattern = "npm install"
+message = "Double-check the package name before installing"
 ```
-allow git status
-deny  git push --force "Use --force-with-lease instead"
-ask   npm install "Double-check the package name before installing"
+
+## Structured matching
+
+Instead of a single `pattern` string, a command rule can match on the
+command name, subcommand, flags, and argument content as separate
+fields. This is the cleanest way to pin a rule to a specific subcommand
+without depending on how the command string is written:
+
+```toml
+[[rules]]
+action = "deny"
+command = "git"
+subcommand = "push"
+flags = ["--force"]
+message = "Use --force-with-lease instead"
 ```
+
+Supported fields (all optional; a rule matches only when every field
+you supply matches):
+
+- `command` — the command name (e.g. `"git"`, `"docker"`)
+- `subcommand` — a single subcommand; use `subcommands` for a list
+  (e.g. `["push", "reset"]`)
+- `flags` — required flags (e.g. `["--force"]`)
+- `args-contain` — matches if any argument contains this substring
+
+Structured matching is TOML-only; the legacy flat format has no
+equivalent. See [Patterns](/configuration/patterns/) for the pattern
+grammar used inside individual fields.
 
 ## Redirect rules
 
 Guard writes to sensitive paths, independent of the command doing the
-writing:
+writing. Any command that writes to a matching path — `>`, `>>`, `tee`,
+`cp`, `mv` — is caught:
 
-```
-allow-redirect|ask-redirect|deny-redirect PATH ["message"]
+```toml
+[[rules]]
+action = "deny-redirect"
+pattern = "**/.env*"
+message = "Do not write to environment files"
+
+[[rules]]
+action = "deny-redirect"
+pattern = "/etc/*"
+message = "Do not modify system config"
 ```
 
-Any command that writes to a matching path — `>`, `>>`, `tee`, `cp`, `mv`
-— is caught:
-
-```
-deny-redirect **/.env*   "Do not write to environment files"
-deny-redirect /etc/*     "Do not modify system config"
-```
+Valid actions: `allow-redirect`, `ask-redirect`, `deny-redirect`.
 
 ## MCP tool rules
 
-For AI tools that use MCP (Model Context Protocol) servers, gate individual
-MCP tools by name:
+For AI tools that use MCP (Model Context Protocol) servers, gate
+individual MCP tools by name:
 
+```toml
+[[rules]]
+action = "allow-mcp"
+pattern = "mcp__github__*"
+
+[[rules]]
+action = "deny-mcp"
+pattern = "dangerous_mcp_tool"
 ```
-allow-mcp mcp__github__*
-deny-mcp  dangerous_mcp_tool
-```
+
+Valid actions: `allow-mcp`, `ask-mcp`, `deny-mcp`.
 
 ## Post-execution feedback
 
 `after` rules inject a message back to the AI tool after a command runs —
 useful for reminders and workflow nudges:
 
-```
-after git commit "Changes committed locally. Don't forget to push when ready."
+```toml
+[[rules]]
+action = "after"
+pattern = "git commit"
+message = "Changes committed locally. Don't forget to push when ready."
 ```
 
 ## Aliases
 
-Rewrite a command to something rippy already knows how to analyze:
+Rewrite a command to something rippy already knows how to analyze. Use
+a top-level `[[aliases]]` table:
 
-```
-alias ~/bin/custom-git git
+```toml
+[[aliases]]
+source = "~/bin/custom-git"
+target = "git"
 ```
 
 Now rules targeting `git` apply to `~/bin/custom-git` too.
 
 ## Settings
 
-```
-set default ask         # default action for unknown commands (allow | ask | deny)
-set log ~/.rippy/audit  # path to the audit log
-set log-full true       # include full command strings in the log
+All settings live in a single `[settings]` block at the top of the file:
+
+```toml
+[settings]
+default = "ask"          # default action for unknown commands (allow | ask | deny)
+log = "~/.rippy/audit"   # path to the audit log
+log-full = true          # include full command strings in the log
+package = "develop"      # start from a safety package baseline
 ```
 
 ## Putting it together
 
-A minimal but effective config:
+A minimal but effective `.rippy.toml`:
 
-```
+```toml
+[settings]
+default = "ask"
+
 # Block the really dangerous stuff
-deny rm -rf /     "Never delete the root filesystem"
-deny rm -rf ~     "Never delete the home directory"
-deny git push --force "Use --force-with-lease instead"
+[[rules]]
+action = "deny"
+pattern = "rm -rf /"
+message = "Never delete the root filesystem"
+
+[[rules]]
+action = "deny"
+pattern = "rm -rf ~"
+message = "Never delete the home directory"
+
+[[rules]]
+action = "deny"
+pattern = "git push --force"
+message = "Use --force-with-lease instead"
 
 # Auto-allow read-only git
-allow git status
-allow git log
-allow git diff
+[[rules]]
+action = "allow"
+pattern = "git status"
+
+[[rules]]
+action = "allow"
+pattern = "git log"
+
+[[rules]]
+action = "allow"
+pattern = "git diff"
 
 # Keep secrets out of writes
-deny-redirect **/.env*
-deny-redirect **/*.pem
+[[rules]]
+action = "deny-redirect"
+pattern = "**/.env*"
 
-# Default everything else to ask
-set default ask
+[[rules]]
+action = "deny-redirect"
+pattern = "**/*.pem"
 ```
 
-See [Examples](/configuration/examples/) for a longer, annotated starter.
+See [Examples](/configuration/examples/) for the full package-based
+starters you can copy into your project.
+
+## Legacy flat format
+
+Before TOML, rippy accepted a Dippy-compatible flat format — one rule
+per line in a file named `.rippy` or `.dippy`. It's still loaded so
+existing configs keep working, but new configs should use
+`.rippy.toml`. Run `rippy migrate` to convert an existing flat file.
+
+The flat grammar, for reference:
+
+```
+# Command rules
+allow|ask|deny PATTERN ["message"]
+
+# Redirect rules
+allow-redirect|ask-redirect|deny-redirect PATH ["message"]
+
+# MCP tool rules
+allow-mcp|ask-mcp|deny-mcp TOOL
+
+# Post-execution feedback
+after PATTERN "message"
+
+# Aliases
+alias SOURCE TARGET
+
+# Settings
+set KEY VALUE
+```
+
+Structured matching (`command` / `subcommand` / `flags` /
+`args-contain`) is not available in the flat format.

@@ -20,7 +20,7 @@ rippy intercepts shell commands from **Claude Code**, **Cursor**, **Gemini CLI**
 | Runtime | Python 3.9+, pip | Single static binary |
 | Startup | ~200ms | <1ms |
 | Parser | bash-parser (Parable) | [rable](https://crates.io/crates/rable) (pure Rust) |
-| Config | `.dippy` | `.rippy` (reads `.dippy` too) |
+| Config | `.dippy` (flat) | `.rippy.toml` (structured; reads legacy `.rippy` / `.dippy` too) |
 | Handlers | ~50 commands | 100+ commands |
 | File analysis | — | Reads `.py`, `.sql`, `.sh`, `.awk`, `.graphql` for informed decisions |
 | CC permissions | — | Reads Claude Code `settings.json` allow/deny/ask rules |
@@ -174,15 +174,15 @@ The easiest way to get started is with a package (see [Packages](#packages) abov
 
 1. **Built-in stdlib:** safe allowlist + 100+ CLI handlers
 2. **Package:** `package = "develop"` in settings (optional, loaded from built-in TOML)
-3. **Global config:** `~/.rippy/config.toml` (or `~/.dippy/config`)
-4. **Project config:** `.rippy.toml` walked up from cwd (or `.rippy` / `.dippy`)
+3. **Global config:** `~/.rippy/config.toml` (flat `~/.rippy/config` / `~/.dippy/config` also read for backward compatibility)
+4. **Project config:** `.rippy.toml` walked up from cwd (flat `.rippy` / `.dippy` also read)
 5. **Environment:** `RIPPY_CONFIG` or `DIPPY_CONFIG` env var
 
 Additionally, **Claude Code settings** (`~/.claude/settings.json` → `permissions.allow/deny/ask`) are checked as a separate pre-analysis step before config rules are evaluated.
 
-See [`examples/recommended.rippy.toml`](examples/recommended.rippy.toml) for a starter config, or [`examples/review.rippy.toml`](examples/review.rippy.toml) and [`examples/autopilot.rippy.toml`](examples/autopilot.rippy.toml) for package-based examples.
+### Config format: `.rippy.toml` is preferred
 
-### Example config (TOML)
+Write new configs as **`.rippy.toml`**. TOML is where new features land — structured matching (`command` / `subcommand` / `flags` / `args-contain`) is TOML-only, and `rippy init`, `rippy allow`, `rippy deny`, and `rippy ask` all write to `.rippy.toml`.
 
 ```toml
 [settings]
@@ -194,6 +194,15 @@ package = "develop"    # start with a safety package
 action = "deny"
 pattern = "rm -rf /"
 message = "Never delete the root filesystem"
+
+# Structured matching — pins the rule to `git push --force`
+# without relying on prefix tricks
+[[rules]]
+action = "deny"
+command = "git"
+subcommand = "push"
+flags = ["--force"]
+message = "Use --force-with-lease instead"
 
 # Allow specific safe patterns
 [[rules]]
@@ -207,18 +216,20 @@ pattern = "**/.env*"
 message = "Do not write to environment files"
 ```
 
-The legacy `.rippy` / `.dippy` flat format is still supported. See [`examples/recommended.rippy`](examples/recommended.rippy) for that format.
+Starter configs live in [`examples/`](examples/): [`recommended.rippy.toml`](examples/recommended.rippy.toml), [`review.rippy.toml`](examples/review.rippy.toml), [`autopilot.rippy.toml`](examples/autopilot.rippy.toml).
+
+The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited from Dippy) is still loaded, so existing configs keep working. It can't express structured matching; run `rippy migrate` to convert a flat file to `.rippy.toml`. See [`examples/recommended.rippy`](examples/recommended.rippy) for a flat example and the [docs](https://rippy.pecan.si/configuration/rules/) for the full grammar.
 
 ### Rule types
 
-| Syntax | Description |
+| TOML `action` | Description |
 |--------|-------------|
-| `allow\|ask\|deny PATTERN ["message"]` | Command rules |
-| `allow-redirect\|ask-redirect\|deny-redirect PATH ["message"]` | Redirect rules |
-| `after PATTERN "message"` | Post-execution feedback |
-| `allow-mcp\|ask-mcp\|deny-mcp TOOL` | MCP tool rules |
-| `set KEY VALUE` | Settings (`default`, `log`, `log-full`) |
-| `alias SOURCE TARGET` | Command aliases |
+| `allow` / `ask` / `deny` | Command rules (match via `pattern` or structured fields) |
+| `allow-redirect` / `ask-redirect` / `deny-redirect` | Redirect rules — gate writes to sensitive paths |
+| `after` | Post-execution feedback message |
+| `allow-mcp` / `ask-mcp` / `deny-mcp` | MCP tool rules |
+
+Plus `[settings]` (`default`, `log`, `log-full`, `package`) and `[[aliases]]` (`source` / `target`).
 
 ### Pattern matching
 
