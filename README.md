@@ -247,6 +247,7 @@ The legacy `.rippy` / `.dippy` flat format is still supported. See [`examples/re
 | `rippy setup claude-code` | Install rippy as a hook for Claude Code |
 | `rippy setup gemini` | Install rippy as a hook for Gemini CLI |
 | `rippy setup cursor` | Install rippy as a hook for Cursor |
+| `rippy setup tokf` | Configure [tokf](https://github.com/mpecan/tokf) to use rippy as its permission engine |
 | `rippy discover <cmd>` | Discover flag aliases from command help output |
 | `rippy migrate` | Convert `.rippy` config to `.rippy.toml` format |
 

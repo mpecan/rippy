@@ -2,6 +2,7 @@
 
 mod common;
 use common::{run_rippy, run_rippy_in_dir, run_rippy_in_dir_with_args};
+use rippy_cli::config::{Config, ConfigFormat};
 
 // ---- TOML config integration tests ----
 
@@ -208,4 +209,32 @@ fn config_no_override_normal_reason() {
         !reason.contains("overrides"),
         "no override config → no annotation, got: {reason}"
     );
+}
+
+// ---- Example TOML parsing tests ----
+// Validates that all example config files parse through rippy's config loader
+// without errors. Catches schema drift if config format changes.
+
+#[test]
+fn example_recommended_toml_parses() {
+    let content = include_str!("../examples/recommended.rippy.toml");
+    let cfg = Config::load_from_str(content, ConfigFormat::Toml).unwrap();
+    // The recommended config denies `rm -rf /`
+    assert!(cfg.match_command("rm -rf /", None).is_some());
+}
+
+#[test]
+fn example_review_toml_parses() {
+    let content = include_str!("../examples/review.rippy.toml");
+    let cfg = Config::load_from_str(content, ConfigFormat::Toml).unwrap();
+    // The review config denies `git push --force`
+    assert!(cfg.match_command("git push --force", None).is_some());
+}
+
+#[test]
+fn example_autopilot_toml_parses() {
+    let content = include_str!("../examples/autopilot.rippy.toml");
+    let cfg = Config::load_from_str(content, ConfigFormat::Toml).unwrap();
+    // The autopilot config asks before `cargo publish`
+    assert!(cfg.match_command("cargo publish", None).is_some());
 }
