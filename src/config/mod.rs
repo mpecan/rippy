@@ -877,4 +877,35 @@ mod tests {
         assert!(v.is_some());
         assert_eq!(v.unwrap().decision, Decision::Deny);
     }
+
+    #[test]
+    fn line_based_config_package_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".rippy")).unwrap();
+        // Line-based format (no .toml extension)
+        std::fs::write(home.join(".rippy/config"), "set package develop\n").unwrap();
+
+        let config = Config::load_with_home(dir.path(), None, Some(home)).unwrap();
+        assert_eq!(
+            config.active_package,
+            Some(crate::packages::Package::Develop)
+        );
+    }
+
+    #[test]
+    fn invalid_package_name_produces_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".rippy")).unwrap();
+        std::fs::write(
+            home.join(".rippy/config.toml"),
+            "[settings]\npackage = \"yolo\"\n",
+        )
+        .unwrap();
+
+        let config = Config::load_with_home(dir.path(), None, Some(home)).unwrap();
+        // Invalid package name is gracefully ignored (with stderr warning)
+        assert_eq!(config.active_package, None);
+    }
 }
