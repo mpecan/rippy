@@ -22,6 +22,7 @@ pub mod parser;
 pub mod pattern;
 pub mod payload;
 pub mod perl_safety;
+pub mod profile_cmd;
 pub mod python_safety;
 pub mod resolve;
 pub mod risk;

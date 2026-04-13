@@ -72,12 +72,46 @@ pub enum Command {
     Debug(DebugArgs),
     /// List safe commands, handlers, or effective rules
     List(ListArgs),
+    /// List, show, or activate safety packages
+    Profile(ProfileArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct ListArgs {
     #[command(subcommand)]
     pub target: ListTarget,
+}
+
+#[derive(Args, Debug)]
+pub struct ProfileArgs {
+    #[command(subcommand)]
+    pub target: ProfileTarget,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ProfileTarget {
+    /// List available safety packages
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show details of a safety package
+    Show {
+        /// Package name (review, develop, autopilot)
+        name: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Activate a safety package
+    Set {
+        /// Package name (review, develop, autopilot)
+        name: String,
+        /// Write to project config instead of global
+        #[arg(long)]
+        project: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
