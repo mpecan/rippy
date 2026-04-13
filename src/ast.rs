@@ -1,5 +1,7 @@
 use rable::{Node, NodeKind};
 
+use crate::allowlists;
+
 /// The operator used in a file redirect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RedirectOp {
@@ -227,6 +229,38 @@ fn strip_quotes(s: &str) -> String {
     } else {
         s.to_owned()
     }
+}
+
+/// Returns `true` when a node is a safe heredoc data-passing idiom:
+/// a single `SIMPLE_SAFE` command whose only redirects are quoted heredocs,
+/// with no word-level expansions.
+///
+/// Example: `cat <<'EOF' ... EOF` — `cat` is safe, heredoc is quoted,
+/// no pipes, no lists.
+#[must_use]
+pub fn is_safe_heredoc_substitution(command: &Node) -> bool {
+    let NodeKind::Command {
+        words, redirects, ..
+    } = &command.kind
+    else {
+        return false;
+    };
+    let Some(name) = command_name_from_words(words) else {
+        return false;
+    };
+    if !allowlists::is_simple_safe(name) {
+        return false;
+    }
+    if redirects.is_empty() {
+        return false;
+    }
+    let all_quoted_heredocs = redirects
+        .iter()
+        .all(|r| matches!(&r.kind, NodeKind::HereDoc { quoted, .. } if *quoted));
+    if !all_quoted_heredocs {
+        return false;
+    }
+    !words.iter().any(has_expansions)
 }
 
 #[cfg(test)]

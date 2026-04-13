@@ -6,6 +6,8 @@
 
 use rable::{Node, NodeKind};
 
+use crate::ast;
+
 /// Result of resolving a single word.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WordResolution {
@@ -80,6 +82,11 @@ fn resolve_word_kind(kind: &NodeKind, vars: &dyn VarLookup) -> WordResolution {
             },
             WordResolution::Multiple,
         ),
+        NodeKind::CommandSubstitution { command, .. }
+            if ast::is_safe_heredoc_substitution(command) =>
+        {
+            resolve_safe_heredoc_content(command)
+        }
         NodeKind::CommandSubstitution { .. } => WordResolution::Unresolvable {
             reason: "command substitution requires execution".to_string(),
         },
@@ -90,6 +97,33 @@ fn resolve_word_kind(kind: &NodeKind, vars: &dyn VarLookup) -> WordResolution {
             reason: "non-word node".to_string(),
         },
     }
+}
+
+/// Extract the concatenated heredoc content from a safe heredoc command.
+/// Caller must ensure `is_safe_heredoc_substitution(command)` is true.
+fn resolve_safe_heredoc_content(command: &Node) -> WordResolution {
+    let NodeKind::Command { redirects, .. } = &command.kind else {
+        return WordResolution::Unresolvable {
+            reason: "expected Command node".to_string(),
+        };
+    };
+    let mut content = String::new();
+    for redir in redirects {
+        if let NodeKind::HereDoc {
+            content: body,
+            quoted,
+            ..
+        } = &redir.kind
+        {
+            if !quoted {
+                return WordResolution::Unresolvable {
+                    reason: "unquoted heredoc".to_string(),
+                };
+            }
+            content.push_str(body);
+        }
+    }
+    WordResolution::Literal(content)
 }
 
 fn resolve_word_node(value: &str, parts: &[Node], vars: &dyn VarLookup) -> WordResolution {
