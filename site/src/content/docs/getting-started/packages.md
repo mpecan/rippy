@@ -57,10 +57,81 @@ See [Configuration overview](/configuration/overview/) for the full
 ordering and [Example configs](/configuration/examples/) for ready-to-copy
 starters for each package.
 
+## Custom packages
+
+If the three built-ins don't fit your workflow, you can define your own
+package in `~/.rippy/packages/<name>.toml`. The format is the same as any
+other rippy TOML config, plus a `[meta]` block for display metadata.
+
+### Extend a built-in
+
+The fastest way to build a custom package is to inherit from a built-in
+and layer extra rules on top:
+
+```toml
+# ~/.rippy/packages/backend-dev.toml
+[meta]
+name = "backend-dev"
+tagline = "Go + Postgres + K8s workflow"
+shield = "==."
+extends = "develop"
+
+[[rules]]
+action = "allow"
+command = "kubectl"
+subcommands = ["get", "describe", "logs"]
+
+[[rules]]
+action = "deny"
+pattern = "kubectl delete"
+message = "destructive — run manually"
+```
+
+`extends = "develop"` pulls in every rule from the `develop` package first;
+your own rules are applied afterwards so they win under last-match-wins.
+Only built-in packages (`review`, `develop`, `autopilot`) can be extended
+in v1 — this prevents cycles and keeps the resolution order predictable.
+
+If you omit `extends`, your custom package starts from an empty rule set
+and only the stdlib defaults apply underneath.
+
+### Activate a custom package
+
+Custom packages are discovered automatically. Use the same CLI as
+built-ins:
+
+```sh
+rippy profile list              # your custom package appears under "Custom packages:"
+rippy profile show backend-dev  # shows inherited + your own rules
+rippy profile set backend-dev   # writes package = "backend-dev" to your config
+```
+
+Or put `package = "backend-dev"` directly in your global or project
+`[settings]` block.
+
+### Naming and priority
+
+- The **filename** (minus `.toml`) is the authoritative package name —
+  what you type after `package = "…"` and in `rippy profile`. The
+  `[meta] name` field is informational; if it disagrees with the filename
+  you'll see a warning and the filename wins.
+- **Built-in names always take priority.** If you create
+  `~/.rippy/packages/develop.toml`, rippy will use the built-in `develop`
+  and print a warning telling you your file is shadowed.
+- **Malformed files don't break `profile list`** — rippy skips them with
+  a stderr warning so one bad file can't hide the rest. `profile show`
+  on a malformed file returns a clear error with the file path.
+
+### Sharing
+
+Custom packages are plain TOML files. You can share them by copying to a
+teammate's `~/.rippy/packages/`, committing to a shared repo and
+symlinking in, or distributing via your own tooling.
+
 ## Where to go from here
 
-- Full breakdown of what each package auto-approves, asks, and blocks —
-  [rippy wiki / Packages](https://github.com/mpecan/rippy/wiki/Packages).
+- Full breakdown of what each built-in package auto-approves, asks, and
+  blocks — [rippy wiki / Packages](https://github.com/mpecan/rippy/wiki/Packages).
 - Three package-specific starter configs you can drop into your repo:
   [`examples/review.rippy.toml`](https://github.com/mpecan/rippy/blob/main/examples/review.rippy.toml),
   [`examples/recommended.rippy.toml`](https://github.com/mpecan/rippy/blob/main/examples/recommended.rippy.toml)

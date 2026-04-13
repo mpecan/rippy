@@ -32,9 +32,14 @@ config. Here's the full list.
 
 | Command | Description |
 |---------|-------------|
-| `rippy profile list` | List available safety packages |
+| `rippy profile list` | List available safety packages (built-in + custom) |
 | `rippy profile show <name>` | Show what a package auto-approves, asks, and blocks |
 | `rippy profile set <name>` | Activate a safety package |
+
+`<name>` accepts any built-in (`review`, `develop`, `autopilot`) or a
+custom package discovered in `~/.rippy/packages/<name>.toml`. See
+[Custom packages](/getting-started/packages/#custom-packages) for how
+to author one.
 
 ## Inspect and debug
 

@@ -36,19 +36,24 @@ struct ProfileListEntry {
     shield: String,
     tagline: String,
     active: bool,
+    #[serde(rename = "custom")]
+    is_custom: bool,
 }
 
 fn list_profiles(json: bool) -> Result<ExitCode, RippyError> {
     let active = active_package_name();
+    let home = config::home_dir();
+    let packages = Package::all_available(home.as_deref());
 
     if json {
-        let entries: Vec<ProfileListEntry> = Package::all()
+        let entries: Vec<ProfileListEntry> = packages
             .iter()
             .map(|p| ProfileListEntry {
                 name: p.name().to_string(),
                 shield: p.shield().to_string(),
                 tagline: p.tagline().to_string(),
                 active: active.as_deref() == Some(p.name()),
+                is_custom: p.is_custom(),
             })
             .collect();
         let out = serde_json::to_string_pretty(&entries)
@@ -57,20 +62,34 @@ fn list_profiles(json: bool) -> Result<ExitCode, RippyError> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    for pkg in Package::all() {
-        let marker = if active.as_deref() == Some(pkg.name()) {
-            "  (active)"
-        } else {
-            ""
-        };
-        println!(
-            "  {:<12}[{}]     {}{marker}",
-            pkg.name(),
-            pkg.shield(),
-            pkg.tagline(),
-        );
+    let (builtins, customs): (Vec<&Package>, Vec<&Package>) =
+        packages.iter().partition(|p| !p.is_custom());
+
+    for pkg in &builtins {
+        print_profile_line(pkg, active.as_deref());
+    }
+    if !customs.is_empty() {
+        println!();
+        println!("Custom packages:");
+        for pkg in &customs {
+            print_profile_line(pkg, active.as_deref());
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn print_profile_line(pkg: &Package, active: Option<&str>) {
+    let marker = if active == Some(pkg.name()) {
+        "  (active)"
+    } else {
+        ""
+    };
+    println!(
+        "  {:<12}[{}]     {}{marker}",
+        pkg.name(),
+        pkg.shield(),
+        pkg.tagline(),
+    );
 }
 
 /// Read the currently active package from the merged config.
@@ -107,11 +126,12 @@ struct BranchDisplay {
 }
 
 fn show_profile(name: &str, json: bool) -> Result<ExitCode, RippyError> {
-    let package = Package::parse(name).map_err(RippyError::Setup)?;
-    let directives = packages::package_directives(package)?;
+    let home = config::home_dir();
+    let package = Package::resolve(name, home.as_deref())?;
+    let directives = packages::package_directives(&package)?;
 
     let rules = extract_rule_displays(&directives);
-    let (git_style, git_branches) = extract_git_info(package);
+    let (git_style, git_branches) = extract_git_info(&package);
 
     if json {
         let output = ProfileShowOutput {
@@ -201,8 +221,27 @@ fn format_rule_description(r: &crate::config::Rule) -> String {
         .map_or_else(|| raw.to_string(), |msg| format!("{raw}  \"{msg}\""))
 }
 
-fn extract_git_info(package: Package) -> (Option<String>, Vec<BranchDisplay>) {
-    let source = packages::package_toml(package);
+fn extract_git_info(package: &Package) -> (Option<String>, Vec<BranchDisplay>) {
+    // Custom packages that extend a built-in inherit the base's git style unless
+    // the custom file defines its own [git] block. Custom [git] overrides base.
+    let (own_style, own_branches) = parse_git_block(packages::package_toml(package));
+    if let Package::Custom(c) = package
+        && let Some(base_name) = &c.extends
+        && let Ok(base) = Package::parse(base_name)
+    {
+        let (base_style, base_branches) = parse_git_block(packages::package_toml(&base));
+        let style = own_style.or(base_style);
+        let branches = if own_branches.is_empty() {
+            base_branches
+        } else {
+            own_branches
+        };
+        return (style, branches);
+    }
+    (own_style, own_branches)
+}
+
+fn parse_git_block(source: &str) -> (Option<String>, Vec<BranchDisplay>) {
     let config: crate::toml_config::TomlConfig = match toml::from_str(source) {
         Ok(c) => c,
         Err(_) => return (None, Vec::new()),
@@ -226,7 +265,8 @@ fn extract_git_info(package: Package) -> (Option<String>, Vec<BranchDisplay>) {
 // ---------------------------------------------------------------------------
 
 fn set_profile(name: &str, project: bool) -> Result<ExitCode, RippyError> {
-    let _ = Package::parse(name).map_err(RippyError::Setup)?;
+    let home = config::home_dir();
+    let _ = Package::resolve(name, home.as_deref())?;
 
     let path = resolve_config_path(project)?;
     write_package_setting(&path, name)?;

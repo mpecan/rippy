@@ -127,12 +127,48 @@ rippy init --package develop
 Manage packages anytime with `rippy profile`:
 
 ```bash
-rippy profile list              # see all packages
+rippy profile list              # see all packages (built-in + custom)
 rippy profile show develop      # see what a package does
 rippy profile set autopilot     # switch packages
 ```
 
 Packages are a starting point — layer your own rules on top. See the [Packages wiki](https://github.com/mpecan/rippy/wiki/Packages) for full details on what each package auto-approves, asks, and blocks.
+
+### Custom packages
+
+Create your own packages in `~/.rippy/packages/<name>.toml` using the same
+TOML format. Use `extends = "develop"` (or another built-in) in the `[meta]`
+section to inherit rules from a built-in base and layer your own on top:
+
+```toml
+# ~/.rippy/packages/backend-dev.toml
+[meta]
+name = "backend-dev"
+tagline = "Go + Postgres + K8s workflow"
+extends = "develop"
+
+[[rules]]
+action = "allow"
+command = "kubectl"
+subcommands = ["get", "describe", "logs"]
+
+[[rules]]
+action = "deny"
+pattern = "kubectl delete"
+message = "destructive — run manually"
+```
+
+Then activate it like any built-in:
+
+```bash
+rippy profile set backend-dev
+# or: set  package = "backend-dev"  in [settings]
+```
+
+Custom packages appear in `rippy profile list` under a "Custom packages:"
+section and work with `rippy profile show <name>`. Built-in names
+(`review`, `develop`, `autopilot`) always take priority — if a custom file
+shadows one, rippy uses the built-in and prints a warning.
 
 ## How It Works
 
