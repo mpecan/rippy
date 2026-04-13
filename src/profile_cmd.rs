@@ -254,7 +254,11 @@ fn resolve_config_path(project: bool) -> Result<std::path::PathBuf, RippyError> 
 /// If the file has an existing `package = ` line, it is replaced.
 /// If the file has a `[settings]` section but no package, the line is inserted.
 /// Otherwise, `[settings]\npackage = "<name>"` is prepended.
-fn write_package_setting(path: &Path, package_name: &str) -> Result<(), RippyError> {
+///
+/// # Errors
+///
+/// Returns `RippyError::Setup` if the file cannot be read or written.
+pub fn write_package_setting(path: &Path, package_name: &str) -> Result<(), RippyError> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {

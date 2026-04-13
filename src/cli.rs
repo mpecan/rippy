@@ -154,6 +154,11 @@ pub struct InitArgs {
     /// Print stdlib to stdout instead of writing to file
     #[arg(long)]
     pub stdout: bool,
+
+    /// Safety package to activate (review, develop, autopilot).
+    /// Prompts interactively if omitted.
+    #[arg(long)]
+    pub package: Option<String>,
 }
 
 #[derive(Args, Debug)]
