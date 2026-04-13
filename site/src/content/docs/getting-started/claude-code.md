@@ -7,9 +7,23 @@ rippy plugs into [Claude Code](https://www.anthropic.com/claude-code) as a
 `PreToolUse` hook on the `Bash` tool. Every shell command Claude Code wants
 to run is piped to rippy first; rippy approves, asks, or blocks.
 
-## Global setup
+## One-line setup
 
-Add the hook to `~/.claude/settings.json`:
+The fastest path is to let rippy edit `settings.json` for you:
+
+```sh
+rippy setup claude-code
+```
+
+That's it — rippy writes the hook stanza into `~/.claude/settings.json`.
+Run it from inside a repo to install the hook at the project level
+instead of globally.
+
+## Manual setup
+
+If you prefer to edit `settings.json` by hand, add this block to
+`~/.claude/settings.json` (or `.claude/settings.json` inside a repo for
+project-scoped setup):
 
 ```json
 {
@@ -26,26 +40,24 @@ Add the hook to `~/.claude/settings.json`:
 }
 ```
 
-## Project-scoped setup
-
-Drop the same block into `.claude/settings.json` inside a repository to
-override the global hook for that project only.
-
 ## What happens on each call
 
 1. Claude Code serializes the `Bash` tool-use payload to JSON and pipes it
    to `rippy`.
-2. rippy parses the command string into an AST, consults your
-   [`.rippy` config](/configuration/overview/) and Claude Code's own
-   `permissions.allow/deny/ask` rules, and applies its
-   [safety model](/reference/safety-model/).
-3. rippy prints a JSON verdict on stdout. Exit code `0` means **allow**,
-   `2` means **ask / deny**, `1` means an internal error (rippy
-   fails open on internal errors — see the FAQ).
+2. rippy first checks Claude Code's own
+   `permissions.allow` / `permissions.deny` / `permissions.ask` rules in
+   `~/.claude/settings.json` as a **pre-analysis step**.
+3. If nothing matches there, rippy parses the command into an AST,
+   consults your [`.rippy.toml` config](/configuration/overview/), and
+   applies its [safety model](/reference/safety-model/).
+4. rippy prints a JSON verdict on stdout. Exit code `0` means **allow**,
+   `2` means **ask / deny**, `1` means an internal error (rippy fails
+   open on internal errors — see the [FAQ](/about/faq/)).
 
-## Reading Claude Code permission rules
+## Claude Code permissions are honored automatically
 
-rippy reads `permissions.allow`, `permissions.deny`, and `permissions.ask`
-from `~/.claude/settings.json` automatically — you do not need to duplicate
-them into `.rippy`. This lets rippy act as a drop-in enforcer for rules you
-already maintain in your Claude Code settings.
+You do **not** need to duplicate Claude Code's `permissions.allow` /
+`permissions.deny` / `permissions.ask` rules into your `.rippy.toml`.
+rippy reads them directly from `~/.claude/settings.json` as a separate
+pre-analysis step. Edit them in one place, keep both rippy and Claude
+Code in sync automatically.

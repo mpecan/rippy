@@ -51,6 +51,22 @@ Extract the `.tar.gz`, drop `rippy` on your `PATH`, and you are done.
 rippy --version
 ```
 
-If that prints a version number, you are ready to
-[wire rippy into Claude Code](/getting-started/claude-code/) — or pick your
-AI tool from the sidebar.
+If that prints a version number, you are ready to set up a config.
+
+## Next: pick a package
+
+The fastest way to get a working config is to let rippy pick one for you:
+
+```sh
+rippy init
+```
+
+This walks you through picking a [safety package](/getting-started/packages/)
+(`review`, `develop`, or `autopilot`) and writes the resulting config to
+`~/.rippy/config.toml`. You can edit or override it at any time.
+
+Then wire rippy into your AI tool of choice —
+[Claude Code](/getting-started/claude-code/),
+[Cursor](/getting-started/cursor/),
+[Gemini CLI](/getting-started/gemini-cli/), or
+[Codex CLI](/getting-started/codex/).

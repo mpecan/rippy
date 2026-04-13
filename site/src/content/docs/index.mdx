@@ -61,9 +61,25 @@ import { Card, CardGrid, Tabs, TabItem, Code } from '@astrojs/starlight/componen
   </TabItem>
 </Tabs>
 
-Then wire it up to your AI tool — it takes one line of JSON in
-`settings.json`. See the [Claude Code guide](/getting-started/claude-code/)
-or pick your tool from the sidebar.
+Then run `rippy init` to pick a [safety package](/getting-started/packages/)
+and wire rippy into your AI tool — `rippy setup claude-code`,
+`rippy setup cursor`, or `rippy setup gemini` does the hook-config editing
+for you. Full walkthrough in the [Claude Code guide](/getting-started/claude-code/).
+
+## Pick a safety package
+
+rippy ships three preconfigured packages so you don't have to start from
+a blank config:
+
+```
+  review      [===]     Full supervision. Every command asks.
+  develop     [==.]     Auto-approves builds, tests, VCS. Asks for destructive ops.
+  autopilot   [=..]     Maximum AI autonomy. Only catastrophic ops are blocked.
+```
+
+Pick one with `rippy init`, then layer your own `allow` / `ask` / `deny`
+rules on top. See the [Packages guide](/getting-started/packages/) for
+details.
 
 ## What gets auto-approved?
 

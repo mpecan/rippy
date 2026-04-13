@@ -1,17 +1,54 @@
 ---
 title: Example configs
-description: Annotated starter configs in both plain-text and TOML formats.
+description: Ready-to-copy starter configs for each package (review, develop, autopilot).
 ---
 
-import { Code } from '@astrojs/starlight/components';
+import { Code, Tabs, TabItem } from '@astrojs/starlight/components';
+import reviewToml from '../../../../../examples/review.rippy.toml?raw';
 import recommendedToml from '../../../../../examples/recommended.rippy.toml?raw';
+import autopilotToml from '../../../../../examples/autopilot.rippy.toml?raw';
 
-Two ready-to-use starter configs ship in the repo's
+Three package-specific starter configs ship in the repo's
 [`examples/` directory](https://github.com/mpecan/rippy/tree/main/examples).
-Copy one, drop it at `~/.rippy/config.toml` (global) or `.rippy.toml` in
-your project, and edit as needed.
+Each corresponds to a [package](/getting-started/packages/) and is meant
+to be copied as-is and then customized. Pick the one that matches how
+much friction you want.
 
-## Plain-text starter (`.rippy`)
+All three are imported verbatim from the checked-in files in this repo,
+so the snippets below can never drift from what you actually get by
+running `rippy init --package <name>`.
+
+<Tabs syncKey="package">
+  <TabItem label="review">
+    **Full supervision.** Every command asks by default. The starter adds
+    hard denies for force-push, hard reset, recursive delete, and a few
+    other footguns so they can't be accidentally approved away.
+
+    Copy as `.rippy.toml` or `~/.rippy/config.toml`:
+
+    <Code code={reviewToml} lang="toml" title="examples/review.rippy.toml" />
+  </TabItem>
+  <TabItem label="develop">
+    **Balanced default.** Auto-approves builds, tests, and read-only VCS;
+    asks for destructive or network-altering operations. Good starting
+    point if you're not sure which package to pick.
+
+    <Code code={recommendedToml} lang="toml" title="examples/recommended.rippy.toml" />
+  </TabItem>
+  <TabItem label="autopilot">
+    **Maximum AI autonomy.** Default is `allow`; only catastrophic
+    operations (root filesystem ops, secret file writes, force-push) are
+    blocked. Use with guardrails elsewhere (branch protection, sandboxed
+    environments).
+
+    <Code code={autopilotToml} lang="toml" title="examples/autopilot.rippy.toml" />
+  </TabItem>
+</Tabs>
+
+## Legacy plain-text format
+
+The original Dippy-compatible `.rippy` format is still supported. One
+rule per line, no `[[rules]]` tables:
 
 ```bash
 # Block dangerous commands with guidance
@@ -26,28 +63,9 @@ allow uv run python -c
 deny-redirect **/.env*
 deny-redirect /etc/*
 
-# MCP tool rules
-deny-mcp dangerous_tool
-
-# Post-execution feedback
-after git commit "committed successfully"
-
 # Settings
 set default ask
-set log ~/.rippy/audit.log
-
-# Aliases
-alias ~/custom-git git
 ```
 
-## TOML starter (`.rippy.toml`)
-
-This block is imported verbatim from
-[`examples/recommended.rippy.toml`](https://github.com/mpecan/rippy/blob/main/examples/recommended.rippy.toml)
-so it can never drift from the checked-in source:
-
-<Code code={recommendedToml} lang="toml" title=".rippy.toml" />
-
-Both files cover the same ground: guarding destructive git operations,
-stopping writes to secrets and system paths, asking before installing
-packages, and wrapping container and MCP tool usage in review.
+New configs should prefer TOML. If you have an existing `.rippy` file,
+`rippy migrate` converts it automatically.

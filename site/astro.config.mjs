@@ -25,6 +25,7 @@ export default defineConfig({
           label: 'Getting started',
           items: [
             { label: 'Installation', slug: 'getting-started/installation' },
+            { label: 'Packages', slug: 'getting-started/packages' },
             { label: 'Claude Code', slug: 'getting-started/claude-code' },
             { label: 'Cursor', slug: 'getting-started/cursor' },
             { label: 'Gemini CLI', slug: 'getting-started/gemini-cli' },
@@ -43,6 +44,7 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
+            { label: 'CLI commands', slug: 'reference/cli-commands' },
             { label: 'Safety model', slug: 'reference/safety-model' },
             { label: 'Handlers', slug: 'reference/handlers' },
             { label: 'File analysis', slug: 'reference/file-analysis' },
