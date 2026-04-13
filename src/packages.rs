@@ -78,7 +78,7 @@ impl Package {
     /// malformed. Returns `RippyError::Setup` if the name is unknown.
     pub fn resolve(name: &str, home: Option<&Path>) -> Result<Self, RippyError> {
         // Built-ins always take priority.
-        if Self::parse(name).is_ok() {
+        if let Ok(builtin) = Self::parse(name) {
             if let Some(home) = home
                 && home
                     .join(".rippy/packages")
@@ -89,7 +89,7 @@ impl Package {
                     "[rippy] custom package \"{name}\" is shadowed by the built-in package with the same name"
                 );
             }
-            return Self::parse(name).map_err(RippyError::Setup);
+            return Ok(builtin);
         }
 
         // Try custom packages.
@@ -188,10 +188,7 @@ impl Package {
 }
 
 fn known_package_names(home: Option<&Path>) -> Vec<String> {
-    let mut names: Vec<String> = ["review", "develop", "autopilot"]
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect();
+    let mut names: Vec<String> = ALL_BUILTIN.iter().map(|p| p.name().to_string()).collect();
     if let Some(home) = home {
         for custom in discover_custom_packages(home) {
             if !names.contains(&custom.name) {

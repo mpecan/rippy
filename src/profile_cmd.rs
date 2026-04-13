@@ -222,7 +222,26 @@ fn format_rule_description(r: &crate::config::Rule) -> String {
 }
 
 fn extract_git_info(package: &Package) -> (Option<String>, Vec<BranchDisplay>) {
-    let source = packages::package_toml(package);
+    // Custom packages that extend a built-in inherit the base's git style unless
+    // the custom file defines its own [git] block. Custom [git] overrides base.
+    let (own_style, own_branches) = parse_git_block(packages::package_toml(package));
+    if let Package::Custom(c) = package
+        && let Some(base_name) = &c.extends
+        && let Ok(base) = Package::parse(base_name)
+    {
+        let (base_style, base_branches) = parse_git_block(packages::package_toml(&base));
+        let style = own_style.or(base_style);
+        let branches = if own_branches.is_empty() {
+            base_branches
+        } else {
+            own_branches
+        };
+        return (style, branches);
+    }
+    (own_style, own_branches)
+}
+
+fn parse_git_block(source: &str) -> (Option<String>, Vec<BranchDisplay>) {
     let config: crate::toml_config::TomlConfig = match toml::from_str(source) {
         Ok(c) => c,
         Err(_) => return (None, Vec::new()),

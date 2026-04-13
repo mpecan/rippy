@@ -174,6 +174,65 @@ message = "team policy"
 }
 
 #[test]
+fn profile_show_custom_inherits_git_style_from_base() {
+    let home = tempfile::tempdir().unwrap();
+    // Custom package extends develop but defines no [git] block of its own.
+    // The `profile show` output should surface the git style inherited from develop.
+    write_custom_package(
+        home.path(),
+        "team",
+        r#"
+[meta]
+name = "team"
+extends = "develop"
+"#,
+    );
+
+    let (stdout, _stderr, code) =
+        rippy_with_home(&["profile", "show", "team", "--json"], home.path());
+    assert_eq!(code, 0);
+    let output: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // develop.toml sets git style to "standard" with branch-specific overrides.
+    let git_style = output["git_style"].as_str();
+    assert_eq!(
+        git_style,
+        Some("standard"),
+        "team should inherit develop's git style, got: {git_style:?}"
+    );
+    let branches = output["git_branches"].as_array().unwrap();
+    assert!(
+        !branches.is_empty(),
+        "team should inherit develop's git branches"
+    );
+}
+
+#[test]
+fn profile_show_custom_overrides_git_style() {
+    let home = tempfile::tempdir().unwrap();
+    // Custom package extends develop but defines its own [git] block.
+    // The custom block wins over the inherited base.
+    write_custom_package(
+        home.path(),
+        "team",
+        r#"
+[meta]
+name = "team"
+extends = "develop"
+
+[git]
+style = "cautious"
+"#,
+    );
+
+    let (stdout, _stderr, code) =
+        rippy_with_home(&["profile", "show", "team", "--json"], home.path());
+    assert_eq!(code, 0);
+    let output: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(output["git_style"].as_str(), Some("cautious"));
+}
+
+#[test]
 fn profile_show_unknown_package_errors() {
     let home = tempfile::tempdir().unwrap();
     let (stdout, stderr, code) = rippy_with_home(&["profile", "show", "nope"], home.path());
