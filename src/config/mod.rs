@@ -85,7 +85,7 @@ impl Config {
         // overrides global (last-match-wins). The package layer loads between
         // stdlib and user config so user rules can override package rules.
         let package = resolve_package(home.as_ref(), cwd);
-        if let Some(pkg) = package {
+        if let Some(pkg) = &package {
             directives.extend(crate::packages::package_directives(pkg)?);
         }
 
@@ -347,7 +347,7 @@ fn resolve_package(home: Option<&PathBuf>, cwd: &Path) -> Option<crate::packages
     }
 
     let name = package_name?;
-    match crate::packages::Package::parse(&name) {
+    match crate::packages::Package::resolve(&name, home.map(PathBuf::as_path)) {
         Ok(pkg) => Some(pkg),
         Err(e) => {
             eprintln!("[rippy] {e}");
@@ -907,5 +907,54 @@ mod tests {
         let config = Config::load_with_home(dir.path(), None, Some(home)).unwrap();
         // Invalid package name is gracefully ignored (with stderr warning)
         assert_eq!(config.active_package, None);
+    }
+
+    #[test]
+    fn custom_package_loads_via_config_pipeline() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".rippy/packages")).unwrap();
+
+        // Custom package extending develop adds a deny rule for `npm publish`.
+        std::fs::write(
+            home.join(".rippy/packages/team.toml"),
+            r#"
+[meta]
+name = "team"
+extends = "develop"
+
+[[rules]]
+action = "deny"
+pattern = "npm publish"
+message = "team policy"
+"#,
+        )
+        .unwrap();
+
+        // Global config activates the custom package.
+        std::fs::create_dir_all(home.join(".rippy")).unwrap();
+        std::fs::write(
+            home.join(".rippy/config.toml"),
+            "[settings]\npackage = \"team\"\n",
+        )
+        .unwrap();
+
+        let config = Config::load_with_home(dir.path(), None, Some(home)).unwrap();
+
+        // Active package is the custom one.
+        match &config.active_package {
+            Some(crate::packages::Package::Custom(c)) => assert_eq!(c.name, "team"),
+            other => panic!("expected Custom(team), got {other:?}"),
+        }
+
+        // Inherited from develop:
+        let v = config.match_command("cargo test", None);
+        assert!(v.is_some());
+        assert_eq!(v.unwrap().decision, Decision::Allow);
+
+        // Added by custom team package:
+        let v = config.match_command("npm publish", None);
+        assert!(v.is_some());
+        assert_eq!(v.unwrap().decision, Decision::Deny);
     }
 }

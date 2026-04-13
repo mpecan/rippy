@@ -129,7 +129,8 @@ pub fn run_init(args: &InitArgs) -> Result<ExitCode, RippyError> {
 /// or default to `develop` when stdin is not a terminal.
 fn resolve_init_package(args: &InitArgs) -> Result<Package, RippyError> {
     if let Some(name) = &args.package {
-        return Package::parse(name).map_err(RippyError::Setup);
+        let home = config::home_dir();
+        return Package::resolve(name, home.as_deref());
     }
 
     if is_interactive() {
@@ -176,12 +177,12 @@ fn prompt_package_selection() -> Result<Package, RippyError> {
 
     let mut input = String::new();
     if std::io::stdin().read_line(&mut input).is_err() {
-        return Ok(packages[default_idx]);
+        return Ok(packages[default_idx].clone());
     }
 
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Ok(packages[default_idx]);
+        return Ok(packages[default_idx].clone());
     }
 
     // Try as a 1-based index first, then as a package name.
@@ -189,7 +190,7 @@ fn prompt_package_selection() -> Result<Package, RippyError> {
         && n >= 1
         && n <= packages.len()
     {
-        return Ok(packages[n - 1]);
+        return Ok(packages[n - 1].clone());
     }
 
     Package::parse(trimmed).map_err(RippyError::Setup)

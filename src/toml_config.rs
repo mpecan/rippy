@@ -35,12 +35,15 @@ pub struct TomlConfig {
 /// Metadata section for packages and config files.
 ///
 /// This is purely informational — it is not converted to config directives.
+/// For custom packages, `extends` names a built-in package whose rules are
+/// inherited before the custom package's own rules are layered on top.
 #[derive(Debug, Deserialize)]
 pub struct TomlMeta {
     pub name: Option<String>,
     pub tagline: Option<String>,
     pub shield: Option<String>,
     pub description: Option<String>,
+    pub extends: Option<String>,
 }
 
 /// Configuration for `cd` directory navigation.
