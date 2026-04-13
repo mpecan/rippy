@@ -182,7 +182,7 @@ Additionally, **Claude Code settings** (`~/.claude/settings.json` → `permissio
 
 ### Config format: `.rippy.toml` is preferred
 
-Write new configs as **`.rippy.toml`**. TOML is the actively-developed format — structured rules, per-rule `risk` levels, structured matching (`command` / `subcommand` / `flags` / `args-contain`), and conditional rules are all TOML-only. `rippy init`, `rippy allow`, `rippy deny`, and `rippy ask` all write to `.rippy.toml`.
+Write new configs as **`.rippy.toml`**. TOML is where new features land — structured matching (`command` / `subcommand` / `flags` / `args-contain`) is TOML-only, and `rippy init`, `rippy allow`, `rippy deny`, and `rippy ask` all write to `.rippy.toml`.
 
 ```toml
 [settings]
@@ -218,7 +218,7 @@ message = "Do not write to environment files"
 
 Starter configs live in [`examples/`](examples/): [`recommended.rippy.toml`](examples/recommended.rippy.toml), [`review.rippy.toml`](examples/review.rippy.toml), [`autopilot.rippy.toml`](examples/autopilot.rippy.toml).
 
-The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited from Dippy) is still loaded so existing configs keep working. It does not support structured matching or new features — run `rippy migrate` to convert a flat file to `.rippy.toml`. See [`examples/recommended.rippy`](examples/recommended.rippy) for a flat example and the [docs](https://rippy.pecan.si/configuration/rules/) for the full grammar.
+The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited from Dippy) is still loaded, so existing configs keep working. It can't express structured matching; run `rippy migrate` to convert a flat file to `.rippy.toml`. See [`examples/recommended.rippy`](examples/recommended.rippy) for a flat example and the [docs](https://rippy.pecan.si/configuration/rules/) for the full grammar.
 
 ### Rule types
 

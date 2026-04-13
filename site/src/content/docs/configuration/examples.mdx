@@ -47,15 +47,10 @@ running `rippy init --package <name>`.
 
 ## Legacy flat format
 
-:::caution[Prefer TOML for new configs]
-The flat `.rippy` / `.dippy` format is still loaded, but it is a
-backward-compatibility surface only. Structured matching, `risk`
-levels, and future features land in TOML exclusively. Run
-`rippy migrate` to convert an existing flat file to `.rippy.toml`.
-:::
-
-For reference, the original Dippy-compatible flat format — one rule
-per line, no `[[rules]]` tables:
+The original Dippy-compatible flat format is still loaded so existing
+configs keep working, but new configs should use `.rippy.toml`. Run
+`rippy migrate` to convert a flat file to TOML. For reference, the
+flat grammar is one rule per line, no tables:
 
 ```bash
 # Block dangerous commands with guidance

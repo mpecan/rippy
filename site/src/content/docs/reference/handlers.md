@@ -39,7 +39,8 @@ When a command arrives, rippy evaluates in this order:
    `~/.claude/settings.json`.
 3. **Safe allowlist** — the ~130 read-only tools that are always fine.
 4. **Handler verdict** — the per-CLI handler for the specific command.
-5. **Default** — whatever you set via `set default` (usually `ask`).
+5. **Default** — whatever you set via `default` in the `[settings]`
+   block of your config (usually `ask`).
 
 The first layer that produces a decision wins. That means you can always
 override a handler with an explicit rule — an `action = "deny"` rule

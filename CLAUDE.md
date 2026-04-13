@@ -14,7 +14,7 @@
 `rippy` is a shell command safety hook for AI coding tools (Claude Code, Cursor, Gemini CLI). It reads tool-use JSON from stdin, parses the shell command with rable (a standalone bash AST parser), evaluates it against safety rules, and returns a verdict (approve, block, or deny-redirect). It is a Rust rewrite of [Dippy](https://github.com/ldayton/Dippy).
 
 - **Binary:** `rippy` (crate name is `rippy-cli` on crates.io)
-- **Config:** `~/.rippy/config` (global) and `.rippy` (project-level override)
+- **Config:** `~/.rippy/config.toml` (global) and `.rippy.toml` (project-level override). Legacy flat `.rippy` / `.dippy` files are still read for backward compatibility; new configs should prefer TOML.
 - **Input:** JSON on stdin (tool-use hook payload)
 - **Output:** JSON on stdout (hook verdict), exit code 0 (approve) / 2 (block)
 
@@ -45,7 +45,7 @@
 2. Detect mode (Claude Code / Cursor / Gemini) from payload or CLI flags
 3. Extract the shell command string
 4. Parse with rable into a bash AST
-5. Load config (global `~/.rippy/config` merged with project `.rippy`)
+5. Load config (global `~/.rippy/config.toml` merged with project `.rippy.toml`; legacy flat files still accepted)
 6. Evaluate rules against the parsed AST
 7. Return JSON verdict on stdout
 

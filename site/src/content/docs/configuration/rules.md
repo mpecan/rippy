@@ -3,8 +3,8 @@ title: Rules
 description: The complete rule grammar for rippy config files.
 ---
 
-rippy configs are TOML files. A `.rippy.toml` is a list of `[[rules]]`
-tables plus an optional `[settings]` block:
+Write rippy config as a `.rippy.toml` file — a list of rules plus an
+optional `[settings]` block:
 
 ```toml
 [settings]
@@ -16,19 +16,12 @@ pattern = "git push --force"
 message = "Use --force-with-lease instead"
 ```
 
-Every rule type described below is written the same way: one `[[rules]]`
-table with an `action`, a `pattern`, and an optional `message`. Extra
-fields (`risk`, structured matchers) are noted where they apply.
-
-:::tip[TOML is the preferred format]
-`.rippy.toml` is the recommended format for all new configs. It's
-structured, validates cleanly, round-trips through `rippy allow`/`deny`/
-`ask`, and supports richer matching (per-arg matchers, risk levels). The
-legacy flat `.rippy` / `.dippy` format is still read for
-backward-compatibility — see [Legacy flat format](#legacy-flat-format)
-at the bottom of this page — but `rippy migrate` will convert it for you
-and new documentation targets TOML exclusively.
-:::
+Each rule type below is one `[[rules]]` table with an `action`, a
+`pattern` (or [structured fields](#structured-matching)), and an
+optional `message`. The legacy flat `.rippy` / `.dippy` format is still
+read for backward compatibility — see [Legacy flat format](#legacy-flat-format)
+at the bottom — but new configs should use `.rippy.toml`, and
+`rippy migrate` will convert an existing flat file for you.
 
 ## Command rules
 
@@ -64,12 +57,12 @@ pattern = "npm install"
 message = "Double-check the package name before installing"
 ```
 
-### Structured matching
+## Structured matching
 
-Instead of a single `pattern` string, command rules can match on the
+Instead of a single `pattern` string, a command rule can match on the
 command name, subcommand, flags, and argument content as separate
-fields. This is the safest way to pin a rule to a specific subcommand
-without relying on prefix tricks:
+fields. This is the cleanest way to pin a rule to a specific subcommand
+without depending on how the command string is written:
 
 ```toml
 [[rules]]
@@ -80,16 +73,18 @@ flags = ["--force"]
 message = "Use --force-with-lease instead"
 ```
 
-Supported fields (all optional, combined with AND):
+Supported fields (all optional; a rule matches only when every field
+you supply matches):
 
 - `command` — the command name (e.g. `"git"`, `"docker"`)
-- `subcommand` — a single subcommand, or `subcommands` for a list
+- `subcommand` — a single subcommand; use `subcommands` for a list
   (e.g. `["push", "reset"]`)
 - `flags` — required flags (e.g. `["--force"]`)
-- `args-contain` — match rules where any argument contains this string
+- `args-contain` — matches if any argument contains this substring
 
-Structured matching is TOML-only; the flat format has no equivalent.
-See [Patterns](/configuration/patterns/) for the pattern grammar.
+Structured matching is TOML-only; the legacy flat format has no
+equivalent. See [Patterns](/configuration/patterns/) for the pattern
+grammar used inside individual fields.
 
 ## Redirect rules
 
@@ -218,10 +213,9 @@ starters you can copy into your project.
 ## Legacy flat format
 
 Before TOML, rippy accepted a Dippy-compatible flat format — one rule
-per line in a file named `.rippy` or `.dippy`. It's still loaded for
-backward compatibility, but **new configs should prefer
-`.rippy.toml`**. Run `rippy migrate` to convert an existing flat file
-into TOML.
+per line in a file named `.rippy` or `.dippy`. It's still loaded so
+existing configs keep working, but new configs should use
+`.rippy.toml`. Run `rippy migrate` to convert an existing flat file.
 
 The flat grammar, for reference:
 
@@ -245,6 +239,5 @@ alias SOURCE TARGET
 set KEY VALUE
 ```
 
-The flat form does not support structured matching (`command` / `args`)
-or per-rule `risk` levels — those are TOML-only. If you need either,
-migrate the file.
+Structured matching (`command` / `subcommand` / `flags` /
+`args-contain`) is not available in the flat format.

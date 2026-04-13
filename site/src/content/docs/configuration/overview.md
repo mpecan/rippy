@@ -38,12 +38,13 @@ You do not need to duplicate Claude Code rules into `.rippy.toml`.
 
 ## Config format: prefer `.rippy.toml`
 
-**Write new configs as `.rippy.toml`.** TOML is the preferred and
-actively-developed format — every rule type (command, redirect, MCP,
-after, alias) is expressed as a `[[rules]]` table, and the structured
-fields (`command`, `subcommand`, `flags`, `args-contain`, `risk`) are
-TOML-only. The CLI reflects this too: `rippy init`, `rippy allow`,
-`rippy deny`, and `rippy ask` all write to `.rippy.toml`.
+Write new configs as `.rippy.toml`. TOML is where new features land —
+every command, redirect, MCP, and `after` rule is a `[[rules]]` table,
+aliases go in `[[aliases]]`, settings go in `[settings]`, and
+[structured matching](/configuration/rules/#structured-matching)
+(`command` / `subcommand` / `flags` / `args-contain`) is TOML-only. The
+CLI reflects this: `rippy init`, `rippy allow`, `rippy deny`, and
+`rippy ask` all write to `.rippy.toml`.
 
 ```toml
 [settings]
@@ -58,14 +59,9 @@ message = "Use --force-with-lease instead"
 
 The legacy **flat `.rippy` / `.dippy` format** (one rule per line, a
 carry-over from [Dippy](https://github.com/ldayton/Dippy)) is still
-loaded for backward compatibility, so existing configs keep working
-unchanged. But:
-
-- New features (structured matching, risk annotations, conditional
-  rules) land in TOML only.
-- `rippy migrate` converts a flat file to `.rippy.toml` in one shot.
-- Documentation, examples, and the rule grammar reference all target
-  TOML.
+loaded so existing configs keep working unchanged, but it doesn't
+support structured matching and won't see new features. Run
+`rippy migrate` to convert a flat file to `.rippy.toml` in one shot.
 
 See [Rules](/configuration/rules/) for the full grammar and
 [Examples](/configuration/examples/) for ready-to-copy starter configs.
