@@ -13,6 +13,10 @@
 //! - `heredoc_unquoted_with_variable_expansion_asks`
 //! - `heredoc_indented_tab_stripping_allows`
 //! - `here_string_safe_content_allows`
+//! - `safe_heredoc_command_substitution_allows`
+//! - `unsafe_command_in_heredoc_substitution_asks`
+//! - `unquoted_heredoc_substitution_with_expansion_asks`
+//! - `piped_heredoc_in_substitution_asks`
 //!
 //! ## Category 2: Injection patterns that must be caught
 //! - `eval_with_command_substitution_asks`
@@ -135,6 +139,31 @@ fn heredoc_indented_tab_stripping_allows() {
 fn here_string_safe_content_allows() {
     // Here-strings (<<<) feed a single string to stdin. Safe content is fine.
     assert_allows("cat <<< \"hello world\"");
+}
+
+#[test]
+fn safe_heredoc_command_substitution_allows() {
+    // $(cat <<'EOF' ... EOF) is a safe data-passing idiom: cat is SIMPLE_SAFE,
+    // quoted delimiter prevents expansion, no pipes or chaining.
+    assert_allows("echo \"$(cat <<'EOF'\nhello world\nEOF\n)\"");
+}
+
+#[test]
+fn unsafe_command_in_heredoc_substitution_asks() {
+    // bash is not SIMPLE_SAFE — even with a quoted heredoc, must ask.
+    assert_asks("echo \"$(bash <<'EOF'\nrm -rf /\nEOF\n)\"");
+}
+
+#[test]
+fn unquoted_heredoc_substitution_with_expansion_asks() {
+    // Unquoted delimiter means expansion is live inside the heredoc body.
+    assert_asks("echo \"$(cat <<EOF\n$(whoami)\nEOF\n)\"");
+}
+
+#[test]
+fn piped_heredoc_in_substitution_asks() {
+    // Pipe inside the substitution means inner node is Pipeline, not Command.
+    assert_asks("echo \"$(cat <<'EOF' | bash\nhello\nEOF\n)\"");
 }
 
 // ===========================================================================

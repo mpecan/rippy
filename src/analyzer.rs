@@ -183,8 +183,15 @@ impl Analyzer {
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
                 Verdict::combine(&verdicts)
             }
-            NodeKind::CommandSubstitution { command, .. }
-            | NodeKind::ProcessSubstitution { command, .. } => {
+            NodeKind::CommandSubstitution { command, .. } => {
+                let inner = self.analyze_node(command, cwd, depth + 1);
+                if ast::is_safe_heredoc_substitution(command) {
+                    inner
+                } else {
+                    most_restrictive(inner, Verdict::ask("command substitution"))
+                }
+            }
+            NodeKind::ProcessSubstitution { command, .. } => {
                 let inner = self.analyze_node(command, cwd, depth + 1);
                 most_restrictive(inner, Verdict::ask("command substitution"))
             }
@@ -1254,6 +1261,66 @@ mod tests {
         // {1..32}{1..32}{1..32} = 32k items, well over the cap.
         let mut a = make_analyzer();
         let v = a.analyze("echo {1..32}{1..32}{1..32}").unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn safe_heredoc_in_command_substitution_allows() {
+        let mut a = make_analyzer();
+        // $(cat <<'EOF' ... EOF) is a safe data-passing idiom — cat is SIMPLE_SAFE,
+        // quoted delimiter prevents expansion, and echo is also safe.
+        let v = a
+            .analyze("echo \"$(cat <<'EOF'\nhello world\nEOF\n)\"")
+            .unwrap();
+        assert_eq!(v.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn unquoted_heredoc_in_command_substitution_asks() {
+        let mut a = make_analyzer();
+        let v = a
+            .analyze("echo \"$(cat <<EOF\n$(rm -rf /)\nEOF\n)\"")
+            .unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn unsafe_command_heredoc_in_substitution_asks() {
+        let mut a = make_analyzer();
+        let v = a
+            .analyze("echo \"$(bash <<'EOF'\nrm -rf /\nEOF\n)\"")
+            .unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn pipeline_in_heredoc_substitution_asks() {
+        let mut a = make_analyzer();
+        let v = a
+            .analyze("echo \"$(cat <<'EOF' | bash\nhello\nEOF\n)\"")
+            .unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn heredoc_substitution_in_git_commit_resolves() {
+        // git commit -m is Ask (git handler policy), but the heredoc substitution
+        // should resolve rather than failing as "command substitution requires execution".
+        let mut a = make_analyzer();
+        let v = a
+            .analyze("git commit -m \"$(cat <<'EOF'\nmy commit message\nEOF\n)\"")
+            .unwrap();
+        assert_eq!(v.decision, Decision::Ask);
+        assert!(
+            v.resolved_command.is_some(),
+            "heredoc substitution should resolve to a concrete command"
+        );
+    }
+
+    #[test]
+    fn command_sub_without_heredoc_still_asks() {
+        let mut a = make_analyzer();
+        let v = a.analyze("echo $(ls)").unwrap();
         assert_eq!(v.decision, Decision::Ask);
     }
 
