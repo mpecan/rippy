@@ -83,6 +83,8 @@ pub struct TomlSettings {
     /// Whether to auto-trust all project configs without checking the trust DB.
     #[serde(rename = "trust-project-configs")]
     pub trust_project_configs: Option<bool>,
+    /// Safety package to activate (e.g., "review", "develop", "autopilot").
+    pub package: Option<String>,
 }
 
 /// A single rule entry from the `[[rules]]` array.
@@ -205,6 +207,12 @@ fn settings_to_directives(settings: &TomlSettings, out: &mut Vec<ConfigDirective
         out.push(ConfigDirective::Set {
             key: "trust-project-configs".to_string(),
             value: if trust { "on" } else { "off" }.to_string(),
+        });
+    }
+    if let Some(package) = &settings.package {
+        out.push(ConfigDirective::Set {
+            key: "package".to_string(),
+            value: package.clone(),
         });
     }
 }
