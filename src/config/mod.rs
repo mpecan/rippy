@@ -52,6 +52,8 @@ pub struct Config {
     /// Pre-formatted suffix appended to verdict reasons when project allow rules fire.
     /// Empty string when the project config doesn't weaken protections.
     project_weakening_suffix: String,
+    /// The active safety package (if any).
+    pub active_package: Option<crate::packages::Package>,
 }
 
 impl Config {
@@ -79,6 +81,14 @@ impl Config {
         // Stdlib first (lowest priority — user config overrides via last-match-wins).
         let mut directives = crate::stdlib::stdlib_directives()?;
 
+        // Pre-scan config files for the package setting. Project config
+        // overrides global (last-match-wins). The package layer loads between
+        // stdlib and user config so user rules can override package rules.
+        let package = resolve_package(home.as_ref(), cwd);
+        if let Some(pkg) = package {
+            directives.extend(crate::packages::package_directives(pkg)?);
+        }
+
         if let Some(home) = home {
             load_first_existing(
                 &[
@@ -103,7 +113,9 @@ impl Config {
             load_file(env_path, &mut directives)?;
         }
 
-        Ok(Self::from_directives(directives))
+        let mut config = Self::from_directives(directives);
+        config.active_package = package;
+        Ok(config)
     }
 
     #[must_use]
@@ -303,6 +315,44 @@ impl Config {
 
         config.project_weakening_suffix = build_weakening_suffix(&weakening_notes);
         config
+    }
+}
+
+/// Pre-scan global and project config files for the `package` setting.
+///
+/// Project config overrides global (last-match-wins). Returns `None` if
+/// no config file specifies a package.
+fn resolve_package(home: Option<&PathBuf>, cwd: &Path) -> Option<crate::packages::Package> {
+    let mut package_name: Option<String> = None;
+
+    // Check global config candidates.
+    if let Some(home) = home {
+        for path in &[
+            home.join(".rippy/config.toml"),
+            home.join(".rippy/config"),
+            home.join(".dippy/config"),
+        ] {
+            if path.is_file() {
+                package_name = loader::extract_package_setting(path);
+                break; // Only the first existing global config matters
+            }
+        }
+    }
+
+    // Check project config (overrides global).
+    if let Some(project_config) = find_project_config(cwd)
+        && let Some(name) = loader::extract_package_setting(&project_config)
+    {
+        package_name = Some(name);
+    }
+
+    let name = package_name?;
+    match crate::packages::Package::parse(&name) {
+        Ok(pkg) => Some(pkg),
+        Err(e) => {
+            eprintln!("[rippy] {e}");
+            None
+        }
     }
 }
 
@@ -736,5 +786,95 @@ mod tests {
         assert_eq!(v.decision, Decision::Allow);
         assert!(v.reason.contains("NOTE: project config"));
         assert!(v.reason.contains("default action to allow"));
+    }
+
+    #[test]
+    fn package_setting_loads_develop_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "[settings]\npackage = \"develop\"\n").unwrap();
+
+        let mut directives = Vec::new();
+        loader::load_file(&config_path, &mut directives).unwrap();
+
+        // The config should contain a Set directive for package
+        let has_package = directives
+            .iter()
+            .any(|d| matches!(d, ConfigDirective::Set { key, value } if key == "package" && value == "develop"));
+        assert!(has_package, "should emit package setting directive");
+    }
+
+    #[test]
+    fn package_loads_via_config_pipeline() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".rippy")).unwrap();
+        std::fs::write(
+            home.join(".rippy/config.toml"),
+            "[settings]\npackage = \"develop\"\n",
+        )
+        .unwrap();
+
+        let config = Config::load_with_home(dir.path(), None, Some(home)).unwrap();
+        assert_eq!(
+            config.active_package,
+            Some(crate::packages::Package::Develop)
+        );
+        // Develop package allows cargo test
+        let v = config.match_command("cargo test", None);
+        assert!(v.is_some(), "develop package should match cargo test");
+        assert_eq!(v.unwrap().decision, Decision::Allow);
+    }
+
+    #[test]
+    fn project_package_overrides_global() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".rippy")).unwrap();
+        std::fs::write(
+            home.join(".rippy/config.toml"),
+            "[settings]\npackage = \"develop\"\n",
+        )
+        .unwrap();
+
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join(".rippy.toml"),
+            "[settings]\npackage = \"review\"\n",
+        )
+        .unwrap();
+
+        let config = Config::load_with_home(&project, None, Some(home)).unwrap();
+        assert_eq!(
+            config.active_package,
+            Some(crate::packages::Package::Review)
+        );
+    }
+
+    #[test]
+    fn no_package_setting_backward_compatible() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config::load_with_home(dir.path(), None, None).unwrap();
+        assert_eq!(config.active_package, None);
+    }
+
+    #[test]
+    fn user_rules_override_package_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".rippy")).unwrap();
+        // develop package allows rm, but user config overrides to deny
+        std::fs::write(
+            home.join(".rippy/config.toml"),
+            "[settings]\npackage = \"develop\"\n\n\
+             [[rules]]\naction = \"deny\"\ncommand = \"rm\"\nmessage = \"no rm\"\n",
+        )
+        .unwrap();
+
+        let config = Config::load_with_home(dir.path(), None, Some(home)).unwrap();
+        let v = config.match_command("rm foo", None);
+        assert!(v.is_some());
+        assert_eq!(v.unwrap().decision, Decision::Deny);
     }
 }

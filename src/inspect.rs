@@ -53,6 +53,7 @@ pub(crate) struct RuleDisplay {
 pub(crate) struct ListOutput {
     pub(crate) config_sources: Vec<SourceRules>,
     pub(crate) cc_sources: Vec<SourceRules>,
+    active_package: Option<String>,
     default_action: Option<String>,
     handler_count: usize,
     simple_safe_count: usize,
@@ -108,6 +109,7 @@ pub(crate) fn collect_list_data(
     Ok(ListOutput {
         config_sources,
         cc_sources,
+        active_package: merged.active_package.map(|p| p.name().to_string()),
         default_action: merged.default_action.map(|d| d.as_str().to_string()),
         handler_count: handlers::handler_count(),
         simple_safe_count: allowlists::simple_safe_count(),
@@ -202,6 +204,10 @@ fn print_list_text(output: &ListOutput) {
             println!("    {:<6} {}", rule.action, rule.pattern);
         }
         println!();
+    }
+
+    if let Some(package) = &output.active_package {
+        println!("  Package: {package}");
     }
 
     if let Some(default) = &output.default_action {
@@ -620,6 +626,7 @@ mod tests {
                 }],
             }],
             cc_sources: vec![],
+            active_package: Some("develop".to_string()),
             default_action: Some("ask".to_string()),
             handler_count: 43,
             simple_safe_count: 165,

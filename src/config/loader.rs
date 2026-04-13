@@ -28,6 +28,7 @@ pub(super) fn apply_setting(config: &mut Config, key: &str, value: &str) {
         "self-protect" => {
             config.self_protect = value != "off";
         }
+        // "package" is handled during load_with_home() pre-scan, not here.
         _ => {}
     }
 }
@@ -186,4 +187,29 @@ pub(super) fn load_project_config_if_trusted(
 
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// Pre-scan a config file to extract the `package` setting, if present.
+///
+/// This is a lightweight read that avoids loading full directives — it only
+/// parses enough to find `settings.package` (TOML) or `set package <value>`
+/// (line-based).
+pub(super) fn extract_package_setting(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    if path.extension().is_some_and(|ext| ext == "toml") {
+        let config: crate::toml_config::TomlConfig = toml::from_str(&content).ok()?;
+        config.settings?.package
+    } else {
+        // Line-based format: look for `set package <value>`
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix("set package ") {
+                let value = rest.trim().trim_matches('"');
+                if !value.is_empty() {
+                    return Some(value.to_string());
+                }
+            }
+        }
+        None
+    }
 }
