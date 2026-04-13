@@ -33,7 +33,12 @@ impl ModeArg {
     after_help = "\
 Reads a JSON hook payload from stdin and writes a verdict to stdout.\n\n\
 Exit codes: 0 = allow, 2 = ask/deny, 1 = error\n\n\
-Example:\n  \
+Get started with a safety package:\n  \
+rippy init                          # interactive package selection\n  \
+rippy init --package develop        # skip the prompt\n  \
+rippy profile list                  # see available packages\n\n\
+Packages: review (full supervision), develop (balanced), autopilot (maximum autonomy)\n\n\
+Example hook usage:\n  \
 echo '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"}}' | rippy --mode claude"
 )]
 pub struct Cli {
@@ -62,7 +67,7 @@ pub enum Command {
     Ask(RuleArgs),
     /// Analyze tracking data and suggest config rules
     Suggest(SuggestArgs),
-    /// Copy default stdlib rules to config for customization
+    /// Initialize config with a safety package (review, develop, or autopilot)
     Init(InitArgs),
     /// Discover flag aliases from command --help output
     Discover(DiscoverArgs),
@@ -72,7 +77,7 @@ pub enum Command {
     Debug(DebugArgs),
     /// List safe commands, handlers, or effective rules
     List(ListArgs),
-    /// List, show, or activate safety packages
+    /// Manage safety packages (review, develop, autopilot)
     Profile(ProfileArgs),
 }
 

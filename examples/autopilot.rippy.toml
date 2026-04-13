@@ -1,0 +1,53 @@
+# Autopilot package — maximum AI autonomy
+#
+# Starts from the "autopilot" package (default = allow, only catastrophic
+# ops are blocked) and adds a few safety nets for common mistakes.
+#
+# Usage:  rippy init --package autopilot
+#         Then customize this file as needed.
+#
+# See: https://github.com/mpecan/rippy/wiki/Packages
+
+[settings]
+default = "allow"
+package = "autopilot"
+
+# --- Additional safety nets ---
+
+# Protect sensitive paths even in autopilot mode
+[[rules]]
+action = "deny-redirect"
+pattern = "**/.env*"
+message = "Do not write to environment files — they may contain secrets"
+
+[[rules]]
+action = "deny-redirect"
+pattern = "**/*.pem"
+message = "Do not write to PEM files — they contain private keys"
+
+# Ask before publishing or deploying
+[[rules]]
+action = "ask"
+pattern = "cargo publish"
+message = "Publishing to crates.io — are you sure?"
+
+[[rules]]
+action = "ask"
+pattern = "npm publish"
+message = "Publishing to npm — are you sure?"
+
+[[rules]]
+action = "ask"
+pattern = "docker push"
+message = "Pushing a container image — verify the tag and registry"
+
+# Post-execution feedback
+[[rules]]
+action = "after"
+pattern = "git commit"
+message = "Committed locally. Don't forget to push when ready."
+
+[[rules]]
+action = "after"
+pattern = "git push"
+message = "Pushed to remote."
