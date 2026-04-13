@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/mpecan/rippy/compare/rippy-cli-v0.1.1...rippy-cli-v0.1.2) (2026-04-13)
+
+
+### Bug Fixes
+
+* **ci:** add aarch64-unknown-linux-gnu to pinned toolchain targets ([#113](https://github.com/mpecan/rippy/issues/113)) ([7f9b59d](https://github.com/mpecan/rippy/commit/7f9b59d00eedf1dbad79ff105f6804b466487201))
+* **site:** bump Node to 22 for Astro 6 compatibility ([#112](https://github.com/mpecan/rippy/issues/112)) ([3c62502](https://github.com/mpecan/rippy/commit/3c62502849a576708abda959df827418cda13b3c))
+
 ## [0.1.1](https://github.com/mpecan/rippy/compare/rippy-cli-v0.1.0...rippy-cli-v0.1.1) (2026-04-13)
 
 
