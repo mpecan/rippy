@@ -285,13 +285,18 @@ pub fn write_package_setting(path: &Path, package_name: &str) -> Result<(), Ripp
         .map_err(|e| RippyError::Setup(format!("could not write {}: {e}", path.display())))
 }
 
+fn is_package_setting_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("package =") || trimmed.starts_with("package=")
+}
+
 fn update_package_in_content(existing: &str, new_line: &str) -> String {
     // Case 1: Replace existing package line.
-    if existing.lines().any(|l| l.trim().starts_with("package")) {
+    if existing.lines().any(is_package_setting_line) {
         return existing
             .lines()
             .map(|l| {
-                if l.trim().starts_with("package") {
+                if is_package_setting_line(l) {
                     new_line.to_string()
                 } else {
                     l.to_string()
@@ -360,6 +365,26 @@ mod tests {
         let result = update_package_in_content(existing, "package = \"develop\"");
         assert!(result.starts_with("[settings]\npackage = \"develop\""));
         assert!(result.contains("[[rules]]"));
+    }
+
+    #[test]
+    fn update_does_not_clobber_similar_keys() {
+        // Keys like package_version should not be matched by the package replacement.
+        let existing = "[settings]\npackage_version = \"1.0\"\ndefault = \"ask\"\n";
+        let result = update_package_in_content(existing, "package = \"develop\"");
+        assert!(
+            result.contains("package_version = \"1.0\""),
+            "package_version should be preserved, got: {result}"
+        );
+        assert!(result.contains("package = \"develop\""));
+    }
+
+    #[test]
+    fn update_handles_no_space_before_equals() {
+        let existing = "[settings]\npackage=\"review\"\n";
+        let result = update_package_in_content(existing, "package = \"develop\"");
+        assert!(result.contains("package = \"develop\""));
+        assert!(!result.contains("review"));
     }
 
     #[test]
