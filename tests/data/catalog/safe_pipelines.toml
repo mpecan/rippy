@@ -1,0 +1,84 @@
+[meta]
+description = "Safe pipelines and compound commands"
+
+# Pipelines
+[[case]]
+command = "cat file | grep pattern | sort | uniq"
+decision = "allow"
+
+[[case]]
+command = 'ls -la | grep ".rs" | wc -l'
+decision = "allow"
+
+[[case]]
+command = 'find . -name "*.rs" | grep test'
+decision = "allow"
+
+[[case]]
+command = "cat data.json | jq '.items'"
+decision = "allow"
+
+[[case]]
+command = "echo hello | tr a-z A-Z"
+decision = "allow"
+
+[[case]]
+command = "ps aux | grep python"
+decision = "allow"
+
+[[case]]
+command = "git log --oneline | grep fix"
+decision = "allow"
+
+[[case]]
+command = "diff file1 file2 | head -20"
+decision = "allow"
+
+[[case]]
+command = "cat file | sort | uniq -c | sort -rn"
+decision = "allow"
+
+[[case]]
+command = "echo hello | base64"
+decision = "allow"
+
+# Compound commands
+[[case]]
+command = "cargo fmt && cargo clippy && cargo test"
+decision = "allow"
+
+[[case]]
+command = "git status && git diff"
+decision = "allow"
+
+[[case]]
+command = "ls -la && echo done"
+decision = "allow"
+
+[[case]]
+command = "ls nonexistent || true"
+decision = "allow"
+
+[[case]]
+command = "time ls -la"
+decision = "allow"
+
+[[case]]
+command = "nice git status"
+decision = "allow"
+
+[[case]]
+command = "nice ls -la"
+decision = "allow"
+
+[[case]]
+command = "echo a; echo b; echo c"
+decision = "allow"
+
+[[case]]
+command = "echo a || echo b"
+decision = "allow"
+
+[[case]]
+command = "time git log --oneline -5"
+decision = "allow"

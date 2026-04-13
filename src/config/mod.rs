@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 mod loader;
 mod matching;
 mod parser;
@@ -59,10 +61,25 @@ impl Config {
     ///
     /// Returns `RippyError::Config` if a config file exists but contains invalid syntax.
     pub fn load(cwd: &Path, env_config: Option<&Path>) -> Result<Self, RippyError> {
+        Self::load_with_home(cwd, env_config, home_dir())
+    }
+
+    /// Load config with an explicit home directory instead of reading `$HOME`.
+    ///
+    /// Pass `None` to skip global config loading (useful for tests).
+    ///
+    /// # Errors
+    ///
+    /// Returns `RippyError::Config` if a config file exists but contains invalid syntax.
+    pub fn load_with_home(
+        cwd: &Path,
+        env_config: Option<&Path>,
+        home: Option<PathBuf>,
+    ) -> Result<Self, RippyError> {
         // Stdlib first (lowest priority — user config overrides via last-match-wins).
         let mut directives = crate::stdlib::stdlib_directives()?;
 
-        if let Some(home) = home_dir() {
+        if let Some(home) = home {
             load_first_existing(
                 &[
                     home.join(".rippy/config.toml"),

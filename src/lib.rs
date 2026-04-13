@@ -7,6 +7,7 @@ pub mod condition;
 pub mod config;
 pub mod debug_cmd;
 pub mod discover;
+pub mod environment;
 pub mod error;
 pub mod git_styles;
 pub mod handlers;

@@ -7,10 +7,11 @@ use crate::ast;
 use crate::cc_permissions::{self, CcRules};
 use crate::condition::MatchContext;
 use crate::config::Config;
+use crate::environment::Environment;
 use crate::error::RippyError;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::parser::BashParser;
-use crate::resolve::{self, EnvLookup, VarLookup};
+use crate::resolve::{self, VarLookup};
 use crate::verdict::{Decision, Verdict};
 
 const MAX_DEPTH: usize = 256;
@@ -48,7 +49,35 @@ pub struct Analyzer {
 }
 
 impl Analyzer {
+    /// Create a new analyzer from an [`Environment`] struct.
+    ///
+    /// This is the preferred constructor — it takes all external dependencies
+    /// as an explicit struct, making tests deterministic without env-var hacks.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RippyError::Parse` if the bash parser cannot be initialized.
+    pub fn from_env(config: Config, env: Environment) -> Result<Self, RippyError> {
+        let cc_rules = cc_permissions::load_cc_rules_with_home(&env.working_directory, env.home);
+        let git_branch = crate::condition::detect_git_branch(&env.working_directory);
+        Ok(Self {
+            parser: BashParser::new()?,
+            config,
+            remote: env.remote,
+            working_directory: env.working_directory,
+            verbose: env.verbose,
+            cc_rules,
+            git_branch,
+            piped: false,
+            var_lookup: env.var_lookup,
+            resolution_depth: 0,
+        })
+    }
+
     /// Create a new analyzer using the real process environment for variable lookups.
+    ///
+    /// Convenience wrapper around [`Analyzer::from_env`] that reads `$HOME`
+    /// and process env vars automatically.
     ///
     /// # Errors
     ///
@@ -59,13 +88,8 @@ impl Analyzer {
         working_directory: PathBuf,
         verbose: bool,
     ) -> Result<Self, RippyError> {
-        Self::new_with_var_lookup(
-            config,
-            remote,
-            working_directory,
-            verbose,
-            Box::new(EnvLookup),
-        )
+        let env = Environment::from_system(working_directory, remote, verbose);
+        Self::from_env(config, env)
     }
 
     /// Create a new analyzer with a custom variable lookup (used by tests
@@ -81,20 +105,9 @@ impl Analyzer {
         verbose: bool,
         var_lookup: Box<dyn VarLookup>,
     ) -> Result<Self, RippyError> {
-        let cc_rules = cc_permissions::load_cc_rules(&working_directory);
-        let git_branch = crate::condition::detect_git_branch(&working_directory);
-        Ok(Self {
-            parser: BashParser::new()?,
-            config,
-            remote,
-            working_directory,
-            verbose,
-            cc_rules,
-            git_branch,
-            piped: false,
-            var_lookup,
-            resolution_depth: 0,
-        })
+        let env = Environment::from_system(working_directory, remote, verbose)
+            .with_var_lookup(var_lookup);
+        Self::from_env(config, env)
     }
 
     /// Build a `MatchContext` for condition evaluation.

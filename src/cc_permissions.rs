@@ -81,10 +81,25 @@ impl CcRules {
 /// 4. `~/.claude/settings.local.json`
 #[must_use]
 pub fn load_cc_rules(working_dir: &Path) -> CcRules {
-    load_rules_from_paths(&get_settings_paths(working_dir))
+    load_cc_rules_with_home(working_dir, env_home_dir())
+}
+
+/// Load CC rules with an explicit home directory instead of reading `$HOME`.
+///
+/// Pass `None` to skip `~/.claude/` settings (useful for tests).
+#[must_use]
+pub fn load_cc_rules_with_home(working_dir: &Path, home: Option<PathBuf>) -> CcRules {
+    load_rules_from_paths(&get_settings_paths_with_home(working_dir, home))
 }
 
 pub(crate) fn get_settings_paths(working_dir: &Path) -> Vec<PathBuf> {
+    get_settings_paths_with_home(working_dir, env_home_dir())
+}
+
+pub(crate) fn get_settings_paths_with_home(
+    working_dir: &Path,
+    home: Option<PathBuf>,
+) -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     // Walk up from working_dir to find .claude/ directory
@@ -100,7 +115,7 @@ pub(crate) fn get_settings_paths(working_dir: &Path) -> Vec<PathBuf> {
         }
     }
 
-    if let Some(home) = home_dir() {
+    if let Some(home) = home {
         paths.push(home.join(".claude").join("settings.json"));
         paths.push(home.join(".claude").join("settings.local.json"));
     }
@@ -108,7 +123,7 @@ pub(crate) fn get_settings_paths(working_dir: &Path) -> Vec<PathBuf> {
     paths
 }
 
-fn home_dir() -> Option<PathBuf> {
+fn env_home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
