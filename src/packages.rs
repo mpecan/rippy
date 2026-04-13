@@ -234,9 +234,33 @@ mod tests {
     }
 
     #[test]
-    fn shield_values_are_three_chars() {
+    fn shield_values_match_expected() {
+        assert_eq!(Package::Review.shield(), "===");
+        assert_eq!(Package::Develop.shield(), "==.");
+        assert_eq!(Package::Autopilot.shield(), "=..");
+    }
+
+    #[test]
+    fn tagline_values_not_empty() {
         for pkg in Package::all() {
-            assert_eq!(pkg.shield().len(), 3, "{pkg} shield should be 3 chars");
+            assert!(
+                !pkg.tagline().is_empty(),
+                "{pkg} tagline should not be empty"
+            );
+        }
+    }
+
+    #[test]
+    fn autopilot_denies_catastrophic_rm() {
+        let config = Config::from_directives(package_directives(Package::Autopilot).unwrap());
+        for cmd in &["rm -rf /", "rm -rf ~"] {
+            let v = config.match_command(cmd, None);
+            assert!(v.is_some(), "autopilot should match {cmd}");
+            assert_eq!(
+                v.unwrap().decision,
+                Decision::Deny,
+                "autopilot should deny {cmd}"
+            );
         }
     }
 }
