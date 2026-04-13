@@ -28,10 +28,15 @@ toml = "0.8"
 rkyv = "0.8.15"
 sha2 = "0.10"
 
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
 [dev-dependencies]
 proptest = "1.5"
 serial_test = "3.4.0"
 tempfile = "3"
+toml = "0.8"
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/rippy-cli-v{ version }/rippy-v{ version }-{ target }.tar.gz"

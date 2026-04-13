@@ -1,0 +1,129 @@
+[meta]
+description = "Safe handler operations — git, docker, cargo, curl"
+
+# Git safe subcommands
+[[case]]
+command = "git log --oneline -20"
+decision = "allow"
+
+[[case]]
+command = "git diff --cached"
+decision = "allow"
+
+[[case]]
+command = "git show HEAD"
+decision = "allow"
+
+[[case]]
+command = "git blame src/main.rs"
+decision = "allow"
+
+[[case]]
+command = "git branch"
+decision = "allow"
+
+[[case]]
+command = "git stash list"
+decision = "allow"
+
+[[case]]
+command = "git remote"
+decision = "allow"
+
+[[case]]
+command = "git tag --list"
+decision = "allow"
+
+# Cargo safe subcommands
+[[case]]
+command = "cargo test --all"
+decision = "allow"
+
+[[case]]
+command = "cargo build --release"
+decision = "allow"
+
+[[case]]
+command = "cargo clippy -- -D warnings"
+decision = "allow"
+
+[[case]]
+command = "cargo fmt --check"
+decision = "allow"
+
+[[case]]
+command = "cargo bench"
+decision = "allow"
+
+[[case]]
+command = "cargo doc --no-deps"
+decision = "allow"
+
+[[case]]
+command = "cargo check"
+decision = "allow"
+
+# Docker safe subcommands
+[[case]]
+command = "docker images"
+decision = "allow"
+
+[[case]]
+command = "docker version"
+decision = "allow"
+
+[[case]]
+command = "docker logs container"
+decision = "allow"
+
+[[case]]
+command = "docker inspect container"
+decision = "allow"
+
+# Curl safe operations
+[[case]]
+command = "curl https://api.example.com"
+decision = "allow"
+
+# Find safe operations
+[[case]]
+command = 'find . -name "*.rs" -type f'
+decision = "allow"
+
+[[case]]
+command = 'find . -name "*.rs" -exec grep TODO {} \;'
+decision = "allow"
+
+# Sed safe operations
+[[case]]
+command = "sed 's/old/new/g' file.txt"
+decision = "allow"
+
+# Awk safe operations
+[[case]]
+command = "awk '{print $1}' file.txt"
+decision = "allow"
+
+# Fd safe operations
+[[case]]
+command = "fd -e rs"
+decision = "allow"
+
+# Python safe inline
+[[case]]
+command = """python -c 'print("hello")'"""
+decision = "allow"
+
+# Xargs safe
+[[case]]
+command = "xargs -n 5 -P 4 grep pattern"
+decision = "allow"
+
+# Env safe
+[[case]]
+command = "env FOO=bar ls"
+decision = "allow"
+
+[[case]]
+command = "env A=1 B=2 echo hello"
+decision = "allow"

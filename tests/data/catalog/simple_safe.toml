@@ -1,0 +1,50 @@
+[meta]
+description = "SIMPLE_SAFE commands with typical arguments"
+
+[[case]]
+command = "ls"
+decision = "allow"
+
+[[case]]
+command = "ls -la"
+decision = "allow"
+
+[[case]]
+command = "cat /tmp/file.txt"
+decision = "allow"
+
+[[case]]
+command = 'grep -r "TODO" .'
+decision = "allow"
+
+[[case]]
+command = "head -20 file.txt"
+decision = "allow"
+
+[[case]]
+command = "tail -f file.log"
+decision = "allow"
+
+[[case]]
+command = "wc -l file.txt"
+decision = "allow"
+
+[[case]]
+command = "whoami"
+decision = "allow"
+
+[[case]]
+command = 'echo "hello world"'
+decision = "allow"
+
+[[case]]
+command = "jq '.items[0]' data.json"
+decision = "allow"
+
+[[case]]
+command = "date +%Y-%m-%d"
+decision = "allow"
+
+[[case]]
+command = "pwd"
+decision = "allow"

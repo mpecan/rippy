@@ -1,0 +1,118 @@
+[meta]
+description = "Injection via command/process substitution, variables, brace/arithmetic expansion"
+
+# Command substitution
+[[case]]
+command = "echo $(rm -rf /)"
+decision = "ask"
+
+[[case]]
+command = "echo `rm -rf /`"
+decision = "ask"
+
+[[case]]
+command = "grep $(cat /etc/shadow) file"
+decision = "ask"
+
+[[case]]
+command = "echo $(echo $(echo $(whoami)))"
+decision = "ask"
+
+[[case]]
+command = 'echo "prefix $(whoami) suffix"'
+decision = "ask"
+
+[[case]]
+command = "echo prefix `whoami` suffix"
+decision = "ask"
+
+[[case]]
+command = "$(echo rm) -rf /"
+decision = "ask"
+
+[[case]]
+command = "VAR=$(rm -rf /); echo $VAR"
+decision = "ask"
+
+[[case]]
+command = "for f in $(find / -name secret); do cat $f; done"
+decision = "ask"
+
+[[case]]
+command = "cat `echo /etc/shadow`"
+decision = "ask"
+
+# Process substitution
+[[case]]
+command = "diff <(cat /etc/passwd) <(cat /etc/shadow)"
+decision = "ask"
+
+[[case]]
+command = "tee >(rm -rf /)"
+decision = "ask"
+
+[[case]]
+command = "cat <(echo hello)"
+decision = "ask"
+
+[[case]]
+command = "diff <(sort <(cat file1)) <(sort file2)"
+decision = "ask"
+
+# Variable expansion attacks
+[[case]]
+command = "$CMD arg1 arg2"
+decision = "ask"
+
+[[case]]
+command = "${CMD} arg1"
+decision = "ask"
+
+[[case]]
+command = "echo $TOTALLY_UNSET_XYZ_1234"
+decision = "ask"
+
+[[case]]
+command = "${CMD:-rm} -rf /"
+decision = "ask"
+
+[[case]]
+command = "echo ${!ref}"
+decision = "ask"
+
+[[case]]
+command = "echo ${#var}"
+decision = "ask"
+
+[[case]]
+command = "echo ${var:0:5}"
+decision = "ask"
+
+[[case]]
+command = "echo ${var##prefix}"
+decision = "ask"
+
+[[case]]
+command = "cat $DIR/$FILE"
+decision = "ask"
+
+[[case]]
+command = "${VAR:+dangerous}"
+decision = "ask"
+
+# Brace/arithmetic expansion attacks
+[[case]]
+command = "echo {1..2000}"
+decision = "ask"
+
+[[case]]
+command = "echo {1..100}{1..100}"
+decision = "ask"
+
+[[case]]
+command = "echo $((x+1))"
+decision = "ask"
+
+[[case]]
+command = "echo $((1/0))"
+decision = "ask"

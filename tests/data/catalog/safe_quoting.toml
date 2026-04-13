@@ -1,0 +1,111 @@
+[meta]
+description = "Safe redirects, quoting, help/version, and expansion resolution"
+
+# Safe redirects
+[[case]]
+command = "echo foo > /dev/null"
+decision = "allow"
+
+[[case]]
+command = "ls 2>/dev/null"
+decision = "allow"
+
+[[case]]
+command = "echo foo > /dev/null 2>&1"
+decision = "allow"
+
+# Quoting that suppresses dangerous content
+[[case]]
+command = "echo '$(rm -rf /)'"
+decision = "allow"
+
+[[case]]
+command = 'echo \$\(rm -rf /\)'
+decision = "allow"
+
+[[case]]
+command = "ls -la # rm -rf /"
+decision = "allow"
+
+[[case]]
+command = 'echo "rm -rf /"'
+decision = "allow"
+
+[[case]]
+command = 'grep -r "rm -rf" .'
+decision = "allow"
+
+# Help and version flags
+[[case]]
+command = "tar --help"
+decision = "allow"
+
+[[case]]
+command = "docker --help"
+decision = "allow"
+
+[[case]]
+command = "curl --version"
+decision = "allow"
+
+[[case]]
+command = "python --version"
+decision = "allow"
+
+[[case]]
+command = "git --help"
+decision = "allow"
+
+[[case]]
+command = "npm --help"
+decision = "allow"
+
+# Safe expansion resolution
+[[case]]
+command = "echo {a,b,c}"
+decision = "allow"
+
+[[case]]
+command = "echo {1..5}"
+decision = "allow"
+
+[[case]]
+command = "ls file.{txt,md,rs}"
+decision = "allow"
+
+[[case]]
+command = "echo $'hello\\nworld'"
+decision = "allow"
+
+[[case]]
+command = "echo $'\\x41\\x42\\x43'"
+decision = "allow"
+
+[[case]]
+command = "echo $((1+1))"
+decision = "allow"
+
+[[case]]
+command = "echo $((2*3+4))"
+decision = "allow"
+
+[[case]]
+command = "echo {a..z}"
+decision = "allow"
+
+# Edge cases
+[[case]]
+command = 'echo "hello world"'
+decision = "allow"
+
+[[case]]
+command = 'echo "héllo wörld"'
+decision = "allow"
+
+[[case]]
+command = "strace ls"
+decision = "allow"
+
+[[case]]
+command = "nohup echo hello"
+decision = "allow"

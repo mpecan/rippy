@@ -1,0 +1,179 @@
+[meta]
+description = "Contrast pairs: safe vs dangerous inner commands in recursive constructs"
+
+[[contrast]]
+description = "bash -c inner command"
+template = "bash -c '{CMD}'"
+safe = [
+    { inner = "git status" },
+    { inner = "echo hello world" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "docker exec inner command"
+template = "docker exec container {CMD}"
+safe = [
+    { inner = "ls -la" },
+    { inner = "cat /etc/hostname" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "env wrapper inner command"
+template = "env FOO=bar {CMD}"
+safe = [
+    { inner = "ls" },
+    { inner = "echo hello" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "xargs inner command"
+template = "xargs {CMD}"
+safe = [
+    { inner = "cat" },
+    { inner = "grep pattern" },
+]
+dangerous = [
+    { inner = "rm -rf", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "find -exec inner command"
+template = 'find . -name "*.rs" -exec {CMD} {} \;'
+safe = [
+    { inner = "grep TODO" },
+    { inner = "cat" },
+]
+dangerous = [
+    { inner = "rm", reason_contains = "rm" },
+    { inner = "chmod 777", reason_contains = "chmod" },
+]
+
+[[contrast]]
+description = "time wrapper"
+template = "time {CMD}"
+safe = [
+    { inner = "ls -la" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "nice wrapper"
+template = "nice {CMD}"
+safe = [
+    { inner = "ls -la" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+# Contrast for operators — safe vs dangerous second command
+[[contrast]]
+description = "semicolon second command"
+template = "echo safe; {CMD}"
+safe = [
+    { inner = "echo done" },
+    { inner = "ls -la" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "AND second command"
+template = "ls -la && {CMD}"
+safe = [
+    { inner = "echo done" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "pipeline last command"
+template = "cat file | sort | {CMD}"
+safe = [
+    { inner = "uniq" },
+    { inner = "head -20" },
+]
+dangerous = [
+    { inner = "bash", reason_contains = "bash" },
+]
+
+# Contrast for sed/awk: filter vs mutation
+[[contrast]]
+description = "sed filter vs inplace"
+template = "sed {CMD} file.txt"
+safe = [
+    { inner = "'s/old/new/g'" },
+]
+dangerous = [
+    { inner = "-i 's/old/new/g'", reason_contains = "in-place" },
+]
+
+# Contrast for git: safe vs dangerous subcommands
+[[contrast]]
+description = "git subcommand safety"
+template = "git {CMD}"
+safe = [
+    { inner = "status" },
+    { inner = "log --oneline -20" },
+    { inner = "diff" },
+    { inner = "show HEAD" },
+]
+dangerous = [
+    { inner = "push origin main", reason_contains = "push" },
+    { inner = "reset --hard HEAD~1", reason_contains = "reset" },
+]
+
+# Contrast for curl: GET vs mutating
+[[contrast]]
+description = "curl method safety"
+template = "curl {CMD} https://api.example.com"
+safe = [
+    { inner = "" },
+]
+dangerous = [
+    { inner = "-d 'payload'" },
+    { inner = "-X DELETE" },
+]
+
+# Contrast for python: safe vs dangerous inline
+[[contrast]]
+description = "python -c inline safety"
+template = "python -c '{CMD}'"
+safe = [
+    { inner = 'print("hello")' },
+]
+dangerous = [
+    { inner = 'import os; os.system("rm")' },
+]
+
+# Redirect contrast
+[[contrast]]
+description = "redirect target safety"
+template = "echo foo > {CMD}"
+safe = [
+    { inner = "/dev/null" },
+]
+dangerous = [
+    { inner = "/tmp/output.txt" },
+]
+
+# Self-protection contrast
+[[contrast]]
+description = "rippy config self-protection"
+template = "cat {CMD}"
+safe = [
+    { inner = ".rippy" },
+]
