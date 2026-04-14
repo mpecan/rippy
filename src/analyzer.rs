@@ -16,6 +16,12 @@ use crate::verdict::{Decision, Verdict};
 
 const MAX_DEPTH: usize = 256;
 
+/// Maximum number of AST nodes walked per command. Bounds tree *breadth*
+/// where `MAX_DEPTH` only bounds tree height: a pathological input that
+/// produces thousands of sibling nodes at shallow depth would otherwise
+/// slip through. Analysis that hits the cap returns Ask.
+const MAX_NODES: usize = 10_000;
+
 /// Maximum length (bytes) of a resolved command string. Resolution that
 /// would produce a longer string falls back to Ask, preventing pathological
 /// expansions (e.g., variables that contain other expansions, deeply
@@ -46,6 +52,10 @@ pub struct Analyzer {
     /// Tracks how many nested expansion-resolution passes have run for the
     /// current command. Bounded by `MAX_RESOLUTION_DEPTH` to prevent cycles.
     resolution_depth: usize,
+    /// Remaining AST-node budget for the current `analyze` call. Reset to
+    /// `MAX_NODES` at the top of every public `analyze` call and decremented
+    /// once per `analyze_node` entry. Returns Ask when exhausted.
+    node_budget: usize,
 }
 
 impl Analyzer {
@@ -71,6 +81,7 @@ impl Analyzer {
             piped: false,
             var_lookup: env.var_lookup,
             resolution_depth: 0,
+            node_budget: MAX_NODES,
         })
     }
 
@@ -146,6 +157,7 @@ impl Analyzer {
 
         let nodes = self.parser.parse(command)?;
         let cwd = self.working_directory.clone();
+        self.node_budget = MAX_NODES;
         Ok(self.analyze_nodes(&nodes, &cwd, 0))
     }
 
@@ -164,6 +176,10 @@ impl Analyzer {
         if depth > MAX_DEPTH {
             return Verdict::ask("nesting depth exceeded");
         }
+        if self.node_budget == 0 {
+            return Verdict::ask("ast node count exceeded");
+        }
+        self.node_budget -= 1;
         match &node.kind {
             NodeKind::Command {
                 words, redirects, ..
@@ -209,7 +225,7 @@ impl Analyzer {
                 Verdict::combine(&redirect_verdicts)
             }
             _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
-            _ => Verdict::allow(""),
+            _ => Verdict::ask("unrecognized shell construct"),
         }
     }
 

@@ -97,6 +97,27 @@ fn assert_asks(cmd: &str) {
     );
 }
 
+/// Assert that rippy asks (exit 2) AND the decision reason contains the
+/// given substring. Stronger than `assert_asks` for regression tests where
+/// the verdict could be reached via multiple code paths — pinning the reason
+/// ensures a specific traversal actually ran, not a layered fallback.
+fn assert_asks_with_reason(cmd: &str, reason_substring: &str) {
+    let json = claude_bash(cmd);
+    let (stdout, code) = run_rippy(&json, "claude", &[]);
+    assert_eq!(
+        code, 2,
+        "expected ASK (exit 2) for {cmd:?}, got exit {code}. stdout: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        reason.contains(reason_substring),
+        "expected reason to contain {reason_substring:?} for {cmd:?}, got {reason:?}"
+    );
+}
+
 // ===========================================================================
 // Category 1: Heredoc corner cases
 // ===========================================================================
@@ -418,4 +439,129 @@ fn cargo_compound_quality_gate_allows() {
     // A common AI coding pattern: chained cargo commands. All three
     // (fmt, clippy, test) are safe cargo subcommands.
     assert_allows("cargo fmt && cargo clippy && cargo test");
+}
+
+// ===========================================================================
+// Category 6: rable 0.1.14 / 0.1.15 regression locks
+// ===========================================================================
+//
+// These tests lock in fixes from the rable 0.1.13 → 0.1.15 upgrade. Before
+// 0.1.14 (rable issue #26), `read_matched_parens_inner` did not skip heredoc
+// bodies when tracking `$(...)` paren depth, so an unmatched `(` inside a
+// heredoc body could corrupt the counter and produce a malformed AST with
+// the `HereDoc` node missing. 0.1.15 (rable issues #29/#30/#31) rewrote the
+// `$(...)`, backtick, and process-substitution lexers to fork and re-enter
+// the real grammar, fixing the same bug class structurally for all three.
+//
+// The high-value cases are the ones where a pre-0.1.14 malformed AST could
+// have leaked a dangerous token past rippy's walker because it was absorbed
+// into the wrong node — `heredoc_with_dangerous_unmatched_paren_in_cmdsub`
+// is the headline security regression.
+
+#[test]
+fn heredoc_with_unmatched_paren_in_cmdsub_asks() {
+    // rable #26 behavioral witness. Heredoc body contains `(bar` with no
+    // matching `)`. Pre-0.1.14 this could corrupt `$(...)` paren tracking
+    // and drop the HereDoc node; post-fix the whole construct parses and
+    // the cmdsub Ask floor applies.
+    //
+    // Shape notes:
+    // - Wrapped in `echo "$(...)"` not `x=$(...)` — an assignment short-
+    //   circuits to Allow with "empty command".
+    // - Unquoted heredoc delimiter (`<<EOF`, not `<<'EOF'`) so the static
+    //   resolver doesn't treat this as a safe data-passing idiom and allow
+    //   it. Unquoted + an inner `$(whoami)` forces Ask.
+    assert_asks("echo \"$(cat <<EOF\n$(whoami)\n(bar\nEOF\n)\"");
+}
+
+#[test]
+fn heredoc_with_dangerous_unmatched_paren_in_cmdsub_asks() {
+    // The headline security regression. If the pre-0.1.14 malformed AST had
+    // left `rm -rf /` outside the substitution (or silently dropped it into
+    // a literal Word the analyzer didn't recurse into), rippy could have
+    // allowed it. Post-fix, the `cat <<'EOF'...EOF` is recognized as a safe
+    // heredoc passthrough, the static resolver extracts the body as a literal
+    // `rm -rf /\n(\n`, and the reparse routes to the rm / unknown-command
+    // path — so the dangerous token shows up in the decision reason.
+    //
+    // Pinning the reason substring (not just exit 2) is what makes this test
+    // a real structural lock: the analyzer has *two* cmdsub Ask floors that
+    // fire regardless of the heredoc node's integrity, so an exit-code-only
+    // assertion would silently pass even if the HereDoc node were dropped.
+    assert_asks_with_reason("$(cat <<'EOF'\nrm -rf /\n(\nEOF\n)", "rm -rf");
+}
+
+#[test]
+fn nested_cmdsub_with_heredoc_inner_asks() {
+    // Fork-and-merge path for nested `$(...)` with an inner heredoc (rable #29).
+    // Exercises the inner parser re-entering the real grammar from inside an
+    // outer cmdsub.
+    assert_asks("echo \"$(echo $(cat <<'EOF'\n$(whoami)\nEOF\n))\"");
+}
+
+#[test]
+fn backtick_with_dangerous_heredoc_body_asks() {
+    // Backtick path (rable #30). Pre-0.1.15 the backtick lexer did not skip
+    // heredoc bodies; this case exercises the new fork-and-merge logic for
+    // backticks specifically. Uses an unquoted heredoc with `$(rm -rf /)` in
+    // the body so the dangerous inner substitution is actually seen by the
+    // analyzer (a quoted `cat <<'EOF'` inner would be auto-resolved as safe
+    // data-passing and correctly allowed).
+    assert_asks("echo `cat <<EOF\n$(rm -rf /)\nEOF\n`");
+}
+
+#[test]
+fn proc_sub_with_heredoc_body_asks() {
+    // Process-substitution path (rable #31). ProcessSubstitution always has
+    // an Ask floor in the analyzer (analyzer.rs:196), so the verdict is
+    // stable; this test pins the AST shape through the fork-and-merge path.
+    assert_asks("diff <(cat <<'EOF'\na\nEOF\n) <(cat <<'EOF'\nb\nEOF\n)");
+}
+
+#[test]
+fn proc_sub_write_with_dangerous_body_asks() {
+    // Write-side `>(...)` counterpart to `proc_sub_with_heredoc_body_asks`.
+    // rable #31 covers both `<(...)` and `>(...)` under the same fork-and-
+    // merge refactor; this test exercises the write-side shape with an
+    // unquoted-heredoc body containing a dangerous substitution so that the
+    // analyzer walks into the body rather than short-circuiting on safe
+    // passthrough. Verdict is Ask via the process-substitution floor.
+    assert_asks("tee >(cat <<EOF\n$(rm -rf /)\nEOF\n)");
+}
+
+#[test]
+fn case_pattern_paren_in_cmdsub_asks() {
+    // Case-pattern parens were another victim of the pre-0.1.14 paren-tracking
+    // bug — the `(foo)` and `(*)` patterns inside `$(...)` could confuse the
+    // depth counter. Post-upgrade this parses cleanly and the dangerous
+    // `rm -rf /` branch is correctly seen by the analyzer.
+    // Wrapped in `echo "$(...)"` so the cmdsub walker runs (vs. an assignment
+    // which short-circuits to Allow — see comment on heredoc_with_unmatched_…).
+    assert_asks("echo \"$(case $y in (foo) echo safe;; (*) rm -rf /;; esac)\"");
+}
+
+#[test]
+fn extglob_in_cmdsub_asks() {
+    // Extglob `!(*.bak)` inside `$(...)` — validates that the fork reenters
+    // the real grammar for extglob patterns. Verdict is Ask via the
+    // command-substitution floor.
+    assert_asks("echo $(ls !(*.bak))");
+}
+
+#[test]
+fn cmdsub_echo_literal_still_asks() {
+    // Negative / consistency test. Post-upgrade, `$(...)` bodies go through
+    // the real grammar, so `try_resolve` may now peek further into them than
+    // before. This test pins that a fully-literal inner command does NOT get
+    // "resolved away" into Allow — `CommandSubstitution` always combines with
+    // the Ask floor at analyzer.rs:191.
+    assert_asks("echo $(echo hello)");
+}
+
+#[test]
+fn backtick_echo_literal_still_asks() {
+    // Backtick cousin of `cmdsub_echo_literal_still_asks`. rable 0.1.15
+    // moved backtick parsing to the same fork-and-merge path as `$(...)`,
+    // so the same Ask-floor consistency must hold for both surfaces.
+    assert_asks("echo `echo hello`");
 }

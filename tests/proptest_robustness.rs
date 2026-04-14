@@ -38,6 +38,52 @@ fn fresh_analyzer() -> Analyzer {
     .expect("Analyzer::new with empty config and /tmp cwd is infallible")
 }
 
+/// Strategy: `$(cat <<DELIM\n<body>\nDELIM\n)`. Biases proptest toward the
+/// heredoc-in-cmdsub shape fixed by rable issues #26 and #29.
+fn cmdsub_heredoc_strategy() -> impl Strategy<Value = String> {
+    let delim = prop_oneof![Just("EOF"), Just("END"), Just("FOO")];
+    (delim, any::<bool>(), "[\\s\\S]{0,512}").prop_map(|(d, quoted, body)| {
+        let opener = if quoted {
+            format!("<<'{d}'")
+        } else {
+            format!("<<{d}")
+        };
+        format!("$(cat {opener}\n{body}\n{d}\n)")
+    })
+}
+
+/// Strategy: random tree of depth 0–4 wrapping a safe-looking leaf command
+/// in `$(...)`, `` `...` ``, or `<(...)`. Biases proptest toward nested
+/// substitutions — the shape fixed by rable issues #29/#30/#31.
+fn nested_substitution_strategy() -> impl Strategy<Value = String> {
+    let leaf = prop_oneof![
+        Just("echo hi".to_string()),
+        Just("ls".to_string()),
+        Just("pwd".to_string()),
+        Just("cat file".to_string()),
+    ];
+    leaf.prop_recursive(
+        /* depth */ 4,
+        /* desired size */ 32,
+        /* items per collection */ 1,
+        |inner| {
+            prop_oneof![
+                inner.clone().prop_map(|s| format!("$({s})")),
+                inner.clone().prop_map(|s| format!("`{s}`")),
+                inner.prop_map(|s| format!("<({s})")),
+            ]
+        },
+    )
+}
+
+/// Strategy: random mix of backtick, backslash, double-quote, single-quote,
+/// and letter characters. Exercises rable 0.1.15's backtick escape-handling
+/// rewrite (issue #30), which has to correctly handle `\``, `\\`, nested
+/// backticks, and backticks inside double quotes.
+fn escaped_backtick_strategy() -> impl Strategy<Value = String> {
+    "[`\\\\\"'a ]{0,64}".prop_map(String::from)
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 256,
@@ -102,5 +148,41 @@ proptest! {
     fn config_load_from_str_no_panic(s in "[\\s\\S]{0,4096}") {
         let _ = Config::load_from_str(&s, ConfigFormat::Toml);
         let _ = Config::load_from_str(&s, ConfigFormat::Lines);
+    }
+
+    /// `$(cat <<DELIM\n<body>\nDELIM\n)` must not panic for any body, quoted
+    /// or unquoted. Biases proptest toward the heredoc-in-cmdsub shape fixed
+    /// by rable #26/#29.
+    #[test]
+    fn cmdsub_with_heredoc_no_panic(source in cmdsub_heredoc_strategy()) {
+        let mut parser = BashParser::new().expect("BashParser::new is infallible");
+        let _ = parser.parse(&source);
+
+        let mut analyzer = fresh_analyzer();
+        let _ = analyzer.analyze(&source);
+    }
+
+    /// Nested trees of `$(...)`, `` `...` ``, and `<(...)` up to depth 4 must
+    /// not panic. Biases proptest toward the fork-and-merge reentry paths
+    /// introduced in rable 0.1.15 (issues #29/#30/#31).
+    #[test]
+    fn nested_substitutions_no_panic(source in nested_substitution_strategy()) {
+        let mut parser = BashParser::new().expect("BashParser::new is infallible");
+        let _ = parser.parse(&source);
+
+        let mut analyzer = fresh_analyzer();
+        let _ = analyzer.analyze(&source);
+    }
+
+    /// Random mixes of backtick / backslash / quote / letter characters must
+    /// not panic. Exercises the rable 0.1.15 backtick escape-handling rewrite
+    /// (issue #30).
+    #[test]
+    fn escaped_backtick_no_panic(source in escaped_backtick_strategy()) {
+        let mut parser = BashParser::new().expect("BashParser::new is infallible");
+        let _ = parser.parse(&source);
+
+        let mut analyzer = fresh_analyzer();
+        let _ = analyzer.analyze(&source);
     }
 }
