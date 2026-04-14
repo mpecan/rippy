@@ -7,3 +7,16 @@ site/.astro
 
 # Playwright MCP session artifacts (browser logs, snapshots, screenshots)
 .playwright-mcp/
+
+# Claude Code — ignore everything under .claude/ except the shared
+# commands/ and scripts/ directories, so local settings, worktrees, and
+# session artifacts don't get accidentally committed.
+.claude/*
+!.claude/commands/
+!.claude/scripts/
+
+# JetBrains IDE project files
+.idea/
+
+# tokf session caches, hooks, and rewrites (user-local)
+.tokf/
