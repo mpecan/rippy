@@ -91,14 +91,17 @@ pub struct TomlSettings {
 }
 
 /// A single rule entry from the `[[rules]]` array.
+///
+/// `deny_unknown_fields` is set here (and only here among the `Toml*` structs)
+/// so typos or stale fields in user rules surface as a clear error instead of
+/// being silently ignored — see #117 for the `risk` field regression.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlRule {
     pub action: String,
     /// Glob pattern (optional if structured fields are present).
     pub pattern: Option<String>,
     pub message: Option<String>,
-    /// Risk annotation — stored for future use by `rippy suggest` (#48).
-    pub risk: Option<String>,
     /// Condition clause — parsed into `Condition` list for conditional rules (#46).
     pub when: Option<toml::Value>,
     // Structured matching fields (all optional, combined with AND).
@@ -510,7 +513,6 @@ target = "git"
 [[rules]]
 action = "ask"
 pattern = "docker run *"
-risk = "high"
 message = "Container execution"
 
 [rules.when]
@@ -762,6 +764,40 @@ flags = [\"--force\", \"-f\"]\nmessage = \"No force push\"\n";
         assert!(serialized.contains("subcommand = \"push\""));
         assert!(serialized.contains("flags = "));
         assert!(!serialized.contains("pattern = ")); // structured-only
+    }
+
+    #[test]
+    fn rule_with_risk_field_errors() {
+        // Regression: the `risk` field was accepted silently (#117). It is now
+        // rejected as an unknown field so users don't write no-op configs.
+        let toml = r#"
+[[rules]]
+action = "ask"
+pattern = "docker run *"
+risk = "high"
+message = "Verify the image"
+"#;
+        let result = parse_toml_config(toml, Path::new("test.toml"));
+        assert!(result.is_err(), "risk field should now be rejected");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("risk"),
+            "error should mention the rejected field, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn rule_with_typo_field_errors() {
+        // `deny_unknown_fields` also catches typos in known field names, not
+        // just orphaned fields like `risk`. Pins the broader contract.
+        let toml = "[[rules]]\nactoin = \"ask\"\npattern = \"git status\"\n";
+        let result = parse_toml_config(toml, Path::new("test.toml"));
+        assert!(result.is_err(), "typo'd field should be rejected");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("actoin"),
+            "error should mention the typo'd field, got: {err_msg}"
+        );
     }
 
     #[test]

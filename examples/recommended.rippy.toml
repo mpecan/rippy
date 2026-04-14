@@ -83,7 +83,6 @@ message = "Never delete the home directory. Use specific paths"
 [[rules]]
 action = "ask"
 pattern = "docker run *"
-risk = "high"
 message = "Verify the image source and any volume mounts before running containers"
 
 # --- MCP tools ---
