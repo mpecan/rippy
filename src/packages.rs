@@ -15,6 +15,7 @@
 //! package and layer extra rules on top.
 
 mod custom;
+mod meta;
 
 pub use custom::{CustomPackage, discover_custom_packages, load_custom_package};
 
@@ -23,6 +24,7 @@ use std::sync::Arc;
 
 use crate::config::ConfigDirective;
 use crate::error::RippyError;
+use meta::builtin_meta;
 
 const REVIEW_TOML: &str = include_str!("packages/review.toml");
 const DEVELOP_TOML: &str = include_str!("packages/develop.toml");
@@ -118,24 +120,26 @@ impl Package {
     }
 
     /// One-line description shown in `rippy profile list`.
+    ///
+    /// For built-ins, sourced from the `[meta] tagline` field of the
+    /// package's embedded TOML (parsed once, cached). For custom packages,
+    /// read from the `CustomPackage` loaded at discovery time.
     #[must_use]
     pub fn tagline(&self) -> &str {
         match self {
-            Self::Review => "Full supervision. Every command asks.",
-            Self::Develop => "Let me code. Ask when it matters.",
-            Self::Autopilot => "Maximum AI autonomy. Only catastrophic ops are blocked.",
             Self::Custom(c) => &c.tagline,
+            _ => &builtin_meta(self).tagline,
         }
     }
 
     /// Shield bar for terminal display (e.g., `===`, `==.`, `=..`).
+    ///
+    /// Sourced from `[meta] shield` in the package's TOML.
     #[must_use]
     pub fn shield(&self) -> &str {
         match self {
-            Self::Review => "===",
-            Self::Develop => "==.",
-            Self::Autopilot => "=..",
             Self::Custom(c) => &c.shield,
+            _ => &builtin_meta(self).shield,
         }
     }
 
