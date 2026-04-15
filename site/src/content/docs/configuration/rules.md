@@ -106,6 +106,10 @@ when = { branch = { eq = "main" } }
 
 ### Supported conditions
 
+Each `when = { … }` snippet below is a fragment that attaches to a
+`[[rules]]` entry exactly like the opening example above — it is not a
+top-level config key on its own.
+
 **Branch** — match against the current git branch. Three forms:
 
 ```toml
@@ -120,7 +124,10 @@ when = { branch = { match = "feat/*" } }
 ```
 
 **Working directory** — only apply when the hook's working directory
-is inside a given path. Use an absolute path, or `"."` to always match:
+is inside a given path. Use an absolute path, or `"."` to always
+match. Relative paths other than `"."` are resolved against the
+current working directory and will not behave as most users expect —
+prefer absolute paths:
 
 ```toml
 when = { cwd = { under = "/Users/alice/work/monorepo" } }

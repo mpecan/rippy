@@ -264,9 +264,8 @@ The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited fro
 | `allow-redirect` / `ask-redirect` / `deny-redirect` | Redirect rules — gate writes to sensitive paths |
 | `after` | Post-execution feedback message |
 | `allow-mcp` / `ask-mcp` / `deny-mcp` | MCP tool rules |
-| `when = { … }` (on any rule) | Conditional rules — gate a rule on git branch, cwd, env, file existence, or an external command |
 
-Plus `[settings]` (`default`, `log`, `log-full`, `package`) and `[[aliases]]` (`source` / `target`). See the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full `when` grammar.
+Plus `[settings]` (`default`, `log`, `log-full`, `package`) and `[[aliases]]` (`source` / `target`). Any rule can also carry a `when = { … }` clause to gate it on runtime context (git branch, cwd, env var, file existence, or an external command) — see the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full grammar.
 
 ### Pattern matching
 
