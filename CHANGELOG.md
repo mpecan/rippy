@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0](https://github.com/mpecan/rippy/compare/rippy-cli-v0.1.3...rippy-cli-v0.2.0) (2026-04-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* reject unknown fields in TOML rule entries ([#120](https://github.com/mpecan/rippy/issues/120))
+
+### Bug Fixes
+
+* reject unknown fields in TOML rule entries ([#120](https://github.com/mpecan/rippy/issues/120)) ([3aaa91f](https://github.com/mpecan/rippy/commit/3aaa91f41184b499e1416ffab748f206cf1f134c))
+
+
+### Documentation
+
+* document conditional `when` clauses ([#124](https://github.com/mpecan/rippy/issues/124)) ([f4d7021](https://github.com/mpecan/rippy/commit/f4d7021efa1087fcc765050b09f4dd97c62ac2f9))
+
+
+### Code Refactoring
+
+* source built-in package metadata from TOML ([#122](https://github.com/mpecan/rippy/issues/122)) ([e2ae1b0](https://github.com/mpecan/rippy/commit/e2ae1b04f08bf989204bf981ecaf03949dad1050))
+
 ## [0.1.3](https://github.com/mpecan/rippy/compare/rippy-cli-v0.1.2...rippy-cli-v0.1.3) (2026-04-13)
 
 
