@@ -265,7 +265,7 @@ The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited fro
 | `after` | Post-execution feedback message |
 | `allow-mcp` / `ask-mcp` / `deny-mcp` | MCP tool rules |
 
-Plus `[settings]` (`default`, `log`, `log-full`, `package`) and `[[aliases]]` (`source` / `target`).
+Plus `[settings]` (`default`, `log`, `log-full`, `package`) and `[[aliases]]` (`source` / `target`). Any rule can also carry a `when = { … }` clause to gate it on runtime context (git branch, cwd, env var, file existence, or an external command) — see the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full grammar.
 
 ### Pattern matching
 

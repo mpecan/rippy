@@ -44,9 +44,12 @@ Write new configs as `.rippy.toml`. TOML is where new features land —
 every command, redirect, MCP, and `after` rule is a `[[rules]]` table,
 aliases go in `[[aliases]]`, settings go in `[settings]`, and
 [structured matching](/configuration/rules/#structured-matching)
-(`command` / `subcommand` / `flags` / `args-contain`) is TOML-only. The
-CLI reflects this: `rippy init`, `rippy allow`, `rippy deny`, and
-`rippy ask` all write to `.rippy.toml`.
+(`command` / `subcommand` / `flags` / `args-contain`) and
+[conditional rules](/configuration/rules/#conditional-rules)
+(`when` clauses that gate a rule on git branch, cwd, env, file
+existence, or an external command) are TOML-only. The CLI reflects
+this: `rippy init`, `rippy allow`, `rippy deny`, and `rippy ask` all
+write to `.rippy.toml`.
 
 ```toml
 [settings]
