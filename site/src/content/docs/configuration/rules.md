@@ -86,6 +86,105 @@ Structured matching is TOML-only; the legacy flat format has no
 equivalent. See [Patterns](/configuration/patterns/) for the pattern
 grammar used inside individual fields.
 
+## Conditional rules
+
+Gate any rule on runtime context — git branch, working directory,
+environment variables, a file on disk, or an external command — by
+adding a `when` table to the `[[rules]]` entry. The rule only applies
+when every condition inside `when` is true:
+
+```toml
+# Only enforce the force-push deny on main
+[[rules]]
+action = "deny"
+command = "git"
+subcommand = "push"
+flags = ["--force"]
+message = "Use --force-with-lease instead"
+when = { branch = { eq = "main" } }
+```
+
+### Supported conditions
+
+**Branch** — match against the current git branch. Three forms:
+
+```toml
+# Exact match
+when = { branch = { eq = "main" } }
+
+# Negated match (also true when outside a git repo)
+when = { branch = { not = "main" } }
+
+# Glob match — same grammar as the [Patterns](/configuration/patterns/) page
+when = { branch = { match = "feat/*" } }
+```
+
+**Working directory** — only apply when the hook's working directory
+is inside a given path. Use an absolute path, or `"."` to always match:
+
+```toml
+when = { cwd = { under = "/Users/alice/work/monorepo" } }
+```
+
+**File exists** — only apply when a file is present on disk. Useful for
+scoping rules to repos that use a specific tool:
+
+```toml
+when = { file-exists = "pnpm-lock.yaml" }
+```
+
+**Environment variable** — only apply when an env var has a specific
+value:
+
+```toml
+when = { env = { name = "CI", eq = "true" } }
+```
+
+**External command** — run an arbitrary shell command and apply the
+rule only if it exits with code 0. The command runs via `sh -c` with a
+**hard 1-second timeout** and executes on every matching evaluation, so
+use this sparingly:
+
+```toml
+when = { exec = "test -f .rippy-strict" }
+```
+
+### Combining conditions
+
+Multiple keys in the same `when` table are AND-combined — the rule
+applies only when every condition is true:
+
+```toml
+[[rules]]
+action = "allow"
+pattern = "docker compose up"
+when = { branch = { match = "feat/*" }, file-exists = "docker-compose.yml" }
+```
+
+### Worked example — branch-aware push policy
+
+The most common use is scoping a rule to a particular branch. Here,
+pushes are auto-approved on feature branches but always ask on `main`:
+
+```toml
+# Auto-approve pushes on feature branches
+[[rules]]
+action = "allow"
+command = "git"
+subcommand = "push"
+when = { branch = { match = "feat/*" } }
+
+# On main, always ask first
+[[rules]]
+action = "ask"
+command = "git"
+subcommand = "push"
+when = { branch = { eq = "main" } }
+```
+
+Conditional rules are TOML-only; the legacy flat format has no
+equivalent.
+
 ## Redirect rules
 
 Guard writes to sensitive paths, independent of the command doing the
