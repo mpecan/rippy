@@ -265,7 +265,27 @@ The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited fro
 | `after` | Post-execution feedback message |
 | `allow-mcp` / `ask-mcp` / `deny-mcp` | MCP tool rules |
 
-Plus `[settings]` (`default`, `log`, `log-full`, `package`) and `[[aliases]]` (`source` / `target`). Any rule can also carry a `when = { … }` clause to gate it on runtime context (git branch, cwd, env var, file existence, or an external command) — see the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full grammar.
+Plus `[settings]` (`default`, `log`, `log-full`, `package`, `auto-mode`) and `[[aliases]]` (`source` / `target`). Any rule can also carry a `when = { … }` clause to gate it on runtime context (git branch, cwd, env var, file existence, or an external command) — see the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full grammar.
+
+### Auto-mode coexistence (Claude Code)
+
+Claude Code can run in an **auto permission mode** (`acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`) where the user has opted into fewer prompts. rippy adapts its uncertain (`ask`) verdicts to that choice, while keeping `deny` a hard floor:
+
+| rippy verdict | manual (`default` / `plan`) | auto modes |
+|---|---|---|
+| **deny** | blocks | **blocks** — holds in every mode |
+| **allow** | fast-path approve | fast-path approve |
+| **ask** | forces rippy's prompt | **defers** — steps aside so the mode decides |
+
+Control this with the `auto-mode` setting:
+
+```toml
+[settings]
+auto-mode = "defer"   # default: yield uncertain verdicts to auto modes
+# auto-mode = "ask"   # opt out: always force rippy's prompt, even in auto modes
+```
+
+> **Safety note:** because `ask` yields to auto modes, anything you truly want stopped in an auto mode must be a **`deny`** rule, not `ask`. Classify genuinely dangerous patterns as `deny`.
 
 ### Pattern matching
 

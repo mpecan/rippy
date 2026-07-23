@@ -35,8 +35,10 @@ fn redirect_to_dev_null_safe() {
 #[test]
 fn redirect_to_file_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo foo > /tmp/output.txt"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- Heredoc tests ----
@@ -195,9 +197,12 @@ fn suggest_from_db_json() {
 
 #[test]
 fn structured_rule_denies_force_push() {
+    // Load the rule via `--config` (env override) so it applies without needing
+    // project-config trust; deny holds regardless of exit-code untangling.
     let dir = tempfile::TempDir::new().unwrap();
+    let cfg = dir.path().join("rules.toml");
     std::fs::write(
-        dir.path().join(".rippy.toml"),
+        &cfg,
         r#"
 [[rules]]
 action = "deny"
@@ -209,7 +214,7 @@ message = "No force push"
     )
     .unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}"#;
-    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let (_stdout, code) = run_rippy(json, "claude", &["--config", cfg.to_str().unwrap()]);
     assert_eq!(code, 2);
 }
 
@@ -233,16 +238,19 @@ subcommands = ["status", "log", "diff"]
 
     // git push is NOT in the subcommands list, falls through to handler
     let json2 = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
-    let (_stdout2, code2) = run_rippy_in_dir(json2, "claude", dir.path());
+    let (stdout2, code2) = run_rippy_in_dir(json2, "claude", dir.path());
     // git push without force is "ask" from handler
-    assert_eq!(code2, 2);
+    assert_eq!(code2, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout2).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
 fn structured_rule_with_flag_position_independence() {
     let dir = tempfile::TempDir::new().unwrap();
+    let cfg = dir.path().join("rules.toml");
     std::fs::write(
-        dir.path().join(".rippy.toml"),
+        &cfg,
         r#"
 [[rules]]
 action = "deny"
@@ -253,15 +261,16 @@ message = "No force push"
 "#,
     )
     .unwrap();
+    let cfg_arg = ["--config", cfg.to_str().unwrap()];
 
     // Flag at end
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main -f"}}"#;
-    let (_, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let (_, code) = run_rippy(json, "claude", &cfg_arg);
     assert_eq!(code, 2);
 
     // Combined short flags
     let json2 = r#"{"tool_name":"Bash","tool_input":{"command":"git push -fv origin"}}"#;
-    let (_, code2) = run_rippy_in_dir(json2, "claude", dir.path());
+    let (_, code2) = run_rippy(json2, "claude", &cfg_arg);
     assert_eq!(code2, 2);
 }
 
@@ -346,7 +355,7 @@ fn unset_variable_asks_with_diagnostic() {
     }
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"cat $TOTALLY_UNSET_VAR_XYZ_42"}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2, "unset variable should ask, stdout: {stdout}");
+    assert_eq!(code, 0, "unset variable should ask, stdout: {stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
         .as_str()

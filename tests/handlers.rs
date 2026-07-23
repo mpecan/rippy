@@ -8,8 +8,10 @@ use common::run_rippy;
 #[test]
 fn bash_c_with_positional_args_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"bash -c '$0 $1' rm '-rf /'"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -60,8 +62,10 @@ fn fd_search_allows() {
 #[test]
 fn fd_exec_rm_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"fd -x rm"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -106,8 +110,10 @@ fn ansible_playbook_check_allows() {
 #[test]
 fn ansible_playbook_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"ansible-playbook site.yml"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -123,8 +129,10 @@ fn ansible_vault_view_allows() {
 fn ansible_vault_encrypt_asks() {
     let json =
         r#"{"tool_name":"Bash","tool_input":{"command":"ansible-vault encrypt secrets.yml"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -148,8 +156,10 @@ fn ansible_galaxy_list_allows() {
 #[test]
 fn ansible_galaxy_install_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"ansible-galaxy install geerlingguy.docker"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -231,8 +241,10 @@ fn cargo_rm_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join(".claude")).unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo rm serde"}}"#;
-    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
-    assert_eq!(code, 2);
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -241,8 +253,10 @@ fn cargo_run_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join(".claude")).unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo run"}}"#;
-    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
-    assert_eq!(code, 2);
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -250,8 +264,10 @@ fn cargo_publish_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join(".claude")).unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo publish"}}"#;
-    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
-    assert_eq!(code, 2);
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -259,8 +275,10 @@ fn cargo_fix_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join(".claude")).unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo fix"}}"#;
-    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
-    assert_eq!(code, 2);
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -268,6 +286,8 @@ fn cargo_add_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join(".claude")).unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo add serde"}}"#;
-    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
-    assert_eq!(code, 2);
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }

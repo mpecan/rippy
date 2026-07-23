@@ -87,28 +87,39 @@ fn assert_allows(cmd: &str) {
     );
 }
 
-/// Assert that rippy asks about (or denies) the given command (exit code 2).
+/// Assert that rippy asks about the given command: exit 0 with a JSON
+/// `permissionDecision` of `ask` (the prompt is driven by the decision, not a
+/// blocking exit code — only a hard `deny` exits 2).
 fn assert_asks(cmd: &str) {
     let json = claude_bash(cmd);
     let (stdout, code) = run_rippy(&json, "claude", &[]);
     assert_eq!(
-        code, 2,
-        "expected ASK (exit 2) for {cmd:?}, got exit {code}. stdout: {stdout}"
+        code, 0,
+        "expected ASK (exit 0) for {cmd:?}, got exit {code}. stdout: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        v["hookSpecificOutput"]["permissionDecision"], "ask",
+        "expected permissionDecision=ask for {cmd:?}, stdout: {stdout}"
     );
 }
 
-/// Assert that rippy asks (exit 2) AND the decision reason contains the
-/// given substring. Stronger than `assert_asks` for regression tests where
-/// the verdict could be reached via multiple code paths — pinning the reason
-/// ensures a specific traversal actually ran, not a layered fallback.
+/// Assert that rippy asks (exit 0, `permissionDecision` = `ask`) AND the
+/// decision reason contains the given substring. Stronger than `assert_asks`
+/// for regression tests where the verdict could be reached via multiple code
+/// paths — pinning the reason ensures a specific traversal actually ran.
 fn assert_asks_with_reason(cmd: &str, reason_substring: &str) {
     let json = claude_bash(cmd);
     let (stdout, code) = run_rippy(&json, "claude", &[]);
     assert_eq!(
-        code, 2,
-        "expected ASK (exit 2) for {cmd:?}, got exit {code}. stdout: {stdout}"
+        code, 0,
+        "expected ASK (exit 0) for {cmd:?}, got exit {code}. stdout: {stdout}"
     );
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        v["hookSpecificOutput"]["permissionDecision"], "ask",
+        "expected permissionDecision=ask for {cmd:?}, stdout: {stdout}"
+    );
     let reason = v["hookSpecificOutput"]["permissionDecisionReason"]
         .as_str()
         .unwrap_or("");

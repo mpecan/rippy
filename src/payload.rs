@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use crate::error::RippyError;
-use crate::mode::{HookType, Mode};
+use crate::mode::{HookType, Mode, PermissionMode};
 
 /// Type of file operation detected from the tool name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +16,9 @@ pub enum FileOp {
 pub struct Payload {
     pub mode: Mode,
     pub hook_type: HookType,
+    /// Claude's active permission mode (`default`/`plan`/`acceptEdits`/`auto`/
+    /// `dontAsk`/`bypassPermissions`). Absent for non-Claude tools → `Default`.
+    pub permission_mode: PermissionMode,
     pub tool_name: String,
     pub command: Option<String>,
     pub file_path: Option<String>,
@@ -41,12 +44,17 @@ impl Payload {
 
         let hook_type = detect_hook_type(&raw);
         let mode = forced_mode.map_or_else(|| detect_mode(&raw), Ok)?;
+        let permission_mode = raw
+            .get("permission_mode")
+            .and_then(Value::as_str)
+            .map_or(PermissionMode::Default, PermissionMode::from_wire);
         let command = extract_command(&raw, mode);
         let file_path = extract_file_path(&raw);
 
         Ok(Self {
             mode,
             hook_type,
+            permission_mode,
             tool_name,
             command,
             file_path,
@@ -198,6 +206,21 @@ mod tests {
         let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
         let payload = Payload::parse(json, None).unwrap();
         assert!(!payload.is_mcp());
+    }
+
+    #[test]
+    fn permission_mode_parsed_from_payload() {
+        let json =
+            r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"permission_mode":"acceptEdits"}"#;
+        let payload = Payload::parse(json, Some(Mode::Claude)).unwrap();
+        assert_eq!(payload.permission_mode, PermissionMode::AcceptEdits);
+    }
+
+    #[test]
+    fn permission_mode_defaults_when_absent() {
+        let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+        let payload = Payload::parse(json, Some(Mode::Claude)).unwrap();
+        assert_eq!(payload.permission_mode, PermissionMode::Default);
     }
 
     #[test]
