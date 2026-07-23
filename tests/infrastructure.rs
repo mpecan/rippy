@@ -9,7 +9,7 @@ use common::{run_rippy, run_rippy_with_stderr};
 fn mcp_tool_asks_by_default() {
     let json = r#"{"tool_name":"mcp__server__tool","tool_input":{}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
@@ -48,7 +48,7 @@ fn verbose_traces_to_stderr() {
 fn verbose_handler_trace() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
     let (_stdout, stderr, code) = run_rippy_with_stderr(json, "claude", &["--verbose"]);
-    assert_eq!(code, 2);
+    assert_eq!(code, 0);
     assert!(
         stderr.contains("[rippy] handler:"),
         "stderr should show handler decision"

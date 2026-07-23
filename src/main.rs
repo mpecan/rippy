@@ -8,10 +8,10 @@ use rippy_cli::analyzer::Analyzer;
 use rippy_cli::cli::{Cli, Command, HookArgs};
 use rippy_cli::config::Config;
 use rippy_cli::error::RippyError;
-use rippy_cli::mode::HookType;
+use rippy_cli::mode::{HookType, Mode};
 use rippy_cli::payload::{FileOp, Payload};
 use rippy_cli::setup;
-use rippy_cli::verdict::{Decision, Verdict};
+use rippy_cli::verdict::{ClaudeContext, Decision, Verdict};
 
 /// Evaluate a payload. Returns `None` for passthrough (file tools with no matching rule).
 fn evaluate(
@@ -104,6 +104,7 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     let config = Config::load(&cwd, args.config_path().as_deref())?;
     let log_file = config.log_file.clone();
     let log_full = config.log_full;
+    let auto_mode = config.auto_mode;
 
     if args.verbose {
         eprintln!(
@@ -127,13 +128,34 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     log_verdict(log_file.as_ref(), log_full, &payload, &verdict);
     track_verdict(tracking_db.as_deref(), &payload, &verdict);
 
-    let json = verdict.to_json(payload.mode, payload.hook_type);
+    let ctx = ClaudeContext {
+        hook_type: payload.hook_type,
+        permission_mode: payload.permission_mode,
+        auto_mode,
+    };
+    let json = verdict.to_json(payload.mode, ctx);
     println!("{json}");
 
-    Ok(match verdict.decision {
-        Decision::Allow => ExitCode::SUCCESS,
-        Decision::Ask | Decision::Deny => ExitCode::from(2),
-    })
+    Ok(hook_exit_code(payload.mode, verdict.decision, ctx))
+}
+
+/// Map a verdict to a process exit code. For Claude, exit 2 blocks the tool call
+/// and is reserved for a hard `deny`; `allow`/`ask`/`defer` exit 0 and let the
+/// JSON `permissionDecision` drive. Other tools keep the simple `ask|deny → 2`.
+fn hook_exit_code(mode: Mode, decision: Decision, ctx: ClaudeContext) -> ExitCode {
+    let blocks = match mode {
+        Mode::Claude => decision
+            .resolve_claude(ctx.permission_mode, ctx.auto_mode)
+            .blocks(),
+        Mode::Gemini | Mode::Cursor | Mode::Codex => {
+            matches!(decision, Decision::Ask | Decision::Deny)
+        }
+    };
+    if blocks {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// Evaluate file-access tools (Read/Write/Edit) against config rules.

@@ -83,6 +83,10 @@ pub struct TomlSettings {
     pub tracking: Option<String>,
     #[serde(rename = "self-protect")]
     pub self_protect: Option<bool>,
+    /// `"defer"` (default) or `"ask"` — how uncertain verdicts behave in
+    /// Claude's auto permission modes.
+    #[serde(rename = "auto-mode")]
+    pub auto_mode: Option<String>,
     /// Whether to auto-trust all project configs without checking the trust DB.
     #[serde(rename = "trust-project-configs")]
     pub trust_project_configs: Option<bool>,
@@ -201,6 +205,12 @@ fn settings_to_directives(settings: &TomlSettings, out: &mut Vec<ConfigDirective
         out.push(ConfigDirective::Set {
             key: "tracking".to_string(),
             value: tracking.clone(),
+        });
+    }
+    if let Some(auto_mode) = &settings.auto_mode {
+        out.push(ConfigDirective::Set {
+            key: "auto-mode".to_string(),
+            value: auto_mode.clone(),
         });
     }
     if settings.self_protect == Some(false) {
@@ -405,6 +415,20 @@ log-full = true
         assert_eq!(config.default_action, Some(Decision::Deny));
         assert!(config.log_file.is_some());
         assert!(config.log_full);
+    }
+
+    #[test]
+    fn auto_mode_defaults_to_defer() {
+        let config = Config::from_directives(vec![]);
+        assert_eq!(config.auto_mode, crate::verdict::AutoMode::Defer);
+    }
+
+    #[test]
+    fn parse_auto_mode_ask() {
+        let toml = "[settings]\nauto-mode = \"ask\"\n";
+        let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+        let config = Config::from_directives(directives);
+        assert_eq!(config.auto_mode, crate::verdict::AutoMode::Ask);
     }
 
     #[test]

@@ -146,21 +146,21 @@ fn stdlib_cargo_run_asks() {
     let dir = tempfile::TempDir::new().unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"cargo run"}}"#;
     let (_, code) = common::run_rippy_in_dir(json, "claude", dir.path());
-    assert_eq!(code, 2);
+    assert_eq!(code, 0);
 }
 
 #[test]
 fn stdlib_rm_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/test"}}"#;
     let (_, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    assert_eq!(code, 0);
 }
 
 #[test]
 fn stdlib_sudo_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"sudo apt install foo"}}"#;
     let (_, code) = run_rippy(json, "claude", &[]);
-    assert_eq!(code, 2);
+    assert_eq!(code, 0);
 }
 
 #[test]

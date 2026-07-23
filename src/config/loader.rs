@@ -28,6 +28,14 @@ pub(super) fn apply_setting(config: &mut Config, key: &str, value: &str) {
         "self-protect" => {
             config.self_protect = value != "off";
         }
+        "auto-mode" => {
+            // "defer" (default) lets auto modes proceed; "ask" forces prompts.
+            config.auto_mode = if value == "ask" {
+                crate::verdict::AutoMode::Ask
+            } else {
+                crate::verdict::AutoMode::Defer
+            };
+        }
         // "package" is handled during load_with_home() pre-scan, not here.
         _ => {}
     }

@@ -90,7 +90,7 @@ fn edit_tool_matched_by_rule() {
     let config_str = config.to_str().unwrap();
     let (stdout, code) =
         run_rippy_in_dir_with_args(json, "claude", dir.path(), &["--config", config_str]);
-    assert_eq!(code, 2);
+    assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
     assert_eq!(

@@ -24,7 +24,7 @@ use std::path::Path;
 use crate::condition::{MatchContext, evaluate_all};
 use crate::error::RippyError;
 use crate::pattern::Pattern;
-use crate::verdict::{Decision, Verdict};
+use crate::verdict::{AutoMode, Decision, Verdict};
 
 // ---------------------------------------------------------------------------
 // Config
@@ -40,6 +40,9 @@ pub struct Config {
     pub log_full: bool,
     pub tracking_db: Option<std::path::PathBuf>,
     pub self_protect: bool,
+    /// How an uncertain `Ask` behaves in Claude's auto permission modes
+    /// (config knob `auto-mode`; defaults to [`AutoMode::Defer`]).
+    pub auto_mode: AutoMode,
     /// Whether to auto-trust all project configs without checking the trust DB.
     pub trust_project_configs: bool,
     aliases: Vec<(String, String)>,
