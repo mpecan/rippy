@@ -17,8 +17,10 @@ fn python_c_print_allows() {
 #[test]
 fn python_c_import_os_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"python -c 'import os; os.system(\"rm -rf /\")'"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]
@@ -33,8 +35,10 @@ fn python_c_import_json_allows() {
 #[test]
 fn python_script_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"python script.py"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- CC permission rules tests ----
@@ -87,8 +91,10 @@ fn cc_ask_rule_prompts() {
     .unwrap();
     // git status is normally safe, but CC ask rule should prompt
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"git status"}}"#;
-    let (_stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
+    let (stdout, code) = common::run_rippy_in_dir(json, "claude", dir.path());
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- Self-protection integration tests ----

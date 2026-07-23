@@ -35,8 +35,10 @@ fn redirect_to_dev_null_safe() {
 #[test]
 fn redirect_to_file_asks() {
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo foo > /tmp/output.txt"}}"#;
-    let (_stdout, code) = run_rippy(json, "claude", &[]);
+    let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- Heredoc tests ----
@@ -236,9 +238,11 @@ subcommands = ["status", "log", "diff"]
 
     // git push is NOT in the subcommands list, falls through to handler
     let json2 = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
-    let (_stdout2, code2) = run_rippy_in_dir(json2, "claude", dir.path());
+    let (stdout2, code2) = run_rippy_in_dir(json2, "claude", dir.path());
     // git push without force is "ask" from handler
     assert_eq!(code2, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout2).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 #[test]

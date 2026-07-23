@@ -25,8 +25,10 @@ fn python_script_dangerous_file_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("evil.py"), "import os\nos.system('ls')").unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"python evil.py"}}"#;
-    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- SQL file reading ----
@@ -47,8 +49,10 @@ fn psql_f_write_file_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("migrate.sql"), "DROP TABLE users;").unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"psql -f migrate.sql"}}"#;
-    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- Shell script file reading ----
@@ -69,8 +73,10 @@ fn bash_script_dangerous_file_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("danger.sh"), "rm -rf /").unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"bash danger.sh"}}"#;
-    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- GH API --input file reading ----
@@ -101,8 +107,10 @@ fn gh_api_input_mutation_file_asks() {
     .unwrap();
     let json =
         r#"{"tool_name":"Bash","tool_input":{"command":"gh api graphql --input mutate.graphql"}}"#;
-    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
 // ---- AWK -f file reading ----
@@ -123,6 +131,8 @@ fn awk_f_system_file_asks() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("evil.awk"), r#"{system("rm -rf /")}"#).unwrap();
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"awk -f evil.awk"}}"#;
-    let (_stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
+    let (stdout, code) = run_rippy_in_dir(json, "claude", dir.path());
     assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
