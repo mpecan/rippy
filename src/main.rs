@@ -127,7 +127,7 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     log_verdict(log_file.as_ref(), log_full, &payload, &verdict);
     track_verdict(tracking_db.as_deref(), &payload, &verdict);
 
-    let json = verdict.to_json(payload.mode);
+    let json = verdict.to_json(payload.mode, payload.hook_type);
     println!("{json}");
 
     Ok(match verdict.decision {

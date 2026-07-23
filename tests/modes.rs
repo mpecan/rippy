@@ -11,6 +11,8 @@ fn claude_allow_safe_command() {
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // Regression (#125): Claude requires hookEventName inside hookSpecificOutput.
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PreToolUse");
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
@@ -20,6 +22,8 @@ fn claude_ask_dangerous_command() {
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 2);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // Regression (#125): non-allow decisions must carry hookEventName too.
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PreToolUse");
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
@@ -102,7 +106,10 @@ fn post_tool_use_returns_allow() {
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+    // PostToolUse allows via exit 0; the output carries the PostToolUse event name,
+    // not a PreToolUse-only permissionDecision (#125).
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PostToolUse");
+    assert!(v["hookSpecificOutput"].get("permissionDecision").is_none());
 }
 
 // ---- Dippy backward compat ----

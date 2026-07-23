@@ -1,4 +1,4 @@
-use crate::mode::Mode;
+use crate::mode::{HookType, Mode};
 
 /// The three possible safety decisions, ordered so `max()` gives the most restrictive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -73,16 +73,11 @@ impl Verdict {
         chosen
     }
 
-    /// Serialize this verdict as JSON for the given AI tool mode.
+    /// Serialize this verdict as JSON for the given AI tool mode and hook type.
     #[must_use]
-    pub fn to_json(&self, mode: Mode) -> serde_json::Value {
+    pub fn to_json(&self, mode: Mode, hook_type: HookType) -> serde_json::Value {
         match mode {
-            Mode::Claude => serde_json::json!({
-                "hookSpecificOutput": {
-                    "permissionDecision": self.decision.as_str(),
-                    "permissionDecisionReason": self.reason,
-                }
-            }),
+            Mode::Claude => self.to_claude_json(hook_type),
             Mode::Gemini | Mode::Codex => serde_json::json!({
                 "decision": self.decision.as_gemini_str(),
                 "reason": self.reason,
@@ -92,6 +87,28 @@ impl Verdict {
                 "userMessage": self.reason,
                 "agentMessage": self.reason,
             }),
+        }
+    }
+
+    /// Build the Claude Code hook output. The `hookEventName` field is required
+    /// by Claude's validator and must match the firing event. `permissionDecision`
+    /// is `PreToolUse`-only; `PostToolUse` surfaces any message via `additionalContext`.
+    fn to_claude_json(&self, hook_type: HookType) -> serde_json::Value {
+        match hook_type {
+            HookType::PreToolUse => serde_json::json!({
+                "hookSpecificOutput": {
+                    "hookEventName": hook_type.event_name(),
+                    "permissionDecision": self.decision.as_str(),
+                    "permissionDecisionReason": self.reason,
+                }
+            }),
+            HookType::PostToolUse => {
+                let mut inner = serde_json::json!({ "hookEventName": hook_type.event_name() });
+                if !self.reason.is_empty() {
+                    inner["additionalContext"] = serde_json::json!(self.reason);
+                }
+                serde_json::json!({ "hookSpecificOutput": inner })
+            }
         }
     }
 }
@@ -160,7 +177,8 @@ mod tests {
     #[test]
     fn claude_json_format() {
         let v = Verdict::allow("git status is safe");
-        let json = v.to_json(Mode::Claude);
+        let json = v.to_json(Mode::Claude, HookType::PreToolUse);
+        assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(
             json["hookSpecificOutput"]["permissionDecisionReason"],
@@ -170,9 +188,53 @@ mod tests {
 
     #[allow(clippy::unwrap_used)]
     #[test]
+    fn claude_post_tool_uses_post_event_name() {
+        let v = Verdict::allow("");
+        let json = v.to_json(Mode::Claude, HookType::PostToolUse);
+        assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PostToolUse");
+        // permissionDecision is PreToolUse-only and must not appear here.
+        assert!(
+            json["hookSpecificOutput"]
+                .get("permissionDecision")
+                .is_none()
+        );
+        assert!(
+            json["hookSpecificOutput"]
+                .get("additionalContext")
+                .is_none()
+        );
+    }
+
+    #[allow(clippy::unwrap_used)]
+    #[test]
+    fn claude_post_tool_maps_reason_to_additional_context() {
+        let v = Verdict::allow("ran linter");
+        let json = v.to_json(Mode::Claude, HookType::PostToolUse);
+        assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PostToolUse");
+        assert_eq!(
+            json["hookSpecificOutput"]["additionalContext"],
+            "ran linter"
+        );
+        assert!(
+            json["hookSpecificOutput"]
+                .get("permissionDecision")
+                .is_none()
+        );
+    }
+
+    #[allow(clippy::unwrap_used)]
+    #[test]
+    fn claude_deny_includes_hook_event_name() {
+        let json = Verdict::deny("dangerous").to_json(Mode::Claude, HookType::PreToolUse);
+        assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+        assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
+    }
+
+    #[allow(clippy::unwrap_used)]
+    #[test]
     fn gemini_ask_maps_to_deny() {
         let v = Verdict::ask("needs review");
-        let json = v.to_json(Mode::Gemini);
+        let json = v.to_json(Mode::Gemini, HookType::PreToolUse);
         assert_eq!(json["decision"], "deny");
     }
 
@@ -180,7 +242,7 @@ mod tests {
     #[test]
     fn cursor_json_format() {
         let v = Verdict::deny("dangerous");
-        let json = v.to_json(Mode::Cursor);
+        let json = v.to_json(Mode::Cursor, HookType::PreToolUse);
         assert_eq!(json["permission"], "deny");
         assert_eq!(json["userMessage"], "dangerous");
         assert_eq!(json["agentMessage"], "dangerous");
@@ -219,7 +281,7 @@ mod tests {
     fn json_output_unchanged_when_resolved_present() {
         // resolved_command is internal-only, not part of any wire format
         let v = Verdict::allow("ls is safe").with_resolution("ls /tmp");
-        let json = v.to_json(Mode::Claude);
+        let json = v.to_json(Mode::Claude, HookType::PreToolUse);
         assert!(json.get("resolved_command").is_none());
         assert!(json["hookSpecificOutput"].get("resolved_command").is_none());
     }

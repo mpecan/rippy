@@ -13,3 +13,13 @@ pub enum HookType {
     PreToolUse,
     PostToolUse,
 }
+
+impl HookType {
+    /// The `hookEventName` string Claude Code expects in hook output.
+    pub const fn event_name(self) -> &'static str {
+        match self {
+            Self::PreToolUse => "PreToolUse",
+            Self::PostToolUse => "PostToolUse",
+        }
+    }
+}
