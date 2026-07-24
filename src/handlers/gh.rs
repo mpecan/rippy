@@ -136,7 +136,7 @@ fn classify_resource(ctx: &HandlerContext, resource: &str) -> Classification {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

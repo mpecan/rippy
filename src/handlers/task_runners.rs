@@ -163,7 +163,6 @@ impl Handler for TokfHandler {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     // Single command->decision cases (just/mise/tokf/uv safe & ask subcommands)
     // are covered by tests/data/catalog/handlers_task_runners.toml. Retained here:

@@ -62,7 +62,7 @@ fn classify_inline(cmd: &str, source: &str) -> Classification {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

@@ -267,7 +267,7 @@ fn is_root_scopes_dotted_key(trimmed: &str) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

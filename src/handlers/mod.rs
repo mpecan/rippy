@@ -418,7 +418,7 @@ pub fn is_within_default_safe_dir(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -551,7 +551,7 @@ mod tests {
     fn read_file_rejects_oversized_file() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("big.txt");
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let content = "x".repeat(MAX_FILE_SIZE as usize + 1);
         std::fs::write(&file, content).unwrap();
         let ctx = HandlerContext {

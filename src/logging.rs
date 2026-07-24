@@ -64,7 +64,7 @@ pub fn write_log_entry(entry: &LogEntry<'_>) {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::verdict::Decision;

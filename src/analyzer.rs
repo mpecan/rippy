@@ -689,11 +689,11 @@ fn most_restrictive(a: Verdict, b: Verdict) -> Verdict {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::literal_string_with_formatting_args)]
+#[expect(clippy::unwrap_used)]
 #[path = "analyzer_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::literal_string_with_formatting_args)]
+#[expect(clippy::unwrap_used, clippy::literal_string_with_formatting_args)]
 #[path = "analyzer_tests2.rs"]
 mod tests2;

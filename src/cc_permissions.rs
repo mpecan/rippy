@@ -265,7 +265,7 @@ fn find_word(cmd: &str, from: usize, needle: &str) -> Option<usize> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

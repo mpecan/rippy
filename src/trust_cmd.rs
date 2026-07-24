@@ -209,7 +209,7 @@ fn show_status(config_path: &Path) -> Result<ExitCode, RippyError> {
 }
 
 /// List all trusted project configs.
-#[allow(clippy::unnecessary_wraps)]
+#[expect(clippy::unnecessary_wraps)]
 fn list_trusted() -> Result<ExitCode, RippyError> {
     let db = TrustDb::load();
     if db.is_empty() {
@@ -226,7 +226,6 @@ fn list_trusted() -> Result<ExitCode, RippyError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

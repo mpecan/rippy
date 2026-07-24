@@ -320,8 +320,13 @@ fn combine_parts(parts: &[WordResolution]) -> WordResolution {
                 }
                 variants = next;
             }
+            // Filtered out by `resolve_word_node` before this is called, so not
+            // reached today — but a security hook must not be one refactor away
+            // from a panic, so fail closed (Ask) instead of `unreachable!`.
             WordResolution::Unresolvable { .. } | WordResolution::DynamicKnown => {
-                unreachable!("filtered above")
+                return WordResolution::Unresolvable {
+                    reason: "unexpected resolution state".to_string(),
+                };
             }
         }
     }
@@ -632,10 +637,14 @@ pub fn shell_join(args: &[String]) -> String {
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::unwrap_used,
     clippy::panic,
     clippy::literal_string_with_formatting_args
 )]
 #[path = "resolve_tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "resolve_tests2.rs"]
+mod tests2;

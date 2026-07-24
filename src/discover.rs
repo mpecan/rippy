@@ -327,7 +327,7 @@ fn print_json(aliases: &[FlagAlias]) {
 // Tests
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

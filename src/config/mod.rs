@@ -512,10 +512,10 @@ fn append_var_expansion(out: &mut String, chars: &mut std::iter::Peekable<std::s
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used)]
 mod tests;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used, clippy::panic)]
 #[path = "tests_part2.rs"]
 mod tests_part2;

@@ -114,7 +114,6 @@ fn print_columns(items: &[&str]) {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

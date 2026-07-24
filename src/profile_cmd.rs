@@ -366,7 +366,7 @@ fn update_package_in_content(existing: &str, new_line: &str) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

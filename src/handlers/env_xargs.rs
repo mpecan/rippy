@@ -144,7 +144,6 @@ fn find_xargs_inner_command(args: &[String]) -> usize {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

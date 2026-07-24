@@ -95,7 +95,7 @@ fn classify_sql_command(tool: &str, sql: &str) -> Classification {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

@@ -100,7 +100,7 @@ pub(super) fn format_rule_reason(rule: &Rule, label: &str) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::config::RuleTarget;

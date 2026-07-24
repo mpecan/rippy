@@ -23,7 +23,13 @@ pub enum Condition {
     BranchNot(String),
     /// Branch name matches glob pattern.
     BranchMatch(String),
-    /// Working directory is under the given path.
+    /// Working directory is at or under the given path.
+    ///
+    /// Contract: the base must be **absolute** or `.`. Both the cwd and the base
+    /// are canonicalized (symlinks and `..` resolved) before the prefix check, so
+    /// `/a/b/../c` and a symlinked path compare correctly. A relative non-`.` base
+    /// (e.g. `src`) is unsupported and never matches — a working directory cannot
+    /// be under a subdirectory of itself — rather than silently mis-applying.
     CwdUnder(String),
     /// File exists at the given path.
     FileExists(String),
@@ -46,12 +52,15 @@ fn evaluate_one(cond: &Condition, ctx: &MatchContext) -> bool {
             .branch
             .is_some_and(|b| crate::pattern::Pattern::new(pattern).matches(b)),
         Condition::CwdUnder(base) => {
+            // `Path::join` replaces the whole path on an absolute base; a relative
+            // base resolves against cwd (and, per the documented contract, will not
+            // match). Canonicalize both sides so `..` and symlinks are resolved.
             let base_path = if base == "." {
                 ctx.cwd.to_path_buf()
             } else {
                 ctx.cwd.join(base)
             };
-            ctx.cwd.starts_with(&base_path)
+            canonicalize_or_normalize(ctx.cwd).starts_with(canonicalize_or_normalize(&base_path))
         }
         Condition::FileExists(path) => Path::new(path).exists(),
         Condition::EnvEq { name, value } => {
@@ -59,6 +68,13 @@ fn evaluate_one(cond: &Condition, ctx: &MatchContext) -> bool {
         }
         Condition::Exec(cmd) => evaluate_exec(cmd),
     }
+}
+
+/// Resolve a path for [`Condition::CwdUnder`] comparison: canonicalize (follows
+/// symlinks, normalizes `..`) when the path exists on disk, else fall back to
+/// lexical normalization so a non-existent base still compares sanely.
+fn canonicalize_or_normalize(path: &Path) -> std::path::PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| crate::handlers::normalize_path(path))
 }
 
 /// Run an external command with a 1-second timeout.
@@ -203,7 +219,7 @@ pub fn detect_git_branch(cwd: &Path) -> Option<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -247,6 +263,77 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         let ctx = ctx_with_branch(None, &cwd);
         assert!(evaluate_one(&Condition::CwdUnder(".".into()), &ctx));
+    }
+
+    #[test]
+    fn cwd_under_absolute_base_matches() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let base = std::fs::canonicalize(tmp.path()).unwrap();
+        let cwd = base.join("a").join("b");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let ctx = ctx_with_branch(None, &cwd);
+        let cond = Condition::CwdUnder(base.to_string_lossy().into_owned());
+        assert!(evaluate_one(&cond, &ctx));
+    }
+
+    #[test]
+    fn cwd_under_absolute_base_no_match() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let cwd = root.join("proj");
+        let other = root.join("other");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let ctx = ctx_with_branch(None, &cwd);
+        let cond = Condition::CwdUnder(other.to_string_lossy().into_owned());
+        assert!(!evaluate_one(&cond, &ctx));
+    }
+
+    #[test]
+    fn cwd_under_dotdot_normalizes_to_match() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let cwd = root.join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+        // Base `<cwd>/..` normalizes to `<root>`, an ancestor of cwd — a lexical
+        // compare would have missed this.
+        let base = cwd.join("..");
+        let ctx = ctx_with_branch(None, &cwd);
+        let cond = Condition::CwdUnder(base.to_string_lossy().into_owned());
+        assert!(evaluate_one(&cond, &ctx));
+    }
+
+    #[test]
+    fn cwd_under_relative_non_dot_never_matches() {
+        // Documented contract: a relative non-`.` base never matches.
+        let cwd = std::env::current_dir().unwrap();
+        let ctx = ctx_with_branch(None, &cwd);
+        assert!(!evaluate_one(&Condition::CwdUnder("src".into()), &ctx));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn cwd_under_symlinked_base_matches() {
+        // A symlinked base must resolve to its real target before the compare.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let real = root.join("real");
+        let cwd = real.join("sub");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let ctx = ctx_with_branch(None, &cwd);
+        let cond = Condition::CwdUnder(link.to_string_lossy().into_owned());
+        assert!(evaluate_one(&cond, &ctx));
+    }
+
+    #[test]
+    fn cwd_under_nonexistent_base_no_match() {
+        // Non-existent base: canonicalize fails → lexical fallback, must not match.
+        let cwd = std::env::current_dir().unwrap();
+        let ctx = ctx_with_branch(None, &cwd);
+        let cond = Condition::CwdUnder("/rippy/does/not/exist".into());
+        assert!(!evaluate_one(&cond, &ctx));
     }
 
     #[test]

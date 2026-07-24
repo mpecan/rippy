@@ -228,7 +228,7 @@ pub struct RuleArgs {
 }
 
 #[derive(Args, Debug)]
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct SuggestArgs {
     /// Generate patterns from a command string instead of analyzing the DB
     #[arg(long)]
@@ -354,7 +354,7 @@ pub struct TokfSetupArgs {
 
 /// Arguments for `rippy trust` — manage project config trust.
 #[derive(Args, Debug)]
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct TrustArgs {
     /// Remove trust for the current project config
     #[arg(long)]

@@ -59,7 +59,7 @@ fn install_cursor_hook(path: &std::path::Path) -> Result<(), RippyError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use serde_json::Value;
 

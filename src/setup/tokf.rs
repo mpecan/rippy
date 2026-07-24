@@ -224,7 +224,7 @@ fn install_file_hook_for_gemini(global: bool) -> Result<(), crate::error::RippyE
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

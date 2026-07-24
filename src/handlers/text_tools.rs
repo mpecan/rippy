@@ -312,7 +312,7 @@ fn awk_has_file_redirect(program: &str) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

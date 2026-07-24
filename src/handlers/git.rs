@@ -515,7 +515,6 @@ fn classify_lfs(args: &[String]) -> Classification {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

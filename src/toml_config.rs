@@ -430,6 +430,6 @@ fn emit_aliases(directives: &[ConfigDirective], out: &mut String) {
 // Tests
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used, clippy::panic)]
 #[path = "toml_config_tests.rs"]
 mod tests;
