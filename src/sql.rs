@@ -68,8 +68,7 @@ fn classify_single(sql: &str) -> Option<bool> {
 
 /// Check if the SELECT statement has an INTO clause that makes it a write.
 fn is_select_into(upper_sql: &str) -> bool {
-    // Simple heuristic: look for SELECT ... INTO ... FROM
-    // but not INTO OUTFILE or INTO DUMPFILE
+    // Heuristic: SELECT ... INTO <target>, excluding INTO OUTFILE/DUMPFILE.
     upper_sql.find(" INTO ").is_some_and(|into_pos| {
         let after_into = &upper_sql[into_pos + 6..];
         let next_word = after_into.split_whitespace().next().unwrap_or("");

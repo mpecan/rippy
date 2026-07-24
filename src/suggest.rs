@@ -60,7 +60,7 @@ struct CommandGroup {
     evidence: Evidence,
 }
 
-// ── Entry point ────────────────────────────────────────────────────────
+// Entry point
 
 /// Run the `rippy suggest` command.
 ///
@@ -102,12 +102,10 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
 /// Priority: explicit `--session-file` > explicit `--db` > auto-detect sessions > tracking DB.
 /// Sessions are the default for Claude Code users (always available, no setup needed).
 fn load_breakdowns(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
-    // Explicit session file always wins.
     if let Some(file) = &args.session_file {
         return load_from_sessions(args, || crate::sessions::parse_session_file(file));
     }
 
-    // Explicit --db flag uses tracking DB.
     if args.db.is_some() {
         return load_from_db(args);
     }
@@ -184,7 +182,7 @@ fn parse_since(since: Option<&str>) -> Result<Option<String>, RippyError> {
     })
 }
 
-// ── Analysis engine ────────────────────────────────────────────────────
+// Analysis engine
 
 /// Analyze command breakdowns and produce rule suggestions.
 #[must_use]
@@ -222,7 +220,7 @@ pub fn analyze_breakdowns(
     suggestions
 }
 
-// ── Grouping ───────────────────────────────────────────────────────────
+// Grouping
 
 /// Tools whose subcommand (second token) should be part of the group key.
 const SUBCOMMAND_TOOLS: &[&str] = &[
@@ -270,7 +268,7 @@ fn group_commands(breakdowns: &[tracking::CommandBreakdown]) -> Vec<CommandGroup
     map.into_values().collect()
 }
 
-// ── Confidence ─────────────────────────────────────────────────────────
+// Confidence
 
 /// Compute confidence from the evidence ratios.
 #[must_use]
@@ -299,7 +297,7 @@ pub fn compute_confidence(evidence: &Evidence) -> Confidence {
     }
 }
 
-// ── Action suggestion ──────────────────────────────────────────────────
+// Action suggestion
 
 /// Suggest an action based on evidence and risk.
 #[must_use]
@@ -331,16 +329,13 @@ pub fn suggest_action(evidence: &Evidence, risk: RiskLevel) -> Decision {
     Decision::Ask
 }
 
-// ── Pattern generalization ─────────────────────────────────────────────
-
 /// Produce a glob pattern from a group key and example commands.
 fn generalize_pattern(group_key: &str, examples: &[String]) -> String {
-    // If all examples are the same command, use exact match.
     if examples.len() == 1 {
         return examples[0].clone();
     }
 
-    // If examples all share the group key as prefix, use "group_key *".
+    // Examples sharing the group key as prefix generalize to "group_key *".
     let all_start_with_key = examples.iter().all(|e| {
         e == group_key
             || (e.starts_with(group_key) && e.as_bytes().get(group_key.len()) == Some(&b' '))
@@ -354,7 +349,7 @@ fn generalize_pattern(group_key: &str, examples: &[String]) -> String {
     group_key.to_string()
 }
 
-// ── Output ─────────────────────────────────────────────────────────────
+// Output
 
 fn print_text(suggestions: &[Suggestion]) {
     let mut current_confidence: Option<Confidence> = None;
@@ -412,7 +407,7 @@ fn apply_suggestions(suggestions: &[Suggestion], global: bool) -> Result<(), Rip
     Ok(())
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -430,7 +425,7 @@ mod tests {
         }
     }
 
-    // ── Confidence ─────────────────────────────────────────────────
+    // Confidence
 
     #[test]
     fn confidence_high() {
@@ -462,7 +457,7 @@ mod tests {
         assert_eq!(compute_confidence(&e), Confidence::Low);
     }
 
-    // ── Action suggestion ──────────────────────────────────────────
+    // Action suggestion
 
     #[test]
     fn action_mostly_allowed_low_risk() {
@@ -488,7 +483,7 @@ mod tests {
         assert_eq!(suggest_action(&e, RiskLevel::Medium), Decision::Ask);
     }
 
-    // ── Grouping ───────────────────────────────────────────────────
+    // Grouping
 
     #[test]
     fn group_key_subcommand_tools() {
@@ -530,7 +525,7 @@ mod tests {
         assert_eq!(g.evidence.example_commands.len(), 2);
     }
 
-    // ── Pattern generalization ─────────────────────────────────────
+    // Pattern generalization
 
     #[test]
     fn generalize_single_example() {
@@ -553,7 +548,7 @@ mod tests {
         assert_eq!(p, "ls");
     }
 
-    // ── End-to-end with in-memory DB ───────────────────────────────
+    // End-to-end with in-memory DB
 
     fn populate_test_db(conn: &rusqlite::Connection) {
         conn.execute_batch(

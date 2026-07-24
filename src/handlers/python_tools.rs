@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
 
-// ---- uv ----
+// uv
 
 pub static UV_HANDLER: UvHandler = UvHandler;
 
@@ -70,7 +70,7 @@ impl Handler for UvHandler {
     }
 }
 
-// ---- ruff ----
+// ruff
 
 pub static RUFF_HANDLER: RuffHandler = RuffHandler;
 
@@ -90,7 +90,7 @@ impl Handler for RuffHandler {
     }
 }
 
-// ---- black ----
+// black
 
 pub static BLACK_HANDLER: BlackHandler = BlackHandler;
 

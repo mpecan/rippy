@@ -3,7 +3,7 @@
 mod common;
 use common::run_rippy;
 
-// ---- Handler fix tests (Issue #4) ----
+// Handler fix tests (Issue #4)
 
 #[test]
 fn bash_c_with_positional_args_asks() {
@@ -32,7 +32,7 @@ fn xargs_with_value_flags_finds_inner_command() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
-// ---- Handler integration tests ----
+// Handler integration tests
 
 #[test]
 fn docker_exec_ls_allows() {
@@ -86,7 +86,7 @@ fn env_inner_command_analyzed() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
-// ---- Ansible handler tests ----
+// Ansible handler tests
 
 #[test]
 fn ansible_doc_allows() {
@@ -155,7 +155,10 @@ fn ansible_galaxy_list_allows() {
 
 #[test]
 fn ansible_galaxy_install_asks() {
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"ansible-galaxy install geerlingguy.docker"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","#,
+        r#""tool_input":{"command":"ansible-galaxy install geerlingguy.docker"}}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -180,7 +183,7 @@ fn ansible_inventory_list_allows() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
-// ---- Cargo handler tests ----
+// Cargo handler tests
 
 #[test]
 fn cargo_test_allows() {
@@ -292,7 +295,7 @@ fn cargo_add_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Task runner handlers (Issue #135) ----
+// Task runner handlers (Issue #135)
 
 fn decision(json: &str) -> String {
     let (stdout, code) = run_rippy(json, "claude", &[]);

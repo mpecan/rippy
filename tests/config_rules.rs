@@ -3,7 +3,7 @@
 mod common;
 use common::{run_rippy, run_rippy_in_dir, run_rippy_in_dir_with_args};
 
-// ---- Config tests ----
+// Config tests
 
 #[test]
 fn config_deny_overrides() {
@@ -31,7 +31,7 @@ fn config_allow_overrides() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
-// ---- Recommended config tests (#16) ----
+// Recommended config tests (#16)
 
 fn recommended_config_path() -> String {
     format!("{}/examples/recommended.rippy", env!("CARGO_MANIFEST_DIR"))
@@ -48,7 +48,10 @@ fn recommended_config_allows_defaults_read() {
 
 #[test]
 fn recommended_config_asks_defaults_write() {
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"defaults write com.apple.finder key val"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","#,
+        r#""tool_input":{"command":"defaults write com.apple.finder key val"}}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &["--config", &recommended_config_path()]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -130,7 +133,7 @@ fn recommended_config_exact_match_dmesg_asks_clear() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Conditional rule tests ----
+// Conditional rule tests
 
 #[test]
 fn conditional_rule_file_exists_skipped_when_missing() {

@@ -304,7 +304,10 @@ mod tests {
             r#"{
                 "hooks": {
                     "PreToolUse": [
-                        {"matcher": "Bash", "hooks": [{"type": "command", "command": "tokf hook handle"}]}
+                        {
+                            "matcher": "Bash",
+                            "hooks": [{"type": "command", "command": "tokf hook handle"}]
+                        }
                     ]
                 }
             }"#,

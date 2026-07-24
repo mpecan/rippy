@@ -100,10 +100,8 @@ mod tests {
 
     #[test]
     fn builtin_meta_non_empty() {
-        // Catches silent regressions where someone deletes `[meta]` from
-        // a built-in TOML: the `OnceLock` fallback would return empty
-        // strings without this assertion, and `rippy profile list` would
-        // render blank.
+        // A deleted `[meta]` block would let the `OnceLock` fallback return
+        // empty strings and render `rippy profile list` blank.
         for pkg in Package::all() {
             assert!(
                 !pkg.tagline().is_empty(),

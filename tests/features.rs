@@ -3,7 +3,7 @@
 mod common;
 use common::run_rippy;
 
-// ---- Inspect integration tests ----
+// Inspect integration tests
 
 #[test]
 fn inspect_list_with_config() {
@@ -94,7 +94,7 @@ fn inspect_list_json_output() {
     assert!(parsed["simple_safe_count"].is_number());
 }
 
-// ---- Stats integration tests ----
+// Stats integration tests
 
 #[test]
 fn stats_json_from_populated_db() {
@@ -111,9 +111,12 @@ fn stats_json_from_populated_db() {
              session_id TEXT, mode TEXT, tool_name TEXT NOT NULL,
              command TEXT, decision TEXT NOT NULL, reason TEXT, payload_json TEXT
          );
-         INSERT INTO decisions (tool_name, command, decision, reason) VALUES ('Bash', 'git status', 'allow', 'safe');
-         INSERT INTO decisions (tool_name, command, decision, reason) VALUES ('Bash', 'git push', 'ask', 'review');
-         INSERT INTO decisions (tool_name, command, decision, reason) VALUES ('Bash', 'rm -rf /', 'deny', 'dangerous');",
+         INSERT INTO decisions (tool_name, command, decision, reason)
+             VALUES ('Bash', 'git status', 'allow', 'safe');
+         INSERT INTO decisions (tool_name, command, decision, reason)
+             VALUES ('Bash', 'git push', 'ask', 'review');
+         INSERT INTO decisions (tool_name, command, decision, reason)
+             VALUES ('Bash', 'rm -rf /', 'deny', 'dangerous');",
     )
     .unwrap();
     drop(conn);
@@ -132,7 +135,7 @@ fn stats_json_from_populated_db() {
     assert_eq!(parsed["counts"]["deny"], 1);
 }
 
-// ---- Stdlib regression tests ----
+// Stdlib regression tests
 
 #[test]
 fn stdlib_cargo_test_allowed() {
@@ -251,7 +254,7 @@ fn init_refuses_existing() {
     assert!(!output.status.success());
 }
 
-// ---- Flag discovery tests ----
+// Flag discovery tests
 
 #[test]
 fn discover_finds_curl_flags() {
@@ -280,28 +283,55 @@ fn discover_without_args_errors() {
     assert!(!output.status.success());
 }
 
-// ---- Session file suggest tests ----
+// Session file suggest tests
+
+fn asst_bash(id: &str, cmd: &str) -> String {
+    format!(
+        concat!(
+            r#"{{"type":"assistant","message":{{"content":[{{"type":"tool_use","#,
+            r#""id":"{id}","name":"Bash","input":{{"command":"{cmd}"}}}}]}}}}"#,
+        ),
+        id = id,
+        cmd = cmd,
+    )
+}
+
+fn tool_result(id: &str, extra: &str, content: &str) -> String {
+    format!(
+        concat!(
+            r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","#,
+            r#""tool_use_id":"{id}",{extra}"content":"{content}"}}]}}}}"#,
+        ),
+        id = id,
+        extra = extra,
+        content = content,
+    )
+}
+
+fn suggest_session_jsonl() -> String {
+    let err = r#""is_error":true,"#;
+    [
+        asst_bash("t1", "git status"),
+        tool_result("t1", "", "ok"),
+        asst_bash("t2", "git status"),
+        tool_result("t2", "", "ok"),
+        asst_bash("t3", "git status"),
+        tool_result("t3", "", "ok"),
+        asst_bash("t4", "rm -rf /"),
+        tool_result("t4", err, "denied"),
+        asst_bash("t5", "rm -rf /"),
+        tool_result("t5", err, "denied"),
+        asst_bash("t6", "rm -rf /"),
+        tool_result("t6", err, "denied"),
+    ]
+    .join("\n")
+}
 
 #[test]
 fn suggest_from_session_file() {
     let dir = tempfile::TempDir::new().unwrap();
     let session_file = dir.path().join("test-session.jsonl");
-    // Write a sample session JSONL with Bash tool calls.
-    let jsonl = [
-        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}"#,
-        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
-        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git status"}}]}}"#,
-        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#,
-        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"git status"}}]}}"#,
-        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"ok"}]}}"#,
-        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"rm -rf /"}}]}}"#,
-        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t4","is_error":true,"content":"denied"}]}}"#,
-        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"rm -rf /"}}]}}"#,
-        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t5","is_error":true,"content":"denied"}]}}"#,
-        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t6","name":"Bash","input":{"command":"rm -rf /"}}]}}"#,
-        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t6","is_error":true,"content":"denied"}]}}"#,
-    ];
-    std::fs::write(&session_file, jsonl.join("\n")).unwrap();
+    std::fs::write(&session_file, suggest_session_jsonl()).unwrap();
 
     let output = std::process::Command::new(common::rippy_binary())
         .args([
@@ -328,7 +358,7 @@ fn suggest_from_session_file() {
     assert!(actions.contains(&"deny"));
 }
 
-// ---- Debug command tests ----
+// Debug command tests
 
 #[test]
 fn debug_shows_allow_verdict() {

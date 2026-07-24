@@ -92,18 +92,17 @@ fn detect_hook_type(raw: &Value) -> HookType {
 
 /// Auto-detect the AI tool mode from the JSON structure.
 fn detect_mode(raw: &Value) -> Result<Mode, RippyError> {
-    // Claude: tool_input is an object with "command" key
+    // Claude: tool_input object with a "command" key; Gemini: tool_input string.
     if let Some(tool_input) = raw.get("tool_input") {
         if tool_input.is_object() && tool_input.get("command").is_some() {
             return Ok(Mode::Claude);
         }
-        // Gemini: tool_input is a string
         if tool_input.is_string() {
             return Ok(Mode::Gemini);
         }
     }
 
-    // Cursor: has "command" at top level (not inside tool_input)
+    // Cursor: "command" at top level, not inside tool_input.
     if raw.get("command").is_some() && raw.get("tool_input").is_none() {
         return Ok(Mode::Cursor);
     }
@@ -196,7 +195,10 @@ mod tests {
 
     #[test]
     fn post_tool_use_detection() {
-        let json = r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_result":{"output":"file.txt"}}"#;
+        let json = concat!(
+            r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"#,
+            r#""tool_result":{"output":"file.txt"}}"#
+        );
         let payload = Payload::parse(json, None).unwrap();
         assert_eq!(payload.hook_type, HookType::PostToolUse);
     }
@@ -243,7 +245,10 @@ mod tests {
 
     #[test]
     fn edit_tool_extracts_file_path() {
-        let json = r#"{"tool_name":"Edit","tool_input":{"file_path":"main.rs","old_string":"a","new_string":"b"}}"#;
+        let json = concat!(
+            r#"{"tool_name":"Edit","tool_input":{"file_path":"main.rs","#,
+            r#""old_string":"a","new_string":"b"}}"#
+        );
         let payload = Payload::parse(json, Some(Mode::Claude)).unwrap();
         assert_eq!(payload.file_path.as_deref(), Some("main.rs"));
         assert_eq!(payload.file_operation(), Some(FileOp::Edit));

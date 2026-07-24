@@ -18,7 +18,9 @@ const PROTECTED_SUFFIXES: &[&str] = &[
 ];
 
 /// Message returned when a protected file is denied.
-pub const PROTECTION_MESSAGE: &str = "rippy configuration files are protected from modification. To disable self-protection, manually add `set self-protect off` to your config.";
+pub const PROTECTION_MESSAGE: &str = "rippy configuration files are protected from \
+     modification. To disable self-protection, manually add `set self-protect off` to \
+     your config.";
 
 /// Check if a file path targets a protected rippy configuration file.
 ///

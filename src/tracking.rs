@@ -74,7 +74,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), RippyError> {
 /// Returns `RippyError::Tracking` if the insert fails.
 pub fn record_decision(conn: &Connection, entry: &TrackingEntry) -> Result<(), RippyError> {
     conn.execute(
-        "INSERT INTO decisions (session_id, mode, tool_name, command, decision, reason, payload_json)
+        "INSERT INTO decisions \
+         (session_id, mode, tool_name, command, decision, reason, payload_json) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         rusqlite::params![
             entry.session_id,

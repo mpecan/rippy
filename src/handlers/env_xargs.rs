@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
 
-// ---- env ----
+// env
 
 pub static ENV_HANDLER: EnvHandler = EnvHandler;
 
@@ -29,7 +29,7 @@ impl Handler for EnvHandler {
     }
 }
 
-// ---- xargs ----
+// xargs
 
 pub static XARGS_HANDLER: XargsHandler = XargsHandler;
 

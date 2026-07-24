@@ -26,9 +26,7 @@ pub fn run(args: &ProfileArgs) -> Result<ExitCode, RippyError> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // List
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 struct ProfileListEntry {
@@ -99,9 +97,7 @@ fn active_package_name() -> Option<String> {
     config.active_package.map(|p| p.name().to_string())
 }
 
-// ---------------------------------------------------------------------------
 // Show
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 struct ProfileShowOutput {
@@ -260,9 +256,7 @@ fn parse_git_block(source: &str) -> (Option<String>, Vec<BranchDisplay>) {
     (git.style, branches)
 }
 
-// ---------------------------------------------------------------------------
 // Set
-// ---------------------------------------------------------------------------
 
 fn set_profile(name: &str, project: bool) -> Result<ExitCode, RippyError> {
     let home = config::home_dir();

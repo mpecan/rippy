@@ -4,7 +4,7 @@ use super::{
 };
 use crate::sql::classify_sql;
 
-// ---- psql ----
+// psql
 
 pub static PSQL_HANDLER: PsqlHandler = PsqlHandler;
 
@@ -37,7 +37,7 @@ impl Handler for PsqlHandler {
     }
 }
 
-// ---- mysql ----
+// mysql
 
 pub static MYSQL_HANDLER: MysqlHandler = MysqlHandler;
 
@@ -59,7 +59,7 @@ impl Handler for MysqlHandler {
     }
 }
 
-// ---- sqlite3 ----
+// sqlite3
 
 pub static SQLITE3_HANDLER: Sqlite3Handler = Sqlite3Handler;
 

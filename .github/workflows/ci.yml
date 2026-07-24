@@ -37,7 +37,11 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
 
       - name: cargo-lint-extra
-        run: cargo binstall -y cargo-lint-extra && cargo lint-extra -W
+        # Plain invocation, not `-W`: in cargo-lint-extra 0.1.4 (latest) the
+        # `-W` flag exits 1 unconditionally (even on an empty tree). All rules
+        # are at `deny`, so a plain run already fails on any finding and passes
+        # only when clean — the behavior `-W` was meant to provide.
+        run: cargo binstall -y cargo-lint-extra && cargo lint-extra
 
   test:
     name: Test

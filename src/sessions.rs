@@ -114,7 +114,7 @@ fn extract_tool_results(
     }
 }
 
-// ── Project directory discovery ────────────────────────────────────────
+// Project directory discovery
 
 /// Find and parse all session files for the current project.
 ///
@@ -167,7 +167,7 @@ fn find_project_dir(cwd: &Path) -> Option<PathBuf> {
     }
 }
 
-// ── Filtering ──────────────────────────────────────────────────────────
+// Filtering
 
 /// Filter out commands that CC permissions or rippy config already auto-allow.
 ///
@@ -200,7 +200,7 @@ pub fn filter_auto_allowed(
     Ok(filtered)
 }
 
-// ── Conversion to CommandBreakdown ─────────────────────────────────────
+// Conversion to CommandBreakdown
 
 /// Convert session commands to `CommandBreakdown` format for the suggest engine.
 #[must_use]
@@ -234,7 +234,7 @@ pub fn to_breakdowns(commands: &[SessionCommand]) -> Vec<CommandBreakdown> {
     result
 }
 
-// ── Audit classification ───────────────────────────────────────────────
+// Audit classification
 
 /// Audit results: classify commands against current rippy config.
 #[derive(Debug)]
@@ -342,33 +342,60 @@ pub fn print_audit(result: &AuditResult) {
     println!();
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
-    const SAMPLE_JSONL: &str = r#"
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"rm -rf /"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"denied"}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"git status"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"ok"}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t4","name":"Read","input":{"path":"foo.rs"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t4","content":"file contents"}]}}
-"#;
+    fn tool_use_line(id: &str, name: &str, input: &str) -> String {
+        format!(
+            concat!(
+                r#"{{"type":"assistant","message":{{"content":[{{"#,
+                r#""type":"tool_use","id":"{id}","name":"{name}","input":{input}}}]}}}}"#,
+            ),
+            id = id,
+            name = name,
+            input = input,
+        )
+    }
+
+    fn tool_result_line(id: &str, extra: &str, content: &str) -> String {
+        format!(
+            concat!(
+                r#"{{"type":"user","message":{{"content":[{{"#,
+                r#""type":"tool_result","tool_use_id":"{id}",{extra}"content":"{content}"}}]}}}}"#,
+            ),
+            id = id,
+            extra = extra,
+            content = content,
+        )
+    }
+
+    fn sample_jsonl() -> String {
+        [
+            tool_use_line("t1", "Bash", r#"{"command":"git status"}"#),
+            tool_result_line("t1", "", "ok"),
+            tool_use_line("t2", "Bash", r#"{"command":"rm -rf /"}"#),
+            tool_result_line("t2", r#""is_error":true,"#, "denied"),
+            tool_use_line("t3", "Bash", r#"{"command":"git status"}"#),
+            tool_result_line("t3", "", "ok"),
+            tool_use_line("t4", "Read", r#"{"path":"foo.rs"}"#),
+            tool_result_line("t4", "", "file contents"),
+        ]
+        .join("\n")
+    }
 
     #[test]
     fn parse_extracts_bash_commands() {
-        let commands = parse_session_content(SAMPLE_JSONL);
+        let commands = parse_session_content(&sample_jsonl());
         assert_eq!(commands.len(), 3); // 2x git status + 1x rm -rf /
     }
 
     #[test]
     fn parse_detects_allowed_and_denied() {
-        let commands = parse_session_content(SAMPLE_JSONL);
+        let commands = parse_session_content(&sample_jsonl());
         let allowed_count = commands.iter().filter(|c| c.allowed).count();
         let denied: Vec<_> = commands.iter().filter(|c| !c.allowed).collect();
         assert_eq!(allowed_count, 2);
@@ -378,7 +405,7 @@ mod tests {
 
     #[test]
     fn parse_ignores_non_bash_tools() {
-        let commands = parse_session_content(SAMPLE_JSONL);
+        let commands = parse_session_content(&sample_jsonl());
         // Read tool (t4) should not appear
         assert!(!commands.iter().any(|c| c.command.contains("foo.rs")));
     }
@@ -398,7 +425,7 @@ mod tests {
 
     #[test]
     fn to_breakdowns_aggregates() {
-        let commands = parse_session_content(SAMPLE_JSONL);
+        let commands = parse_session_content(&sample_jsonl());
         let breakdowns = to_breakdowns(&commands);
 
         assert_eq!(breakdowns.len(), 2); // git status, rm -rf /
@@ -434,7 +461,7 @@ mod tests {
     fn parse_session_file_from_disk() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("test.jsonl");
-        std::fs::write(&path, SAMPLE_JSONL).unwrap();
+        std::fs::write(&path, sample_jsonl()).unwrap();
 
         let commands = parse_session_file(&path).unwrap();
         assert_eq!(commands.len(), 3);

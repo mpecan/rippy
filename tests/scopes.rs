@@ -26,9 +26,7 @@ fn decide(analyzer: &mut Analyzer, command: &str) -> Decision {
         .decision
 }
 
-// ---------------------------------------------------------------------------
 // Within a declared scope: reads allowed, writes still ask.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn cd_into_declared_scope_allows() {
@@ -60,9 +58,7 @@ fn mkdir_in_declared_scope_allows() {
     assert_eq!(decide(&mut a, "mkdir /opt/repos/new"), Decision::Allow);
 }
 
-// ---------------------------------------------------------------------------
 // Write redirects (#136) honor the same trusted-dir set.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn redirect_into_declared_scope_allows() {
@@ -86,9 +82,7 @@ fn redirect_into_tmp_allows_even_with_unrelated_scope() {
     assert_eq!(decide(&mut a, "echo x > /tmp/out"), Decision::Allow);
 }
 
-// ---------------------------------------------------------------------------
 // Nothing outside the project becomes safe without opt-in.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn cd_outside_declared_scope_still_asks() {
@@ -98,15 +92,11 @@ fn cd_outside_declared_scope_still_asks() {
 
 #[test]
 fn git_read_outside_any_scope_still_asks() {
-    // Rejected-widening guarantee: read-only git against an undeclared repo
-    // keeps prompting (its .git/config could run code).
     let mut a = analyzer_with_scope("/opt/repos", "/project");
     assert_eq!(decide(&mut a, "git -C /opt/other log"), Decision::Ask);
 }
 
-// ---------------------------------------------------------------------------
 // End-to-end via --config, including plan permission mode.
-// ---------------------------------------------------------------------------
 
 fn scopes_fixture() -> String {
     format!("{}/tests/fixtures/scopes.toml", env!("CARGO_MANIFEST_DIR"))
@@ -124,7 +114,10 @@ fn e2e_cd_into_scope_allows() {
 #[test]
 fn e2e_plan_mode_undeclared_dir_still_asks() {
     // Plan mode must NOT widen access to an undeclared directory.
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"cd /some-undeclared"},"permission_mode":"plan"}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","tool_input":{"command":"cd /some-undeclared"},"#,
+        r#""permission_mode":"plan"}"#
+    );
     let (stdout, _code) = common::run_rippy(json, "claude", &["--config", &scopes_fixture()]);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_ne!(
@@ -133,9 +126,7 @@ fn e2e_plan_mode_undeclared_dir_still_asks() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Untrusted project config declaring scopes is NOT honored.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn untrusted_project_scope_not_honored() {
@@ -157,9 +148,7 @@ fn untrusted_project_scope_not_honored() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // `rippy scope` CLI smoke test.
-// ---------------------------------------------------------------------------
 
 fn run_scope(dir: &std::path::Path, args: &[&str]) -> i32 {
     let output = Command::new(common::rippy_binary())

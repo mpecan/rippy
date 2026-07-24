@@ -3,7 +3,7 @@
 mod common;
 use common::{run_rippy, run_rippy_in_dir_with_args};
 
-// ---- Python -c safety analysis tests ----
+// Python -c safety analysis tests
 
 #[test]
 fn python_c_print_allows() {
@@ -16,7 +16,10 @@ fn python_c_print_allows() {
 
 #[test]
 fn python_c_import_os_asks() {
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"python -c 'import os; os.system(\"rm -rf /\")'"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","#,
+        r#""tool_input":{"command":"python -c 'import os; os.system(\"rm -rf /\")'"}}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -25,7 +28,10 @@ fn python_c_import_os_asks() {
 
 #[test]
 fn python_c_import_json_allows() {
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"python -c 'import json; print(json.dumps({}))'"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","#,
+        r#""tool_input":{"command":"python -c 'import json; print(json.dumps({}))'"}}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -41,7 +47,7 @@ fn python_script_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- CC permission rules tests ----
+// CC permission rules tests
 
 #[test]
 fn cc_allow_rule_auto_approves() {
@@ -97,7 +103,7 @@ fn cc_ask_rule_prompts() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Self-protection integration tests ----
+// Self-protection integration tests
 
 #[test]
 fn self_protect_denies_write_to_rippy_config() {
@@ -114,7 +120,10 @@ fn self_protect_denies_write_to_rippy_config() {
 
 #[test]
 fn self_protect_denies_edit_to_rippy_toml() {
-    let json = r#"{"tool_name":"Edit","tool_input":{"file_path":".rippy.toml","old_string":"deny","new_string":"allow"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Edit","tool_input":{"file_path":".rippy.toml","#,
+        r#""old_string":"deny","new_string":"allow"}}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 2);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();

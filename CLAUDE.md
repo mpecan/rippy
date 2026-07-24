@@ -73,15 +73,30 @@ Use `#[allow(...)]` only in test code. Prefer returning `Result` or using patter
 - `rustfmt` with `max_width = 100`, edition 2024
 - Run `cargo fmt` before committing
 
+### Comment style
+
+Enforced by `cargo-lint-extra` (`.cargo-lint-extra.toml`, run as `cargo lint-extra` in CI).
+
+- Document public items and non-obvious **why**; never restate the **what** the code already says.
+- No step-narration (`// now loop over the args`) and no comments that echo a self-named call.
+- No decorative banner dividers (`// ---- foo ----`, `// ==== Config ====`, box-drawing rules).
+- Skip `///` doc stubs on trivial private one-liners.
+- Keep inline comments under ~30% of a function's lines; break up or delete dense blocks.
+- Deep rationale (security invariants, attack models, parser hazards) goes in a short `docs/`
+  file (e.g. `docs/security-invariants.md`) with a terse inline pointer
+  (`// see docs/security-invariants.md#dynamic-arg`), not a wall of inline text.
+- Files stay under the 700-line hard cap; split oversized modules into sibling files.
+
 ### Before every change
 
 ```sh
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo lint-extra
 ```
 
-All three must pass clean.
+All four must pass clean.
 
 ## Conventions
 

@@ -2,7 +2,7 @@ use super::{
     Classification, Handler, HandlerContext, SubcommandHandler, has_flag, is_sole_help_flag,
 };
 
-// ---- tar ----
+// tar
 
 pub static TAR_HANDLER: TarHandler = TarHandler;
 
@@ -27,7 +27,7 @@ impl Handler for TarHandler {
     }
 }
 
-// ---- wget ----
+// wget
 
 pub static WGET_HANDLER: WgetHandler = WgetHandler;
 
@@ -49,7 +49,7 @@ impl Handler for WgetHandler {
     }
 }
 
-// ---- gzip / unzip ----
+// gzip / unzip
 
 pub static GZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["gzip", "gunzip"],
@@ -65,7 +65,7 @@ pub static UNZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     "archive",
 );
 
-// ---- mktemp ----
+// mktemp
 
 pub static MKTEMP_HANDLER: MktempHandler = MktempHandler;
 
@@ -84,7 +84,7 @@ impl Handler for MktempHandler {
     }
 }
 
-// ---- tee ----
+// tee
 
 pub static TEE_HANDLER: TeeHandler = TeeHandler;
 
@@ -113,7 +113,7 @@ impl Handler for TeeHandler {
     }
 }
 
-// ---- sort ----
+// sort
 
 pub static SORT_HANDLER: SortHandler = SortHandler;
 
@@ -138,7 +138,7 @@ impl Handler for SortHandler {
     }
 }
 
-// ---- open ----
+// open
 
 pub static OPEN_HANDLER: OpenHandler = OpenHandler;
 
@@ -157,7 +157,7 @@ impl Handler for OpenHandler {
     }
 }
 
-// ---- yq ----
+// yq
 
 pub static YQ_HANDLER: YqHandler = YqHandler;
 

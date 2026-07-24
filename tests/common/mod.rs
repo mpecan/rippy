@@ -72,9 +72,7 @@ pub fn run_rippy_in_dir_with_args(
     (stdout, code)
 }
 
-// ---------------------------------------------------------------------------
 // Library-level test utilities (no subprocess, used by catalog & proptest)
-// ---------------------------------------------------------------------------
 
 static TEST_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let dir = std::env::temp_dir().join("rippy-test-shared");

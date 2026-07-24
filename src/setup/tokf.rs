@@ -316,8 +316,10 @@ mod tests {
         let json = r#"{
             "version": "0.2.37",
             "search_dirs": [
-                {"scope": "local", "path": "/tmp/project/.tokf", "exists": true, "access": "writable"},
-                {"scope": "user", "path": "/home/user/.config/tokf", "exists": true, "access": "writable"}
+                {"scope": "local", "path": "/tmp/project/.tokf",
+                 "exists": true, "access": "writable"},
+                {"scope": "user", "path": "/home/user/.config/tokf",
+                 "exists": true, "access": "writable"}
             ],
             "config_files": [],
             "tracking_db": {"path": "/tmp/db", "exists": true, "access": "writable"},

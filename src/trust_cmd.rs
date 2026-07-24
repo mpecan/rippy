@@ -100,7 +100,8 @@ fn print_config_summary(path: &Path, content: &str) {
         }
         if stats.declares_scopes {
             eprintln!(
-                "  - declares safe scope(s) that widen auto-approval to directories outside this project"
+                "  - declares safe scope(s) that widen auto-approval to \
+                 directories outside this project"
             );
         }
     }

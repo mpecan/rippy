@@ -9,7 +9,7 @@ use crate::condition::MatchContext;
 use crate::config::Config;
 use crate::environment::Environment;
 use crate::error::RippyError;
-use crate::handlers::{self, Classification, HandlerContext, is_sole_help_flag};
+use crate::handlers::is_sole_help_flag;
 use crate::parser::BashParser;
 use crate::resolve::{self, LocalBinding, VarLookup};
 use crate::verdict::{Decision, Verdict};
@@ -145,15 +145,8 @@ impl Analyzer {
     /// unparseable-but-runnable command is gated rather than silently allowed.
     /// The `Result` signature is retained for call-site stability.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
-        // Normalize a leading `NAME=VALUE` env prefix so the string-matching
-        // config/CC layers see the real command (e.g. `cargo test`) instead of
-        // the assignment token. Parse once and reuse the result below. On
-        // unparseable input we fall back to the raw string for the string-match
-        // layers, then fail closed to an Ask verdict (see below).
-        // `strip_env_prefix` keeps the rest of the command verbatim (redirects,
-        // pipes, `&&` chains), refuses to strip when a value contains an
-        // expansion, and refuses to strip code-influencing vars — so no ALLOW
-        // rule can bypass the analyzer's redirect or assignment-expansion guards.
+        // Strip a leading `NAME=VALUE` env prefix so string-matching layers see
+        // the real command. see docs/security-invariants.md#env-prefix-strip
         let parsed = self.parser.parse(command);
         let stripped = parsed
             .as_ref()
@@ -397,11 +390,7 @@ impl Analyzer {
             if let Some((name, val)) = ast::literal_assignment(a) {
                 self.locals.push((name, LocalBinding::Literal(val)));
             } else if let Some(name) = ast::append_assignment_name(a) {
-                // `NAME+=VALUE` appends to a prior value we cannot reconstruct
-                // (it may be a shadowed literal, an env var, or unknown). Shadow
-                // it as set-but-unknown so a stale prior literal is never
-                // resolved — that would under-block if the appended value made
-                // the real path/flag dangerous.
+                // see docs/security-invariants.md#append-assignment-shadow
                 self.locals.push((name, LocalBinding::Dynamic));
             }
         }
@@ -536,14 +525,9 @@ impl Analyzer {
         cwd: &Path,
         depth: usize,
     ) -> Verdict {
-        // Static expansion resolution: if any words contain expansions, attempt
-        // to resolve them and re-classify the resolved command through the full
-        // pipeline. This applies uniformly to safe-list, wrapper, and handler
-        // paths — the resolved command goes back through analyze_inner_command.
         if let Some(resolved_verdict) = self.try_resolve(words, cwd, depth) {
-            // Use Verdict::combine (not most_restrictive) so the resolved_command
-            // field is preserved even when a redirect verdict dominates the
-            // decision — combine borrows resolved_command from any input verdict.
+            // combine (not most_restrictive) keeps the resolved_command field even
+            // when a redirect verdict dominates the decision.
             let mut verdicts = vec![resolved_verdict];
             verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
             return Verdict::combine(&verdicts);
@@ -605,326 +589,10 @@ impl Analyzer {
             Verdict::combine(&all)
         }
     }
-
-    fn analyze_redirects(&self, redirects: &[Node], cwd: &Path, _depth: usize) -> Vec<Verdict> {
-        let mut verdicts = Vec::new();
-        for redir in redirects {
-            match &redir.kind {
-                NodeKind::Redirect { .. } => {
-                    if let Some((op, target)) = ast::redirect_info(redir) {
-                        verdicts.push(self.analyze_redirect(op, &target, cwd));
-                    }
-                }
-                NodeKind::HereDoc {
-                    quoted, content, ..
-                } => {
-                    verdicts.push(Self::analyze_heredoc_node(*quoted, Some(content.as_str())));
-                }
-                _ => {}
-            }
-        }
-        verdicts
-    }
-
-    fn classify_with_handler(
-        &mut self,
-        cmd_name: &str,
-        args: &[String],
-        cwd: &Path,
-        depth: usize,
-    ) -> Verdict {
-        if let Some(handler) = handlers::get_handler(cmd_name) {
-            let ctx = HandlerContext {
-                command_name: cmd_name,
-                args,
-                working_directory: cwd,
-                remote: self.remote,
-                receives_piped_input: self.piped,
-                safe_scopes: &self.config.safe_scopes,
-            };
-            let classification = handler.classify(&ctx);
-            if self.verbose {
-                eprintln!("[rippy] handler: {cmd_name} -> {classification:?}");
-            }
-            return self.apply_classification(classification, cwd, depth);
-        }
-
-        if self.verbose {
-            eprintln!("[rippy] no handler for: {cmd_name}");
-        }
-        self.default_verdict(cmd_name)
-    }
-
-    fn analyze_redirect(&self, op: ast::RedirectOp, target: &str, cwd: &Path) -> Verdict {
-        if op == ast::RedirectOp::Read {
-            return Verdict::allow("input redirect");
-        }
-        // `&>`/`>&` parse as `FdDup`, but only bare-descriptor / close targets
-        // (`2>&1`, `>&2`, `>&-`) are true fd operations. A path target
-        // (`&> out.log`) is a *file write* and must run the same safety
-        // pipeline as `>` — otherwise it would bypass self-protection, deny
-        // rules, and the safe-dir check. Re-map it to `Write`.
-        let op = if op == ast::RedirectOp::FdDup {
-            if ast::is_fd_dup_target(target) {
-                return Verdict::allow("fd redirect");
-            }
-            ast::RedirectOp::Write
-        } else {
-            op
-        };
-        if ast::is_safe_redirect_target(target) {
-            return Verdict::allow(format!("redirect to {target}"));
-        }
-        if self.config.self_protect && crate::self_protect::is_protected_path(target) {
-            return Verdict::deny(crate::self_protect::PROTECTION_MESSAGE);
-        }
-        if let Some(verdict) = self.config.match_redirect(target, Some(&self.match_ctx())) {
-            return verdict;
-        }
-        // Write/append into the shared trusted safe-dir set (declared scopes or
-        // default safe dirs like /tmp) is auto-approved. This runs AFTER
-        // self_protect and explicit user rules so those stronger decisions win.
-        if matches!(op, ast::RedirectOp::Write | ast::RedirectOp::Append)
-            && self.is_safe_write_target(target, cwd)
-        {
-            return Verdict::allow(format!("redirect to {target} (safe dir)"));
-        }
-        Verdict::ask(format!("redirect to {target}"))
-    }
-
-    /// Returns `true` only for statically-known write targets that resolve
-    /// inside the trusted safe-dir set (declared scopes or default safe dirs).
-    ///
-    /// Conservative by construction: any target whose runtime value we cannot
-    /// know statically — shell expansions (`$VAR`, `${...}`, `$(...)`,
-    /// backticks), a leading `~`, or glob metacharacters — is rejected so it
-    /// keeps asking. Relative targets resolve against `cwd`.
-    ///
-    /// Two extra guards keep the auto-approval from being widened:
-    /// - **cwd exclusion:** a target inside the working directory subtree keeps
-    ///   asking even when the cwd itself lives under a safe dir (e.g. a checkout
-    ///   under `/tmp`), so project writes are never silently approved.
-    /// - **symlink resolution:** the world-writable default safe dirs (`/tmp`,
-    ///   `/var/tmp`) let an attacker plant a symlink, so for those the target's
-    ///   real path (deepest existing ancestor canonicalized) must ALSO stay in
-    ///   the defaults — a redirect through `/tmp/evil -> /etc` is rejected.
-    ///   User-declared scopes are trusted opt-ins and skip this re-check.
-    fn is_safe_write_target(&self, target: &str, cwd: &Path) -> bool {
-        let target = resolve::strip_outer_quotes(target);
-        if ast::has_shell_expansion_pattern(&target)
-            || target.starts_with('~')
-            || target.contains(['*', '?', '['])
-        {
-            return false;
-        }
-        let raw = Path::new(&target);
-        let resolved = if raw.is_absolute() {
-            handlers::normalize_path(raw)
-        } else {
-            handlers::normalize_path(&cwd.join(raw))
-        };
-        // Never auto-approve writes into the project directory itself, even when
-        // the cwd lives under a safe dir (e.g. a checkout under /tmp): project
-        // files must keep asking.
-        if resolved.starts_with(handlers::normalize_path(cwd)) {
-            return false;
-        }
-        // Declared safe scopes are user-trusted opt-ins: a logical match is
-        // enough, no symlink re-check.
-        let scopes = &self.config.safe_scopes;
-        if scopes.iter().any(|d| resolved.starts_with(d)) {
-            return true;
-        }
-        // The built-in default dirs (/tmp, /var/tmp) are world-writable, so an
-        // attacker can plant a symlink. Require BOTH the logical target and its
-        // symlink-resolved real path to stay inside the defaults, so a redirect
-        // through `/tmp/evil -> /etc` is rejected.
-        handlers::is_within_default_safe_dir(&resolved)
-            && handlers::is_within_default_safe_dir(&canonicalize_existing_ancestor(&resolved))
-    }
-
-    /// Scope-aware unsafe-redirect check: a command has an unsafe write/append
-    /// redirect only when its target is neither inherently safe (`/dev/null`)
-    /// nor inside the trusted safe-dir set.
-    fn command_has_unsafe_redirect(&self, node: &Node, cwd: &Path) -> bool {
-        let NodeKind::Command { redirects, .. } = &node.kind else {
-            return false;
-        };
-        redirects.iter().any(|r| {
-            let Some((op, target)) = ast::redirect_info(r) else {
-                return false;
-            };
-            matches!(op, ast::RedirectOp::Write | ast::RedirectOp::Append)
-                && !ast::is_safe_redirect_target(&target)
-                && !self.is_safe_write_target(&target, cwd)
-        })
-    }
-
-    fn analyze_heredoc_node(quoted: bool, content: Option<&str>) -> Verdict {
-        if quoted {
-            return Verdict::allow("heredoc");
-        }
-        if let Some(body) = content
-            && ast::has_shell_expansion_pattern(body)
-        {
-            return Verdict::ask("heredoc with expansion");
-        }
-        Verdict::allow("heredoc")
-    }
-
-    fn analyze_inner_command(&mut self, inner: &str, cwd: &Path, depth: usize) -> Verdict {
-        let Ok(nodes) = self.parser.parse(inner) else {
-            return Verdict::ask("unparseable inner command");
-        };
-        self.analyze_nodes(&nodes, cwd, depth)
-    }
-
-    /// Attempt to statically resolve any shell expansions in `words` and
-    /// re-classify the resolved command through the full pipeline.
-    ///
-    /// Returns:
-    /// - `None` when there are no expansions to resolve (caller proceeds normally)
-    /// - `Some(verdict)` when expansions were present:
-    ///   - On unresolvable expansions, an `Ask` verdict with a diagnostic reason
-    ///   - On command-position dynamic execution (`$cmd args`), an `Ask` verdict
-    ///     regardless of whether resolution succeeded
-    ///   - Otherwise, the verdict of re-analyzing the resolved command
-    ///     (annotated with the resolved form for transparency)
-    fn try_resolve(&mut self, words: &[Node], cwd: &Path, depth: usize) -> Option<Verdict> {
-        if !ast::has_expansions_in_slices(words, &[]) {
-            return None;
-        }
-        // Bail out on runaway resolution before doing any work. Each nested
-        // call increments `resolution_depth`; cycles like `A=$B; B=$A` are
-        // caught here even if individual depths are small.
-        if self.resolution_depth >= MAX_RESOLUTION_DEPTH {
-            return Some(Verdict::ask("shell expansion (resolution depth exceeded)"));
-        }
-        let resolved = {
-            let scoped = resolve::ScopedLookup::new(&self.locals, self.var_lookup.as_ref());
-            resolve::resolve_command_args(words, &scoped)
-        };
-        // A set-but-unknown value in argument position: we never fabricate its
-        // value. Allow only if the literal command name is safe regardless of
-        // its argument *values* (a pure reader/printer that cannot write, spawn
-        // a shell, or execute based on an arg). Every handler/wrapper/unknown
-        // command with a dynamic argument stays Ask, exactly as before.
-        //
-        // Gated on `failure_reason.is_none()`: if *any* other word was
-        // unresolvable — an un-executed command/process substitution such as
-        // `echo $? $(rm -rf /)` — that Ask must dominate and we must NOT take the
-        // relaxed allow path, or the substitution would run un-analyzed.
-        if resolved.arg_position_dynamic
-            && !resolved.command_position_dynamic
-            && resolved.failure_reason.is_none()
-        {
-            return Some(self.dynamic_arg_verdict(words));
-        }
-        let Some(args) = resolved.args else {
-            let reason = resolved.failure_reason.map_or_else(
-                || "shell expansion".to_string(),
-                |r| format!("shell expansion ({r})"),
-            );
-            return Some(Verdict::ask(reason));
-        };
-        let resolved_command = resolve::shell_join(&args);
-        // Refuse to materialize pathologically large resolved commands.
-        if resolved_command.len() > MAX_RESOLVED_LEN {
-            return Some(Verdict::ask(format!(
-                "shell expansion (resolved command exceeds {MAX_RESOLVED_LEN}-byte limit)"
-            )));
-        }
-        if self.verbose {
-            eprintln!("[rippy] resolved: {resolved_command}");
-        }
-        if resolved.command_position_dynamic {
-            return Some(
-                Verdict::ask(format!("dynamic command (resolved: {resolved_command})"))
-                    .with_resolution(resolved_command),
-            );
-        }
-        // Track nesting around the recursive analyze_inner_command call.
-        self.resolution_depth += 1;
-        let inner = self.analyze_inner_command(&resolved_command, cwd, depth + 1);
-        self.resolution_depth -= 1;
-        Some(annotate_with_resolution(inner, &resolved_command))
-    }
-
-    /// Verdict for a command with a dynamic-known argument (`$loopvar`, `$?`).
-    ///
-    /// SECURITY INVARIANT: this is the *only* place a dynamic argument relaxes
-    /// the verdict, and it does so strictly for the pure-reader subset of
-    /// `SIMPLE_SAFE` (see [`allowlists::is_dynamic_arg_safe`]), whose safety does
-    /// not depend on argument values (`cat`/`echo`/`wc`/`ls`). Commands that can
-    /// act on an argument value — pagers that spawn subshells (`less`/`man`),
-    /// preview-executing finders (`fzf`), and state-changing commands
-    /// (`mount`/`stty`) — are excluded, as is any handler command (`rm`,
-    /// `git`, ...), because a set-but-unknown value could otherwise hide an
-    /// injected dangerous flag or path.
-    fn dynamic_arg_verdict(&self, words: &[Node]) -> Verdict {
-        let Some(raw_name) = ast::command_name_from_words(words) else {
-            return Verdict::ask("shell expansion ($VAR dynamic)");
-        };
-        let name = self.config.resolve_alias(raw_name);
-        if allowlists::is_dynamic_arg_safe(name) {
-            Verdict::allow(format!("{name} is safe (dynamic arg)"))
-        } else {
-            Verdict::ask("shell expansion ($VAR dynamic)")
-        }
-    }
-
-    fn apply_classification(&mut self, class: Classification, cwd: &Path, depth: usize) -> Verdict {
-        match class {
-            Classification::Allow(desc) => Verdict::allow(desc),
-            Classification::Ask(desc) => Verdict::ask(desc),
-            Classification::Deny(desc) => Verdict::deny(desc),
-            Classification::Recurse(inner) => {
-                if self.verbose {
-                    eprintln!("[rippy] recurse: {inner}");
-                }
-                self.analyze_inner_command(&inner, cwd, depth)
-            }
-            Classification::RecurseRemote(inner) => {
-                if self.verbose {
-                    eprintln!("[rippy] recurse (remote): {inner}");
-                }
-                let prev_remote = self.remote;
-                self.remote = true;
-                let v = self.analyze_inner_command(&inner, cwd, depth);
-                self.remote = prev_remote;
-                v
-            }
-            Classification::WithRedirects(decision, desc, targets) => {
-                let mut verdicts = vec![Verdict {
-                    decision,
-                    reason: desc,
-                    resolved_command: None,
-                }];
-                for target in &targets {
-                    verdicts.push(self.analyze_redirect(ast::RedirectOp::Write, target, cwd));
-                }
-                Verdict::combine(&verdicts)
-            }
-        }
-    }
-
-    fn default_verdict(&self, cmd_name: &str) -> Verdict {
-        self.config.default_action.map_or_else(
-            || Verdict::ask(format!("{cmd_name} (unknown command)")),
-            |action| {
-                let mut reason = format!("{cmd_name} (default action)");
-                if action == Decision::Allow {
-                    reason.push_str(self.config.weakening_suffix());
-                }
-                Verdict {
-                    decision: action,
-                    reason,
-                    resolved_command: None,
-                }
-            },
-        )
-    }
 }
+
+#[path = "analyzer_dispatch.rs"]
+mod dispatch;
 
 fn cc_decision_to_verdict(decision: Decision, command: &str) -> Verdict {
     let reason = match decision {
@@ -996,3 +664,8 @@ fn most_restrictive(a: Verdict, b: Verdict) -> Verdict {
 #[allow(clippy::unwrap_used, clippy::literal_string_with_formatting_args)]
 #[path = "analyzer_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::literal_string_with_formatting_args)]
+#[path = "analyzer_tests2.rs"]
+mod tests2;

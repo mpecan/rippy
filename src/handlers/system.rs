@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
 
-// ---- fd ----
+// fd
 
 pub static FD_HANDLER: FdHandler = FdHandler;
 
@@ -30,7 +30,7 @@ impl Handler for FdHandler {
     }
 }
 
-// ---- dmesg ----
+// dmesg
 
 pub static DMESG_HANDLER: DmesgHandler = DmesgHandler;
 
@@ -49,7 +49,7 @@ impl Handler for DmesgHandler {
     }
 }
 
-// ---- ip ----
+// ip
 
 pub static IP_HANDLER: IpHandler = IpHandler;
 
@@ -83,7 +83,7 @@ impl Handler for IpHandler {
     }
 }
 
-// ---- ifconfig ----
+// ifconfig
 
 pub static IFCONFIG_HANDLER: IfconfigHandler = IfconfigHandler;
 
@@ -95,8 +95,7 @@ impl Handler for IfconfigHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // ≤1 positional arg (just interface name or nothing) = viewing
-        // >1 positional arg = modifying
+        // >1 positional arg (beyond an interface name) means a config change.
         let positional_count = ctx.args.iter().filter(|a| !a.starts_with('-')).count();
         if positional_count <= 1 {
             Classification::Allow("ifconfig (view)".into())

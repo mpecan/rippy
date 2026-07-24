@@ -36,8 +36,7 @@ impl Config {
                 directives.extend(crate::toml_config::parse_toml_config(content, sentinel)?);
             }
             ConfigFormat::Lines => {
-                // Reuse the file-based loader's line parser. The sentinel path
-                // has no `.toml` extension, so the loader routes it through the
+                // Sentinel has no `.toml` extension, so the loader takes the
                 // line-based branch.
                 load_file_from_content(content, sentinel, &mut directives)?;
             }

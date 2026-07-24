@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, is_sole_help_flag, positional_args};
 
-// ---- kubectl ----
+// kubectl
 
 pub static KUBECTL_HANDLER: KubectlHandler = KubectlHandler;
 
@@ -65,7 +65,7 @@ fn classify_kubectl_exec(ctx: &HandlerContext) -> Classification {
     Classification::Ask("kubectl exec".into())
 }
 
-// ---- aws ----
+// aws
 
 pub static AWS_HANDLER: AwsHandler = AwsHandler;
 
@@ -149,7 +149,7 @@ impl Handler for AwsHandler {
     }
 }
 
-// ---- gcloud ----
+// gcloud
 
 pub static GCLOUD_HANDLER: GcloudHandler = GcloudHandler;
 
@@ -207,7 +207,7 @@ impl Handler for GcloudHandler {
     }
 }
 
-// ---- az ----
+// az
 
 pub static AZ_HANDLER: AzHandler = AzHandler;
 

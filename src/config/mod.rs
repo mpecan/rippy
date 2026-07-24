@@ -26,9 +26,7 @@ use crate::error::RippyError;
 use crate::pattern::Pattern;
 use crate::verdict::{AutoMode, Decision, Verdict};
 
-// ---------------------------------------------------------------------------
 // Config
-// ---------------------------------------------------------------------------
 
 /// Loaded and merged configuration with rules partitioned by type.
 #[derive(Debug, Clone, Default)]
@@ -516,3 +514,8 @@ fn append_var_expansion(out: &mut String, chars: &mut std::iter::Peekable<std::s
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+#[path = "tests_part2.rs"]
+mod tests_part2;

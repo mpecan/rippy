@@ -9,22 +9,25 @@ level = "deny"
 level = "deny"
 max_ratio = 0.3
 max_consecutive = 3
-# Security-core files carry intentional, load-bearing safety rationale whose
-# density exceeds the ratio by design — excluded from this ratio rule.
-# redundant-comments still applies to them; noise is pruned by review.
-exclude = ["src/analyzer.rs", "src/resolve.rs", "src/ast.rs", "src/self_protect.rs", "src/sql.rs"]
+# The security-core files were cleaned honestly instead of excluded: their deep
+# safety rationale now lives in docs/security-invariants.md with terse inline
+# pointers, so they pass the ratio on their own (issue #151 resolution, point 4).
 
 [rules.todo-comments]
 level = "deny"
 allow_with_issue = true      # TODO(#123) allowed
 
 # --- Size rules ---
+# 700 lines is the hard cap (issue #151 cleanup step 2 / the #130 "split under
+# 700" policy). soft_limit is set equal so the gate blocks only above the cap;
+# `-W` treats every finding as an error, so a lower soft limit could not coexist
+# with a green gate without churning every 500–700 line file.
 [rules.file-length]
 level = "deny"
-soft_limit = 500
+soft_limit = 700
 hard_limit = 700
 
 [rules.line-length]
-level = "warn"               # bump to deny after cleanup
+level = "deny"               # all lines wrapped to <=100 in the #151 cleanup
 soft_limit = 100
 hard_limit = 120

@@ -3,7 +3,7 @@
 mod common;
 use common::run_rippy_in_dir;
 
-// ---- Python script file reading ----
+// Python script file reading
 
 #[test]
 fn python_script_safe_file_allows() {
@@ -31,7 +31,7 @@ fn python_script_dangerous_file_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- SQL file reading ----
+// SQL file reading
 
 #[test]
 fn psql_f_readonly_file_allows() {
@@ -55,7 +55,7 @@ fn psql_f_write_file_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Shell script file reading ----
+// Shell script file reading
 
 #[test]
 fn bash_script_safe_file_allows() {
@@ -79,7 +79,7 @@ fn bash_script_dangerous_file_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- GH API --input file reading ----
+// GH API --input file reading
 
 #[test]
 fn gh_api_input_query_file_allows() {
@@ -113,7 +113,7 @@ fn gh_api_input_mutation_file_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- AWK -f file reading ----
+// AWK -f file reading
 
 #[test]
 fn awk_f_safe_file_allows() {

@@ -269,7 +269,7 @@ fn find_word(cmd: &str, from: usize, needle: &str) -> Option<usize> {
 mod tests {
     use super::*;
 
-    // ---- Pattern matching ----
+    // Pattern matching
 
     #[test]
     fn exact_match() {
@@ -344,7 +344,7 @@ mod tests {
         assert!(!command_matches_pattern("git status", "git push --force"));
     }
 
-    // ---- extract_bash_pattern ----
+    // extract_bash_pattern
 
     #[test]
     fn extract_bash_valid() {
@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(extract_bash_pattern("Write(*)"), None);
     }
 
-    // ---- CcRules::check ----
+    // CcRules::check
 
     #[test]
     fn check_deny_trumps_all() {
@@ -400,7 +400,7 @@ mod tests {
         assert_eq!(rules.check("git status"), None);
     }
 
-    // ---- Settings file loading ----
+    // Settings file loading
 
     #[test]
     fn load_from_settings_file() {

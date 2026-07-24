@@ -390,15 +390,13 @@ mod tests {
     #[test]
     fn is_within_safe_dir_matches_default_and_scope_but_not_cwd() {
         let scopes = [std::path::PathBuf::from("/opt/repos")];
-        // Default safe dirs (including macOS /private equivalents).
+        // Default safe dirs (including macOS /private equivalents) and a scope.
         assert!(is_within_safe_dir(Path::new("/tmp/out.txt"), &scopes));
         assert!(is_within_safe_dir(Path::new("/private/tmp/x/log"), &scopes));
         assert!(is_within_safe_dir(Path::new("/var/tmp/y"), &scopes));
-        // Declared scope.
         assert!(is_within_safe_dir(Path::new("/opt/repos/other/f"), &scopes));
-        // The cwd is NOT a safe write dir here (redirects into it must ask).
+        // cwd is NOT safe, and a sibling sharing a string prefix must NOT match.
         assert!(!is_within_safe_dir(Path::new("/project/out.txt"), &scopes));
-        // Component boundary: a sibling sharing a string prefix must NOT match.
         assert!(!is_within_safe_dir(Path::new("/tmpevil/x"), &scopes));
         assert!(!is_within_safe_dir(Path::new("/opt/repos-evil/x"), &scopes));
     }

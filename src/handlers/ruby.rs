@@ -17,12 +17,11 @@ impl Handler for RubyHandler {
             return Classification::Allow(format!("{} version/help", ctx.command_name));
         }
 
-        // irb is always interactive
         if ctx.command_name == "irb" {
             return Classification::Ask("irb (interactive)".into());
         }
 
-        // -e inline code — analyze source for dangerous patterns
+        // -e inline code: analyze source for dangerous patterns.
         if let Some(source) = get_flag_value(ctx.args, &["-e"]) {
             return if is_ruby_source_safe(&source) {
                 Classification::Allow("ruby -e (safe inline code)".into())
@@ -31,12 +30,10 @@ impl Handler for RubyHandler {
             };
         }
 
-        // No args = interactive
         if ctx.args.is_empty() {
             return Classification::Ask("ruby (interactive)".into());
         }
 
-        // Script file execution — try to read and analyze
         let script = first_positional(ctx.args).unwrap_or("");
         if let Some(source) = ctx.read_file(script) {
             return if is_ruby_source_safe(&source) {

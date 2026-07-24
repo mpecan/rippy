@@ -69,7 +69,7 @@ mod tests {
         matches!(c, Classification::Ask(_))
     }
 
-    // ---- cd with no args ----
+    // cd with no args
 
     #[test]
     fn cd_no_args_asks() {
@@ -81,7 +81,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- cd - ----
+    // cd -
 
     #[test]
     fn cd_dash_allows() {
@@ -94,7 +94,7 @@ mod tests {
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- cd ~ ----
+    // cd ~
 
     #[test]
     fn cd_tilde_asks() {
@@ -118,7 +118,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- variable expansion ----
+    // variable expansion
 
     #[test]
     fn cd_variable_asks() {
@@ -153,7 +153,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- relative paths within project ----
+    // relative paths within project
 
     #[test]
     fn cd_relative_subdir_allows() {
@@ -200,7 +200,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- relative paths escaping project ----
+    // relative paths escaping project
 
     #[test]
     fn cd_dotdot_from_root_asks() {
@@ -224,7 +224,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- absolute paths ----
+    // absolute paths
 
     #[test]
     fn cd_absolute_within_project_allows() {
@@ -248,7 +248,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- safe directories ----
+    // safe directories
 
     #[test]
     fn cd_tmp_allows() {
@@ -283,7 +283,7 @@ mod tests {
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- config-allowed directories ----
+    // config-allowed directories
 
     #[test]
     fn cd_to_config_allowed_dir_allows() {
@@ -371,7 +371,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- pushd ----
+    // pushd
 
     #[test]
     fn pushd_within_project_allows() {
@@ -419,7 +419,7 @@ mod tests {
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- popd ----
+    // popd
 
     #[test]
     fn popd_asks() {
@@ -431,7 +431,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- remote mode ----
+    // remote mode
 
     #[test]
     fn cd_remote_asks() {
@@ -445,7 +445,7 @@ mod tests {
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
-    // ---- normalize_path ----
+    // normalize_path
 
     #[test]
     fn normalize_resolves_dotdot() {

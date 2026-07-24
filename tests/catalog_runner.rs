@@ -15,9 +15,7 @@ use common::isolated_analyzer;
 use rippy_cli::analyzer::Analyzer;
 use rippy_cli::verdict::Decision;
 
-// ---------------------------------------------------------------------------
 // Assertion helpers called by generated test functions
-// ---------------------------------------------------------------------------
 
 fn parse_decision(s: &str) -> Decision {
     match s {
@@ -148,8 +146,6 @@ fn run_contrast_danger(
     );
 }
 
-// ---------------------------------------------------------------------------
 // Generated tests — one #[test] per TOML entry
-// ---------------------------------------------------------------------------
 
 include!(concat!(env!("OUT_DIR"), "/catalog_generated_tests.rs"));

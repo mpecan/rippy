@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, first_positional};
 
-// ---- just ----
+// just
 
 pub static JUST_HANDLER: JustHandler = JustHandler;
 
@@ -30,8 +30,8 @@ impl Handler for JustHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // Only the leading run of flags (before the first recipe name) is
-        // interpreted by `just` itself; a read-only flag there is introspection.
+        // Only the leading run of flags is interpreted by `just` itself; a
+        // read-only flag there is introspection.
         let introspection = ctx
             .args
             .iter()
@@ -40,14 +40,13 @@ impl Handler for JustHandler {
         if introspection {
             return Classification::Allow("just (introspection)".into());
         }
-        // Bare `just` runs the default recipe (arbitrary code); a bare recipe
-        // name (optionally with trailing flags) runs that recipe. Both must Ask.
+        // Bare `just` or a bare recipe name both run arbitrary code: Ask.
         let sub = ctx.args.first().map_or("", String::as_str);
         Classification::Ask(format!("just {sub}"))
     }
 }
 
-// ---- mise ----
+// mise
 
 pub static MISE_HANDLER: MiseHandler = MiseHandler;
 
@@ -108,7 +107,7 @@ fn classify_mise_tasks(ctx: &HandlerContext) -> Classification {
     }
 }
 
-// ---- tokf ----
+// tokf
 
 pub static TOKF_HANDLER: TokfHandler = TokfHandler;
 
@@ -190,7 +189,7 @@ mod tests {
         TOKF_HANDLER.classify(&HandlerContext::test("tokf", &owned))
     }
 
-    // ---- just ----
+    // just
 
     #[test]
     fn just_short_flags_allow() {
@@ -227,7 +226,7 @@ mod tests {
         ));
     }
 
-    // ---- mise ----
+    // mise
 
     #[test]
     fn mise_safe_subcommands_allow() {
@@ -276,7 +275,7 @@ mod tests {
         }
     }
 
-    // ---- tokf ----
+    // tokf
 
     #[test]
     fn tokf_run_recurses() {
@@ -312,9 +311,7 @@ mod tests {
 
     #[test]
     fn tokf_test_inner_danger_recurses() {
-        // The wrapper strips itself and recurses on the inner command; the
-        // analyzer then re-evaluates the danger. The handler yields Recurse
-        // with the exact inner command so `rm -rf /` is not hidden.
+        // Recurse carries the exact inner command so `rm -rf /` is not hidden.
         assert!(matches!(
             classify_tokf(&["test", "rm", "-rf", "/"]),
             Classification::Recurse(cmd) if cmd == "rm -rf /"

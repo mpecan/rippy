@@ -3,7 +3,7 @@
 mod common;
 use common::run_rippy;
 
-// ---- Trust model integration tests ----
+// Trust model integration tests
 
 #[test]
 fn trust_untrusted_project_config_ignored() {
@@ -321,7 +321,10 @@ fn trust_command_status_when_trusted() {
 
 #[test]
 fn self_protect_blocks_trust_db_write() {
-    let json = r#"{"tool_name":"Write","tool_input":{"file_path":"/home/user/.rippy/trusted.json","content":"{}"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Write","tool_input":{"file_path":"/home/user/.rippy/trusted.json","#,
+        r#""content":"{}"}}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 2, "self-protect should block trust DB writes");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();

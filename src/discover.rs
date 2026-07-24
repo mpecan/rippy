@@ -39,7 +39,7 @@ impl Default for FlagCache {
     }
 }
 
-// ── Help output parser ─────────────────────────────────────────────────
+// Help output parser
 
 /// Parse help output text and extract short/long flag pairs.
 ///
@@ -106,7 +106,7 @@ fn match_flag_pair(a: &str, b: &str) -> Option<FlagAlias> {
     }
 }
 
-// ── Flag cache ─────────────────────────────────────────────────────────
+// Flag cache
 
 fn cache_path() -> Option<PathBuf> {
     config::home_dir().map(|h| h.join(".rippy/flag-cache.bin"))
@@ -165,7 +165,7 @@ fn save_cache_to(cache: &FlagCache, path: &Path) -> Result<(), RippyError> {
     Ok(())
 }
 
-// ── Discovery ──────────────────────────────────────────────────────────
+// Discovery
 
 /// Run a command with `--help` and parse the output for flag aliases.
 ///
@@ -225,7 +225,7 @@ pub fn expand_flags(flags: &[String], cache: &FlagCache, command: Option<&str>) 
     expanded
 }
 
-// ── CLI entry point ────────────────────────────────────────────────────
+// CLI entry point
 
 /// Run the `rippy discover` command.
 ///
@@ -324,7 +324,7 @@ fn print_json(aliases: &[FlagAlias]) {
     }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

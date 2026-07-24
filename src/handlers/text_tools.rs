@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
 
-// ---- sed ----
+// sed
 
 pub static SED_HANDLER: SedHandler = SedHandler;
 
@@ -31,16 +31,13 @@ fn check_sed_expression(args: &[String]) -> Option<String> {
         if arg.starts_with('-') {
             continue;
         }
-        // `e` command — executes shell command
+        // `e` command executes a shell command.
         if arg == "e" || arg.starts_with("e ") || arg.contains(";e ") || arg.contains(";e\n") {
             return Some("sed e (shell execution)".into());
         }
-        // `w` flag on s command — s/pat/repl/[flags]w file
-        // The `w` must appear in the flags section after the 3rd delimiter
         if sed_has_write_flag(arg) {
             return Some("sed w (writes to file)".into());
         }
-        // Standalone `w` command (e.g., `w output.txt`)
         if arg == "w" || arg.starts_with("w ") {
             return Some("sed w (writes to file)".into());
         }
@@ -82,8 +79,6 @@ fn sed_has_write_flag(expr: &str) -> bool {
     false
 }
 
-// ---- awk ----
-
 pub static AWK_HANDLER: AwkHandler = AwkHandler;
 
 pub struct AwkHandler;
@@ -94,7 +89,6 @@ impl Handler for AwkHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // -f script file — try to read and analyze
         if let Some(path) = get_flag_value(ctx.args, &["-f"]) {
             if let Some(program) = ctx.read_file(&path) {
                 return check_awk_source(&program, ctx.command_name);
@@ -102,7 +96,6 @@ impl Handler for AwkHandler {
             return Classification::Ask(format!("{} -f (script file)", ctx.command_name));
         }
 
-        // Scan the awk program for dangerous patterns
         if let Some(reason) = check_awk_program(ctx.args, ctx.command_name) {
             return Classification::Ask(reason);
         }
@@ -134,12 +127,9 @@ fn check_awk_program(args: &[String], cmd_name: &str) -> Option<String> {
         if arg.contains("system(") {
             return Some(format!("{cmd_name} system() (shell execution)"));
         }
-        // Pipe to command: `| "cmd"` — require space before `|` or `|` after
-        // a statement keyword to avoid matching `|"` inside string literals
         if awk_has_pipe_to_command(arg) {
             return Some(format!("{cmd_name} pipe to command"));
         }
-        // File redirects: `> "file"` or `>> "file"`
         if awk_has_file_redirect(arg) {
             return Some(format!("{cmd_name} file redirect"));
         }
@@ -155,11 +145,10 @@ fn awk_has_pipe_to_command(program: &str) -> bool {
 
 /// Detect awk file redirect patterns: `print ... > "file"` or `>> "file"`.
 fn awk_has_file_redirect(program: &str) -> bool {
-    // `>> "` is always a redirect in awk
     if program.contains(">> \"") || program.contains(">>\"") {
         return true;
     }
-    // `> "` preceded by a space (to avoid matching `->` or `=>` patterns)
+    // Require a space before `> "` to avoid matching `->` or `=>`.
     program.contains(" > \"") || program.contains("\t> \"")
 }
 
