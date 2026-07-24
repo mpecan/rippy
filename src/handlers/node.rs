@@ -111,6 +111,43 @@ mod tests {
         ));
     }
 
+    // Handler-level danger arm: `-e`/`-p` inline dangerous code and `deno eval` must
+    // Ask. The catalog's isolated stdlib catch-all Asks for any node/deno, masking these
+    // arms at the pipeline level, so the safety-critical danger->Ask direction is only
+    // observable here.
+    #[test]
+    fn e_dangerous_require_child_process_asks() {
+        let args = vec![
+            "-e".into(),
+            "require('child_process').execSync('rm -rf /')".into(),
+        ];
+        assert!(matches!(
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
+            Classification::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn p_dangerous_eval_asks() {
+        let args = vec!["-p".into(), "eval('code')".into()];
+        assert!(matches!(
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
+            Classification::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn deno_eval_dangerous_asks() {
+        let args = vec![
+            "eval".into(),
+            "require('child_process').execSync('rm -rf /')".into(),
+        ];
+        assert!(matches!(
+            NODE_HANDLER.classify(&HandlerContext::test("deno", &args)),
+            Classification::Ask(_)
+        ));
+    }
+
     #[test]
     fn script_file_safe_allows() {
         let dir = tempfile::tempdir().unwrap();

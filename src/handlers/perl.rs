@@ -61,6 +61,27 @@ mod tests {
         ));
     }
 
+    // Handler-level danger arm: `-e`/`-E` inline dangerous code must Ask. The catalog's
+    // isolated stdlib catch-all Asks for any `perl`, masking this arm at the pipeline
+    // level, so the safety-critical danger->Ask direction is only observable here.
+    #[test]
+    fn e_dangerous_system_asks() {
+        let args = vec!["-e".into(), "system('rm -rf /')".into()];
+        assert!(matches!(
+            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
+            Classification::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn upper_e_dangerous_system_asks() {
+        let args = vec!["-E".into(), "system('rm -rf /')".into()];
+        assert!(matches!(
+            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
+            Classification::Ask(_)
+        ));
+    }
+
     #[test]
     fn script_file_safe_allows() {
         let dir = tempfile::tempdir().unwrap();

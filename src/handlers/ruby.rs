@@ -65,6 +65,18 @@ mod tests {
         ));
     }
 
+    // Handler-level danger arm: `-e` inline dangerous code must Ask. The catalog's
+    // isolated stdlib catch-all Asks for any `ruby`, masking this arm at the pipeline
+    // level, so the safety-critical danger->Ask direction is only observable here.
+    #[test]
+    fn e_dangerous_system_asks() {
+        let args = vec!["-e".into(), "system('rm -rf /')".into()];
+        assert!(matches!(
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
+            Classification::Ask(_)
+        ));
+    }
+
     #[test]
     fn script_file_safe_allows() {
         let dir = tempfile::tempdir().unwrap();
