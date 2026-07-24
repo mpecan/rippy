@@ -201,7 +201,7 @@ fn resolve_word_kind(kind: &NodeKind, vars: &dyn VarLookup) -> WordResolution {
         NodeKind::Word { value, parts, .. } => resolve_word_node(value, parts, vars),
         NodeKind::WordLiteral { value } => WordResolution::Literal(value.clone()),
         NodeKind::AnsiCQuote { decoded, .. } => WordResolution::Literal(decoded.clone()),
-        NodeKind::LocaleString { inner, .. } => WordResolution::Literal(inner.clone()),
+        NodeKind::LocaleString { inner, .. } => literal_if_inert(inner, "$\"...\" locale string"),
         NodeKind::ParamExpansion { param, op, arg } => {
             resolve_param_expansion(param, op.as_deref(), arg.as_deref(), vars)
         }
@@ -332,6 +332,23 @@ fn combine_parts(parts: &[WordResolution]) -> WordResolution {
     }
 }
 
+/// The default/alternate text of `${VAR:-x}` / `${VAR-x}` / `${VAR:+x}` and the
+/// inner of a `$"..."` locale string are RE-EXPANDED by bash at runtime
+/// (`$(...)`, backticks, and `$var` inside them all run). Return such text as an
+/// inert `Literal` only when it carries no shell-expansion pattern; otherwise
+/// `Unresolvable` so the caller falls back to Ask — never Allow attacker-derived
+/// text as a harmless literal. See #156. (A SET variable's value, by contrast,
+/// is NOT re-expanded by bash, so the `Value(v)` arms stay verbatim.)
+fn literal_if_inert(text: &str, what: &str) -> WordResolution {
+    if ast::has_shell_expansion_pattern(text) {
+        WordResolution::Unresolvable {
+            reason: format!("{what} contains a shell expansion requiring execution"),
+        }
+    } else {
+        WordResolution::Literal(text.to_string())
+    }
+}
+
 fn resolve_param_expansion(
     param: &str,
     op: Option<&str>,
@@ -347,11 +364,11 @@ fn resolve_param_expansion(
             reason: format!("${param} is not set"),
         },
         (Some(":-" | "-"), Some(default), VarState::Unset) => {
-            WordResolution::Literal(default.to_string())
+            literal_if_inert(default, "${...:-} default")
         }
         // `:+` alternate comes from source text, so DynamicSet still yields it.
         (Some(":+"), Some(value), VarState::Value(_) | VarState::DynamicSet) => {
-            WordResolution::Literal(value.to_string())
+            literal_if_inert(value, "${...:+} alternate")
         }
         (Some(":+"), _, VarState::Unset) => WordResolution::Literal(String::new()),
         (Some(op), _, _) => WordResolution::Unresolvable {
