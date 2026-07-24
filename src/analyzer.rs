@@ -384,6 +384,13 @@ impl Analyzer {
         for a in assignments {
             if let Some((name, val)) = ast::literal_assignment(a) {
                 self.locals.push((name, LocalBinding::Literal(val)));
+            } else if let Some(name) = ast::append_assignment_name(a) {
+                // `NAME+=VALUE` appends to a prior value we cannot reconstruct
+                // (it may be a shadowed literal, an env var, or unknown). Shadow
+                // it as set-but-unknown so a stale prior literal is never
+                // resolved — that would under-block if the appended value made
+                // the real path/flag dangerous.
+                self.locals.push((name, LocalBinding::Dynamic));
             }
         }
     }
@@ -416,7 +423,10 @@ impl Analyzer {
             assignments,
         } = &node.kind
         else {
-            return Verdict::allow("");
+            // Unreachable: only dispatched on `NodeKind::Command`. Fail closed
+            // for a security tool so a future dispatch change cannot silently
+            // approve an unhandled node kind.
+            return Verdict::ask("internal: non-command node in analyze_command");
         };
         if Self::assignment_has_expansion(assignments) {
             return Verdict::ask("assignment with expansion");
@@ -448,7 +458,9 @@ impl Analyzer {
             redirects,
         }) = &node.kind
         else {
-            return Verdict::allow("");
+            // Unreachable: only dispatched on `NodeKind::For`/`NodeKind::Select`.
+            // Fail closed rather than fail open for defense in depth.
+            return Verdict::ask("internal: non-loop node in analyze_loop_binding");
         };
         let checkpoint = self.locals.len();
         let mut verdicts = self.analyze_iteration_words(words.as_deref());
@@ -779,11 +791,19 @@ impl Analyzer {
             resolve::resolve_command_args(words, &scoped)
         };
         // A set-but-unknown value in argument position: we never fabricate its
-        // value. Allow only if the literal command name is in SIMPLE_SAFE —
-        // those commands are safe regardless of their argument *values* (they
-        // cannot write or execute based on an arg). Every handler/wrapper/unknown
+        // value. Allow only if the literal command name is safe regardless of
+        // its argument *values* (a pure reader/printer that cannot write, spawn
+        // a shell, or execute based on an arg). Every handler/wrapper/unknown
         // command with a dynamic argument stays Ask, exactly as before.
-        if resolved.arg_position_dynamic && !resolved.command_position_dynamic {
+        //
+        // Gated on `failure_reason.is_none()`: if *any* other word was
+        // unresolvable — an un-executed command/process substitution such as
+        // `echo $? $(rm -rf /)` — that Ask must dominate and we must NOT take the
+        // relaxed allow path, or the substitution would run un-analyzed.
+        if resolved.arg_position_dynamic
+            && !resolved.command_position_dynamic
+            && resolved.failure_reason.is_none()
+        {
             return Some(self.dynamic_arg_verdict(words));
         }
         let Some(args) = resolved.args else {
@@ -819,17 +839,20 @@ impl Analyzer {
     /// Verdict for a command with a dynamic-known argument (`$loopvar`, `$?`).
     ///
     /// SECURITY INVARIANT: this is the *only* place a dynamic argument relaxes
-    /// the verdict, and it does so strictly for `SIMPLE_SAFE` commands, whose
-    /// safety does not depend on argument values (pure readers/printers such as
-    /// `cat`/`echo`/`wc`/`ls`). A handler command (`rm`, `git`, ...) whose
-    /// behavior depends on its arguments always stays Ask, because a fabricated
-    /// or word-split value could otherwise hide an injected dangerous flag.
+    /// the verdict, and it does so strictly for the pure-reader subset of
+    /// `SIMPLE_SAFE` (see [`allowlists::is_dynamic_arg_safe`]), whose safety does
+    /// not depend on argument values (`cat`/`echo`/`wc`/`ls`). Commands that can
+    /// act on an argument value — pagers that spawn subshells (`less`/`man`),
+    /// preview-executing finders (`fzf`), and state-changing commands
+    /// (`mount`/`stty`) — are excluded, as is any handler command (`rm`,
+    /// `git`, ...), because a set-but-unknown value could otherwise hide an
+    /// injected dangerous flag or path.
     fn dynamic_arg_verdict(&self, words: &[Node]) -> Verdict {
         let Some(raw_name) = ast::command_name_from_words(words) else {
             return Verdict::ask("shell expansion ($VAR dynamic)");
         };
         let name = self.config.resolve_alias(raw_name);
-        if allowlists::is_simple_safe(name) {
+        if allowlists::is_dynamic_arg_safe(name) {
             Verdict::allow(format!("{name} is safe (dynamic arg)"))
         } else {
             Verdict::ask("shell expansion ($VAR dynamic)")

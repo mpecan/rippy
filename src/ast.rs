@@ -231,13 +231,19 @@ fn leftmost_simple_command(node: &Node) -> Option<(&[Node], &[Node])> {
     }
 }
 
-/// Extract the `(name, value)` of a *literal* `NAME=VALUE` (or `NAME+=VALUE`)
-/// assignment node — i.e. one whose value contains no shell expansion.
+/// Extract the `(name, value)` of a *literal* `NAME=VALUE` assignment node —
+/// i.e. one whose value contains no shell expansion.
 ///
 /// Reads the name and value directly from the assignment `Word`'s `value`
 /// (`"NAME=VALUE"`), so no source string needs threading into the deep walk.
 /// Returns `None` when the node is not a word, the value contains an expansion
 /// (command substitution, parameter expansion, ...), or the name is empty.
+///
+/// A `NAME+=VALUE` compound assignment is deliberately *not* bound: bash
+/// concatenates `VALUE` onto the variable's existing value, so binding it to the
+/// right-hand side alone would be wrong. We return `None` (the variable stays
+/// unresolved and the referencing command falls back to Ask) rather than
+/// fabricate a truncated value.
 ///
 /// The value has any outer quotes stripped, matching how the analyzer treats
 /// argument words, so `FOO='a b'` yields `("FOO", "a b")`.
@@ -252,11 +258,39 @@ pub fn literal_assignment(assignment: &Node) -> Option<(String, String)> {
         return None;
     }
     let (name, val) = value.split_once('=')?;
-    let name = name.strip_suffix('+').unwrap_or(name);
+    // `NAME+=VALUE` appends to the existing binding; we cannot know the correct
+    // result without the prior value, so refuse to bind it at all.
+    if name.ends_with('+') {
+        return None;
+    }
     if name.is_empty() {
         return None;
     }
     Some((name.to_string(), strip_quotes(val)))
+}
+
+/// Return the variable name of a `NAME+=VALUE` compound (append) assignment
+/// node, or `None` if the node is not an append assignment (`NAME=VALUE`) or
+/// not a word.
+///
+/// An append combines the variable's *prior* value (which may not be statically
+/// known, or may live in a shadowed binding) with the right-hand side, so no
+/// concrete value can be bound soundly. The analyzer uses this to shadow the
+/// variable as set-but-unknown — keeping safe-list commands allowed while
+/// forcing handlers to Ask, and never resolving a stale prior literal.
+#[must_use]
+pub fn append_assignment_name(assignment: &Node) -> Option<String> {
+    let NodeKind::Word { value, .. } = &assignment.kind else {
+        return None;
+    };
+    let (name, _) = value.split_once('=')?;
+    // `strip_suffix('+')` yields `None` unless the name ends with `+`, so this
+    // matches `NAME+=...` only, never a plain `NAME=...`.
+    let base = name.strip_suffix('+')?;
+    if base.is_empty() {
+        return None;
+    }
+    Some(base.to_string())
 }
 
 /// Extract the variable name of a `NAME=VALUE` (or `NAME+=VALUE`) assignment node.
@@ -740,5 +774,41 @@ mod tests {
             strip("CARGO_TERM_COLOR=always cargo build"),
             Some("cargo build".to_owned())
         );
+    }
+
+    // ---- Assignment binding extraction (issue #132 review) ----
+
+    fn first_assignment(source: &str) -> Node {
+        let nodes = parse_first(source);
+        let NodeKind::Command { assignments, .. } = &nodes[0].kind else {
+            unreachable!("expected Command node");
+        };
+        assignments.first().unwrap().clone()
+    }
+
+    #[test]
+    fn literal_assignment_plain() {
+        let a = first_assignment("FOO=bar echo hi");
+        assert_eq!(
+            literal_assignment(&a),
+            Some(("FOO".to_string(), "bar".to_string()))
+        );
+    }
+
+    #[test]
+    fn literal_assignment_rejects_append() {
+        // `NAME+=VALUE` must not bind to the RHS alone (bash concatenates onto
+        // the prior value); returning None keeps the resolver conservative.
+        let a = first_assignment("A+=/more echo hi");
+        assert_eq!(literal_assignment(&a), None);
+    }
+
+    #[test]
+    fn append_assignment_name_matches_append_only() {
+        let append = first_assignment("A+=/more echo hi");
+        assert_eq!(append_assignment_name(&append), Some("A".to_string()));
+
+        let plain = first_assignment("A=/x echo hi");
+        assert_eq!(append_assignment_name(&plain), None);
     }
 }

@@ -67,11 +67,15 @@ pub struct ResolvedArgs {
     /// Forces Ask even when resolution succeeds — `$cmd args` is always dangerous.
     pub command_position_dynamic: bool,
     /// True if a *non-first* word resolved to [`WordResolution::DynamicKnown`]
-    /// — a set-but-unknown value in argument position. The command is allowed
-    /// only if its literal name is in `SIMPLE_SAFE` (safe regardless of
-    /// argument values); every other command stays Ask.
+    /// — a set-but-unknown value in argument position. The command may be
+    /// allowed only if `failure_reason` is `None` (no other word was
+    /// unresolvable) *and* its literal name is dynamic-arg-safe (a pure reader,
+    /// safe regardless of argument values); every other command stays Ask.
     pub arg_position_dynamic: bool,
-    /// Reason from the first unresolvable word (for Ask diagnostics).
+    /// Reason from the first unresolvable word (for Ask diagnostics). Set
+    /// independently of `arg_position_dynamic`: a word list may contain both a
+    /// dynamic-known argument and a later unresolvable substitution, and the
+    /// latter must still dominate.
     pub failure_reason: Option<String>,
 }
 
@@ -546,19 +550,22 @@ pub fn resolve_command_args(words: &[Node], vars: &dyn VarLookup) -> ResolvedArg
             // A set-but-unknown value. In command position it is already flagged
             // via `command_position_dynamic`; in argument position we never
             // fabricate a value — the caller gates on `arg_position_dynamic`.
+            // We do NOT stop scanning: a later word may be `Unresolvable` (an
+            // un-executed command/process substitution), and that must still be
+            // recorded so it dominates the dynamic-arg relaxation — otherwise a
+            // `$?`/loop-var argument sitting before `$(...)` would let a
+            // SIMPLE_SAFE command auto-allow while the substitution still runs.
             WordResolution::DynamicKnown => {
                 if i > 0 {
                     arg_position_dynamic = true;
                 }
                 all_ok = false;
-                break;
             }
             WordResolution::Unresolvable { reason } => {
                 if failure_reason.is_none() {
                     failure_reason = Some(reason);
                 }
                 all_ok = false;
-                break;
             }
         }
     }

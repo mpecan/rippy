@@ -164,6 +164,23 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     ])
 });
 
+/// `SIMPLE_SAFE` commands whose behavior *can* depend dangerously on an
+/// argument value, so they must NOT be auto-allowed when an argument is a
+/// set-but-unknown (attacker-influenceable) value such as a loop variable or a
+/// glob match:
+///
+/// - pagers that can spawn a subshell (`!cmd`, `v`) or run an input
+///   preprocessor (`LESSOPEN`): `less`, `more`, `man`, `info`
+/// - interactive finders that execute a preview/bind command from an argument:
+///   `fzf`
+/// - commands that change system/terminal state from their argument: `mount`,
+///   `stty`
+///
+/// They remain safe with *literal* arguments (still resolved and re-analyzed via
+/// the normal path), but the dynamic-argument relaxation excludes them.
+static DYNAMIC_ARG_UNSAFE: LazyLock<HashSet<&'static str>> =
+    LazyLock::new(|| HashSet::from(["less", "more", "man", "info", "fzf", "mount", "stty"]));
+
 /// Commands that wrap other commands — analyze the inner command instead.
 static WRAPPER_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     HashSet::from([
@@ -181,6 +198,17 @@ pub fn is_simple_safe(cmd: &str) -> bool {
 #[must_use]
 pub fn is_wrapper(cmd: &str) -> bool {
     WRAPPER_COMMANDS.contains(cmd)
+}
+
+/// Check if a command is safe to auto-allow even when one of its arguments is a
+/// set-but-unknown (dynamic) value.
+///
+/// This is the `SIMPLE_SAFE` set minus the commands whose behavior can depend
+/// dangerously on an argument value (`DYNAMIC_ARG_UNSAFE` — pagers, `fzf`,
+/// `mount`, `stty`).
+#[must_use]
+pub fn is_dynamic_arg_safe(cmd: &str) -> bool {
+    is_simple_safe(cmd) && !DYNAMIC_ARG_UNSAFE.contains(cmd)
 }
 
 /// Number of commands in the simple-safe allowlist.

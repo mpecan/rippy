@@ -250,3 +250,9 @@ decision = "allow"
 [[case]]
 command = "echo ${PIPESTATUS[0]}"
 decision = "allow"
+
+# `select` loops bind their iteration variable just like `for`; a safe-list body
+# resolves the same way.
+[[case]]
+command = "select x in a b; do echo $x; done"
+decision = "allow"

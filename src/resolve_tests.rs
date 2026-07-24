@@ -577,6 +577,51 @@ fn resolve_combine_propagates_dynamic_known() {
 }
 
 #[test]
+fn resolve_default_op_on_dynamic_local_is_dynamic_known() {
+    // `${f:-def}` where `f` is set-but-unknown (loop var): the default operator
+    // returns the (dynamic) value, so the result is DynamicKnown, not the default.
+    let inner = MockLookup::new();
+    let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert_eq!(
+        resolve_word(&first_arg_node("echo ${f:-def}"), &scoped),
+        WordResolution::DynamicKnown
+    );
+    assert_eq!(
+        resolve_word(&first_arg_node("echo ${f-def}"), &scoped),
+        WordResolution::DynamicKnown
+    );
+}
+
+#[test]
+fn resolve_alt_op_on_dynamic_local_is_literal_alternate() {
+    // `${f:+yes}` where `f` is set-but-unknown: the alternate comes from source
+    // text, not the variable value, so a set (even dynamic) var yields the
+    // literal alternate.
+    let inner = MockLookup::new();
+    let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert_eq!(
+        resolve_word(&first_arg_node("echo ${f:+yes}"), &scoped),
+        WordResolution::Literal("yes".to_string())
+    );
+}
+
+#[test]
+fn resolve_command_args_unresolvable_wins_over_later_dynamic() {
+    // A DynamicKnown arg BEFORE an unresolvable substitution must not stop the
+    // scan: the unresolvable word still records a failure_reason so the caller
+    // does not take the relaxed dynamic-arg allow path (issue #132 review).
+    let inner = MockLookup::new();
+    let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
+    let (words, scoped) = scoped_words("cat $f $(rm -rf /)", &locals, &inner);
+    let result = resolve_command_args(&words, &scoped);
+    assert!(result.arg_position_dynamic);
+    assert!(result.failure_reason.is_some());
+    assert!(result.args.is_none());
+}
+
+#[test]
 fn resolve_unresolvable_wins_over_dynamic_in_word() {
     // A word mixing a dynamic part with an unresolvable part resolves to the
     // more conservative Unresolvable (forces Ask for even simple-safe commands).
