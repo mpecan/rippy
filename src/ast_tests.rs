@@ -346,3 +346,28 @@ fn append_assignment_name_matches_append_only() {
     let plain = first_assignment("A=/x echo hi");
     assert_eq!(append_assignment_name(&plain), None);
 }
+
+#[test]
+fn is_dangerous_env_name_flags_git_config_and_bash_func_families() {
+    for name in [
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_PARAMETERS",
+        "BASH_FUNC_foo%%",
+        "LD_PRELOAD",
+        "DYLD_INSERT_LIBRARIES",
+        "GIT_SSH_COMMAND",
+    ] {
+        assert!(is_dangerous_env_name(name), "{name} should be dangerous");
+    }
+}
+
+#[test]
+fn is_dangerous_env_name_allows_ordinary_names() {
+    for name in ["FOO", "PATH", "HOME", "NODE_ENV", "CI", "RUST_LOG"] {
+        assert!(!is_dangerous_env_name(name), "{name} should be safe");
+    }
+}

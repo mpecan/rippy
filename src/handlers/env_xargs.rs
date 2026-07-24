@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
+use crate::ast;
 
 // env
 
@@ -22,6 +23,19 @@ impl Handler for EnvHandler {
 
         if positionals.is_empty() {
             return Classification::Allow("env (print environment)".into());
+        }
+
+        // A code-influencing NAME=VALUE (LD_PRELOAD, GIT_CONFIG_*, ...) here is
+        // the same injection the analyzer gates on a bare env prefix; the inner
+        // command alone would not reveal it. See docs#dangerous-env-name.
+        let dangerous_assignment = ctx
+            .args
+            .iter()
+            .filter(|a| a.contains('=') && !a.starts_with('-'))
+            .filter_map(|a| a.split_once('=').map(|(n, _)| n))
+            .any(ast::is_dangerous_env_name);
+        if dangerous_assignment {
+            return Classification::Ask("env (dangerous env-var assignment)".into());
         }
 
         // Delegate inner command
