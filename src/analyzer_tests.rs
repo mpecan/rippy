@@ -43,6 +43,17 @@ fn git_push_asks() {
 }
 
 #[test]
+fn unparseable_command_asks_fail_closed() {
+    // A command rable cannot parse must yield a fail-closed Ask, not an Err.
+    // Previously `analyze` propagated `RippyError::Parse`, which exited
+    // non-blocking for Claude and let the command run un-gated (#150).
+    let mut a = make_analyzer();
+    let v = a.analyze("foo $( ( bar").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+    assert!(v.reason.contains("could not parse"), "reason: {}", v.reason);
+}
+
+#[test]
 fn rm_rf_asks() {
     let mut a = make_analyzer();
     let v = a.analyze("rm -rf /").unwrap();
