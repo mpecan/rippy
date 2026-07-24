@@ -281,6 +281,42 @@ command = "echo ${U:-$HOME}"
 decision = "ask"
 reason_contains = "shell expansion"
 
+# Process substitution `<(...)` / `>(...)` embedded in default/alternate/locale text
+# is ALSO re-run by bash when it expands the word, but keys on `<(`/`>(` rather than
+# `$`/backtick so the has_shell_expansion_pattern gate alone missed it (issue #156
+# review). The resolver now rejects it too -> Ask, not the earlier fail-open Allow.
+# Direct `cat <(...)` already Asks (ProcessSubstitution arm); these pin the ${:-}
+# default-text path that previously slipped through as an inert Literal.
+[[case]]
+command = "cat ${U:-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "cat ${U-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "FOO=1 cat ${FOO:+<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "echo ${U:-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "grep x ${U:-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = 'echo $"<(id)"'
+decision = "ask"
+reason_contains = "shell expansion"
+
 # Safe contrasts: plain-text default/alternate and locale strings with no embedded
 # expansion stay inert Literals and must still Allow.
 # Values include a `/` so the generated Rust test string does not parse as a

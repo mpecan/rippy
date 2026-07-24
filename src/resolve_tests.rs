@@ -640,6 +640,20 @@ fn reexpanded_text_with_substitution_is_unresolvable() {
     assert_expansion_unresolvable("cat ${FOO:+$(id)}", &MockLookup::new().with("FOO", "1"));
 }
 
+// Process substitution `<(...)` / `>(...)` in default/alternate/locale text is also
+// executed by bash but is not caught by has_shell_expansion_pattern (`$`/backtick),
+// so literal_if_inert must reject it too — else it leaks back as an inert Literal
+// and re-analyzes as a harmless reader (#156 review bypass).
+#[test]
+fn reexpanded_process_substitution_is_unresolvable() {
+    let unset = MockLookup::new();
+    assert_expansion_unresolvable("cat ${U:-<(id)}", &unset);
+    assert_expansion_unresolvable("cat ${U-<(id)}", &unset);
+    assert_expansion_unresolvable("echo $\"<(id)\"", &unset);
+    assert_expansion_unresolvable("cat ${FOO:+<(id)}", &MockLookup::new().with("FOO", "1"));
+    assert_expansion_unresolvable("tee ${U:->(id)}", &unset);
+}
+
 #[test]
 fn reexpanded_plain_text_stays_literal() {
     let unset = MockLookup::new();
@@ -671,10 +685,12 @@ fn no_unset_default_resolves_to_expansion_bearing_literal() {
         "cat ${U:-${V:-$(id)}}",
         "echo $\"$(id)\"",
         "echo ${U:-$HOME}",
+        "cat ${U:-<(id)}",
+        "echo $\"<(id)\"",
     ] {
         if let WordResolution::Literal(s) = resolve_word(&first_arg_node(src), &lookup) {
             assert!(
-                !crate::ast::has_shell_expansion_pattern(&s),
+                !crate::ast::has_shell_expansion_pattern(&s) && !has_process_substitution(&s),
                 "{src} leaked expansion literal {s:?}"
             );
         }

@@ -335,18 +335,28 @@ fn combine_parts(parts: &[WordResolution]) -> WordResolution {
 /// The default/alternate text of `${VAR:-x}` / `${VAR-x}` / `${VAR:+x}` and the
 /// inner of a `$"..."` locale string are RE-EXPANDED by bash at runtime
 /// (`$(...)`, backticks, and `$var` inside them all run). Return such text as an
-/// inert `Literal` only when it carries no shell-expansion pattern; otherwise
-/// `Unresolvable` so the caller falls back to Ask — never Allow attacker-derived
-/// text as a harmless literal. See #156. (A SET variable's value, by contrast,
-/// is NOT re-expanded by bash, so the `Value(v)` arms stay verbatim.)
+/// inert `Literal` only when it carries no shell-expansion pattern and no
+/// process substitution; otherwise `Unresolvable` so the caller falls back to
+/// Ask — never Allow attacker-derived text as a harmless literal. See #156.
+/// (A SET variable's value, by contrast, is NOT re-expanded by bash, so the
+/// `Value(v)` arms stay verbatim.)
 fn literal_if_inert(text: &str, what: &str) -> WordResolution {
-    if ast::has_shell_expansion_pattern(text) {
+    if ast::has_shell_expansion_pattern(text) || has_process_substitution(text) {
         WordResolution::Unresolvable {
             reason: format!("{what} contains a shell expansion requiring execution"),
         }
     } else {
         WordResolution::Literal(text.to_string())
     }
+}
+
+/// Detect bash process substitution `<(...)` / `>(...)`. `has_shell_expansion_pattern`
+/// keys on `$`/backtick and misses these, yet bash runs the inner command when it
+/// expands the default/alternate/locale text they are embedded in. See #156.
+fn has_process_substitution(text: &str) -> bool {
+    text.as_bytes()
+        .windows(2)
+        .any(|w| (w[0] == b'<' || w[0] == b'>') && w[1] == b'(')
 }
 
 fn resolve_param_expansion(
