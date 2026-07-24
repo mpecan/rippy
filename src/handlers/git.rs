@@ -350,10 +350,18 @@ fn flag_path_value(args: &[String], eq_flags: &[&str], space_flags: &[&str]) -> 
     None
 }
 
+/// True if `arg` is a single-dash short-flag cluster (e.g. `-nOid`, `-xid`) that
+/// contains `letter` anywhere after the leading dash. Git's getopt-style short
+/// options allow a value-taking flag to appear anywhere in the cluster with the
+/// remaining characters as its attached value (e.g. `-nOid` = `-n -Oid`), not
+/// just as the first character, so this checks containment rather than prefix.
+fn short_cluster_contains(arg: &str, letter: char) -> bool {
+    arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains(letter)
+}
+
 fn classify_grep(args: &[String], desc: &str) -> Classification {
     let pager_flag = args.iter().any(|a| {
-        a == "-O"
-            || a.starts_with("-O")
+        short_cluster_contains(a, 'O')
             || a == "--open-files-in-pager"
             || a.starts_with("--open-files-in-pager=")
     });
@@ -369,12 +377,25 @@ fn classify_grep(args: &[String], desc: &str) -> Classification {
 fn classify_difftool(args: &[String], desc: &str) -> Classification {
     let extcmd_flag = args
         .iter()
-        .any(|a| a == "-x" || a == "--extcmd" || a.starts_with("--extcmd="));
+        .any(|a| short_cluster_contains(a, 'x') || a == "--extcmd" || a.starts_with("--extcmd="));
     if extcmd_flag {
         Classification::Ask("git difftool --extcmd (launches external command)".into())
     } else {
         Classification::Allow(desc.into())
     }
+}
+
+/// True if `remote` is scp-like remote syntax (`user@host:path` or `host:path`),
+/// which git treats as an SSH transport URL causing network egress the same as
+/// an explicit `ssh://` URL. Distinguished from local refspecs (e.g.
+/// `origin master:master`) by requiring no `/` before the colon, since refspecs
+/// name refs (`refs/heads/...`) or branches, not bare hostnames.
+fn is_scp_like_remote(remote: &str) -> bool {
+    let Some(colon_idx) = remote.find(':') else {
+        return false;
+    };
+    let host_part = &remote[..colon_idx];
+    !host_part.is_empty() && !host_part.contains('/') && !host_part.contains('\\')
 }
 
 fn classify_fetch(args: &[String], desc: &str) -> Classification {
@@ -384,6 +405,9 @@ fn classify_fetch(args: &[String], desc: &str) -> Classification {
         .find(|a| a.contains("://") || a.contains("::"))
     {
         return Classification::Ask(format!("git fetch (remote URL: {url})"));
+    }
+    if let Some(remote) = positionals.first().filter(|r| is_scp_like_remote(r)) {
+        return Classification::Ask(format!("git fetch (remote URL: {remote})"));
     }
     Classification::Allow(desc.into())
 }

