@@ -482,6 +482,6 @@ pub fn is_safe_heredoc_substitution(command: &Node) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 #[path = "ast_tests.rs"]
 mod tests;

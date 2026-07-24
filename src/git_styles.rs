@@ -110,7 +110,7 @@ fn add_branch_condition(directives: Vec<ConfigDirective>, pattern: &str) -> Vec<
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

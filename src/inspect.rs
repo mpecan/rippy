@@ -524,6 +524,6 @@ fn print_trace_text(output: &TraceOutput) {
 // Tests
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 #[path = "inspect_tests.rs"]
 mod tests;

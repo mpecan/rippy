@@ -293,7 +293,6 @@ mod tests {
         assert!(!ClaudeDecision::Allow.blocks());
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn claude_ask_defers_in_auto_mode() {
         let auto_ctx = ClaudeContext {
@@ -310,7 +309,6 @@ mod tests {
         );
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn claude_deny_holds_in_auto_mode() {
         let auto_ctx = ClaudeContext {
@@ -322,14 +320,12 @@ mod tests {
         assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn claude_ask_stays_ask_in_manual_mode() {
         let json = Verdict::ask("review").to_json(Mode::Claude, ctx(HookType::PreToolUse));
         assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "ask");
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn decision_ordering() {
         assert!(Decision::Allow < Decision::Ask);
@@ -337,7 +333,6 @@ mod tests {
         assert!(Decision::Allow < Decision::Deny);
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn combine_takes_most_restrictive() {
         let verdicts = vec![
@@ -350,14 +345,12 @@ mod tests {
         assert_eq!(combined.reason, "needs review");
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn combine_empty_defaults_to_allow() {
         let combined = Verdict::combine(&[]);
         assert_eq!(combined.decision, Decision::Allow);
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn claude_json_format() {
         let v = Verdict::allow("git status is safe");
@@ -370,7 +363,6 @@ mod tests {
         );
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn claude_post_tool_uses_post_event_name() {
         let v = Verdict::allow("");
@@ -389,7 +381,6 @@ mod tests {
         );
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn claude_post_tool_maps_reason_to_additional_context() {
         let v = Verdict::allow("ran linter");
@@ -406,7 +397,6 @@ mod tests {
         );
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn claude_deny_includes_hook_event_name() {
         let json = Verdict::deny("dangerous").to_json(Mode::Claude, ctx(HookType::PreToolUse));
@@ -414,7 +404,6 @@ mod tests {
         assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn gemini_ask_maps_to_deny() {
         let v = Verdict::ask("needs review");
@@ -422,7 +411,6 @@ mod tests {
         assert_eq!(json["decision"], "deny");
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn cursor_json_format() {
         let v = Verdict::deny("dangerous");

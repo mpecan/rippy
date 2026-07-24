@@ -276,7 +276,7 @@ pub fn audit_commands(commands: &[SessionCommand], cwd: &Path) -> Result<AuditRe
         }
     }
 
-    #[allow(clippy::cast_possible_wrap)]
+    #[expect(clippy::cast_possible_wrap)]
     let total = commands.len() as i64;
 
     Ok(AuditResult {
@@ -301,7 +301,7 @@ pub fn print_audit(result: &AuditResult) {
 
     println!("Analyzed {} commands\n", result.total);
 
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     let pct = |n: i64| {
         if result.total > 0 {
             (n as f64 / result.total as f64) * 100.0
@@ -345,7 +345,7 @@ pub fn print_audit(result: &AuditResult) {
 // Tests
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

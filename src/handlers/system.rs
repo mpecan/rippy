@@ -117,7 +117,6 @@ impl Handler for IfconfigHandler {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

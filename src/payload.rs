@@ -182,7 +182,7 @@ fn extract_file_path(raw: &Value) -> Option<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

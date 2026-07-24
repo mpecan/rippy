@@ -137,7 +137,7 @@ pub fn suggest_patterns(command: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

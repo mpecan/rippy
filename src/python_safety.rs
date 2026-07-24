@@ -99,7 +99,6 @@ fn has_dangerous_attributes(source: &str) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

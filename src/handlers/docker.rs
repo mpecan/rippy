@@ -134,7 +134,6 @@ fn classify_compose(ctx: &HandlerContext) -> Classification {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
 
     use super::*;

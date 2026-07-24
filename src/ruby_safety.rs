@@ -158,7 +158,6 @@ fn has_dangerous_percent_x(source: &str) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

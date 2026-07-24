@@ -68,7 +68,7 @@ pub(super) fn builtin_meta(package: &Package) -> &'static BuiltinMeta {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::packages::package_toml;

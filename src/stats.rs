@@ -83,7 +83,7 @@ fn print_stats_text(output: &StatsOutput) {
 
 fn print_count_line(label: &str, count: i64, total: i64) {
     if total > 0 {
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(clippy::cast_precision_loss)]
         let pct = (count as f64 / total as f64) * 100.0;
         println!("{label:<8} {count:>6} ({pct:.1}%)");
     } else {
@@ -101,7 +101,7 @@ struct StatsOutput {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::mode::Mode;

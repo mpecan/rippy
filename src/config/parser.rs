@@ -224,7 +224,7 @@ fn parse_rule_kind(word: &str) -> Decision {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic)]
+#[expect(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::config::{ConfigDirective, RuleTarget};

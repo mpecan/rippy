@@ -95,7 +95,7 @@ fn parse_legacy_file(path: &Path) -> Result<Vec<ConfigDirective>, RippyError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

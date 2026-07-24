@@ -277,7 +277,7 @@ pub fn compute_confidence(evidence: &Evidence) -> Confidence {
         return Confidence::Low;
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     let max_ratio = [
         evidence.allow_count,
         evidence.ask_count,
@@ -306,11 +306,11 @@ pub fn suggest_action(evidence: &Evidence, risk: RiskLevel) -> Decision {
         return Decision::Ask;
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     let allow_ratio = evidence.allow_count as f64 / evidence.total as f64;
 
     // Mostly denied → deny.
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     let deny_ratio = evidence.deny_count as f64 / evidence.total as f64;
 
     if deny_ratio >= 0.5 {
@@ -410,7 +410,7 @@ fn apply_suggestions(suggestions: &[Suggestion], global: bool) -> Result<(), Rip
 // Tests
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::mode::Mode;

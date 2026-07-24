@@ -168,7 +168,6 @@ fn flags_after_third_delim(bytes: &[u8], start: usize, delim: u8) -> Option<&[u8
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
