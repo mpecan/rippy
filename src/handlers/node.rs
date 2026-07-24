@@ -1,4 +1,7 @@
-use super::{Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag};
+use super::{
+    Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag,
+    is_sole_help_flag,
+};
 use crate::node_safety::is_node_source_safe;
 
 pub static NODE_HANDLER: NodeHandler = NodeHandler;
@@ -11,7 +14,7 @@ impl Handler for NodeHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
+        if is_sole_help_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
             return Classification::Allow(format!("{} version/help", ctx.command_name));
         }
 

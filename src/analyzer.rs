@@ -573,10 +573,12 @@ impl Analyzer {
             return v;
         }
 
-        if args
-            .iter()
-            .any(|a| a == "--help" || a == "-h" || a == "--version")
-        {
+        // A help/version flag may short-circuit to Allow ONLY when it is the
+        // command's sole argument. Matching it anywhere in argv let a dangerous
+        // operand ride along auto-approved (see #149). Bare `-h` is dropped here
+        // because unknown commands overload it (e.g. `-h <host>`); a lone `-h`
+        // then Asks, the safe direction.
+        if args.len() == 1 && matches!(args[0].as_str(), "--help" | "--version") {
             return Verdict::allow(format!("{cmd_name} help/version"));
         }
 

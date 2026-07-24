@@ -60,6 +60,39 @@ decision = "allow"
 command = "npm --help"
 decision = "allow"
 
+# Sole-argument help/version must still auto-allow (Issue #149 preserved cases).
+[[case]]
+command = "mysql --help"
+decision = "allow"
+
+[[case]]
+command = "psql --help"
+decision = "allow"
+
+[[case]]
+command = "git --version"
+decision = "allow"
+
+[[case]]
+command = "docker version"
+decision = "allow"
+
+[[case]]
+command = "node --version"
+decision = "allow"
+
+[[case]]
+command = "ruby --version"
+decision = "allow"
+
+[[case]]
+command = "perl --version"
+decision = "allow"
+
+[[case]]
+command = "deno --version"
+decision = "allow"
+
 # Safe expansion resolution
 [[case]]
 command = "echo {a,b,c}"

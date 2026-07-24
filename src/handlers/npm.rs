@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{Classification, Handler, HandlerContext, has_flag, is_sole_help_flag};
 
 pub static NPM_HANDLER: NpmHandler = NpmHandler;
 
@@ -43,7 +43,7 @@ impl Handler for NpmHandler {
         let sub = ctx.args.first().map_or("", String::as_str);
         let desc = format!("{} {sub}", ctx.command_name);
 
-        if has_flag(ctx.args, &["--help", "-h", "--version", "-v"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-v"]) {
             return Classification::Allow(format!("{} help/version", ctx.command_name));
         }
 

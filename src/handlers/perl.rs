@@ -1,4 +1,6 @@
-use super::{Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag};
+use super::{
+    Classification, Handler, HandlerContext, first_positional, get_flag_value, is_sole_help_flag,
+};
 use crate::perl_safety::is_perl_source_safe;
 
 pub static PERL_HANDLER: PerlHandler = PerlHandler;
@@ -11,7 +13,7 @@ impl Handler for PerlHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
+        if is_sole_help_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
             return Classification::Allow("perl version/help".into());
         }
 

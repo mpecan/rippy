@@ -1,47 +1,18 @@
 # Stdlib rules for script interpreters (perl, ruby, node, deno, lua).
-# Catch-all ask first, then allow version/help overrides (last-match-wins).
-
-[[rules]]
-action = "ask"
-command = "perl"
-
-[[rules]]
-action = "allow"
-command = "perl"
-flags = ["--version", "-v", "--help", "-h"]
-
-[[rules]]
-action = "ask"
-command = "ruby"
-
-[[rules]]
-action = "allow"
-command = "ruby"
-flags = ["--version", "-v", "--help", "-h"]
-
-[[rules]]
-action = "ask"
-command = "node"
-
-[[rules]]
-action = "allow"
-command = "node"
-flags = ["--version", "-v", "--help", "-h"]
-
-[[rules]]
-action = "ask"
-command = "deno"
-
-[[rules]]
-action = "allow"
-command = "deno"
-flags = ["--version", "-V", "--help", "-h"]
+#
+# SECURITY (#149): node/nodejs/deno/perl/ruby are governed by their dedicated
+# handlers (src/handlers/{node,perl,ruby}.rs), which inspect inline `-e`/`--eval`
+# source and script files and short-circuit help/version ONLY when it is the
+# sole argument. An earlier `allow` config rule with `flags = ["--version", ...]`
+# matched the flag ANYWHERE in argv and won over the handler, so
+# `ruby --version -e 'system("rm -rf /")'` was auto-approved. Config `flags`
+# matching is positional-agnostic (correct for deny rules, unsafe for allow),
+# so those rules are removed here and the handlers are the single source of
+# truth for these interpreters.
+#
+# `lua` has no handler, so it keeps a catch-all `ask` (no `allow` version rule —
+# a lone `lua -v` asks, the safe direction).
 
 [[rules]]
 action = "ask"
 command = "lua"
-
-[[rules]]
-action = "allow"
-command = "lua"
-flags = ["--version", "-v", "--help", "-h"]

@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
 
 pub static GH_HANDLER: GhHandler = GhHandler;
 
@@ -17,7 +17,7 @@ impl Handler for GhHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "-h", "--version"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
             return Classification::Allow("gh help/version".into());
         }
 

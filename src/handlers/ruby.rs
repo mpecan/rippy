@@ -1,4 +1,6 @@
-use super::{Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag};
+use super::{
+    Classification, Handler, HandlerContext, first_positional, get_flag_value, is_sole_help_flag,
+};
 use crate::ruby_safety::is_ruby_source_safe;
 
 pub static RUBY_HANDLER: RubyHandler = RubyHandler;
@@ -11,7 +13,7 @@ impl Handler for RubyHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
+        if is_sole_help_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
             return Classification::Allow(format!("{} version/help", ctx.command_name));
         }
 
