@@ -168,6 +168,44 @@ pub fn has_shell_expansion_pattern(s: &str) -> bool {
     false
 }
 
+/// Rebuild the bare command by dropping a leading `NAME=VALUE` env prefix.
+///
+/// This lets the config/permission string matchers see the real command name
+/// (`cargo`) rather than the assignment token (`INSTA_UPDATE=always`).
+///
+/// Returns `None` (caller keeps the original string) unless `nodes` is exactly
+/// one `Command` node that carries at least one assignment and at least one
+/// word.
+///
+/// Returns `None` when any assignment value contains a shell expansion. This is
+/// a deliberate coupling: stripping there could let an ALLOW rule mask a
+/// command substitution such as `FOO=$(rm -rf /) cargo test`; those are instead
+/// forced to Ask by the analyzer's assignment-expansion guard.
+///
+/// The bare command is rebuilt from each word's own source span (via rable's
+/// `source_text`), never a hand-rolled tokenizer, so quoted values like
+/// `FOO='a b' cargo test` are handled correctly.
+#[must_use]
+pub fn strip_env_prefix(command: &str, nodes: &[Node]) -> Option<String> {
+    let [node] = nodes else {
+        return None;
+    };
+    let NodeKind::Command {
+        assignments, words, ..
+    } = &node.kind
+    else {
+        return None;
+    };
+    if assignments.is_empty() || words.is_empty() {
+        return None;
+    }
+    if assignments.iter().any(has_expansions) {
+        return None;
+    }
+    let parts: Vec<&str> = words.iter().map(|w| w.source_text(command)).collect();
+    Some(parts.join(" "))
+}
+
 /// Check if a redirect target is inherently safe (e.g., /dev/null).
 #[must_use]
 pub fn is_safe_redirect_target(target: &str) -> bool {
@@ -475,5 +513,49 @@ mod tests {
         assert!(!has_shell_expansion_pattern("hello world"));
         assert!(!has_shell_expansion_pattern("price is $5"));
         assert!(!has_shell_expansion_pattern(""));
+    }
+
+    // ---- Env-prefix stripping ----
+
+    fn strip(command: &str) -> Option<String> {
+        let nodes = parse_first(command);
+        strip_env_prefix(command, &nodes)
+    }
+
+    #[test]
+    fn strip_env_prefix_single_assignment() {
+        assert_eq!(
+            strip("INSTA_UPDATE=always cargo test"),
+            Some("cargo test".to_owned())
+        );
+    }
+
+    #[test]
+    fn strip_env_prefix_multiple_assignments() {
+        assert_eq!(strip("A=1 B=2 cargo test"), Some("cargo test".to_owned()));
+    }
+
+    #[test]
+    fn strip_env_prefix_quoted_value() {
+        assert_eq!(strip("FOO='a b' cargo test"), Some("cargo test".to_owned()));
+    }
+
+    #[test]
+    fn strip_env_prefix_none_without_assignment() {
+        assert_eq!(strip("cargo test"), None);
+    }
+
+    #[test]
+    fn strip_env_prefix_none_for_assignment_only() {
+        // No command word after the assignment.
+        assert_eq!(strip("FOO=bar"), None);
+    }
+
+    #[test]
+    fn strip_env_prefix_none_when_value_has_expansion() {
+        // Coupling guard: never strip when the value could execute code.
+        assert_eq!(strip("FOO=$(rm -rf /) cargo test"), None);
+        assert_eq!(strip("FOO=`whoami` cargo test"), None);
+        assert_eq!(strip("FOO=${HOME} cargo test"), None);
     }
 }

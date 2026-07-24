@@ -1,6 +1,23 @@
 [meta]
 description = "Safe handler operations — git, docker, cargo, curl"
 
+# Env-var prefix must not hide the real command from config rules (issue #133).
+[[case]]
+command = "INSTA_UPDATE=always cargo test"
+decision = "allow"
+
+[[case]]
+command = "RUST_LOG=debug cargo build"
+decision = "allow"
+
+[[case]]
+command = "A=1 B=2 cargo test"
+decision = "allow"
+
+[[case]]
+command = "FOO=bar ls"
+decision = "allow"
+
 # Git safe subcommands
 [[case]]
 command = "git log --oneline -20"

@@ -267,10 +267,18 @@ pub(crate) fn collect_trace_data(
     let cc_rules = cc_permissions::load_cc_rules(cwd);
     let mut steps = Vec::new();
 
-    if let Some(out) = trace_cc_step(command, &cc_rules, &mut steps) {
+    // Mirror the analyzer: strip a leading `NAME=VALUE` env prefix so the
+    // string-matching CC/config steps see the real command. Parse resiliently.
+    let match_str = BashParser::new()
+        .ok()
+        .and_then(|mut p| p.parse(command).ok())
+        .and_then(|n| crate::ast::strip_env_prefix(command, &n));
+    let match_str = match_str.as_deref().unwrap_or(command);
+
+    if let Some(out) = trace_cc_step(command, match_str, &cc_rules, &mut steps) {
         return Ok(out);
     }
-    if let Some(out) = trace_config_step(command, &config, &mut steps) {
+    if let Some(out) = trace_config_step(command, match_str, &config, &mut steps) {
         return Ok(out);
     }
     trace_parse_and_classify(command, config, cwd, &mut steps)
@@ -278,10 +286,11 @@ pub(crate) fn collect_trace_data(
 
 fn trace_cc_step(
     command: &str,
+    match_str: &str,
     cc_rules: &cc_permissions::CcRules,
     steps: &mut Vec<TraceStep>,
 ) -> Option<TraceOutput> {
-    let result = cc_rules.check(command);
+    let result = cc_rules.check(match_str);
     steps.push(TraceStep {
         stage: "CC permissions".to_string(),
         matched: result.is_some(),
@@ -301,10 +310,11 @@ fn trace_cc_step(
 
 fn trace_config_step(
     command: &str,
+    match_str: &str,
     config: &Config,
     steps: &mut Vec<TraceStep>,
 ) -> Option<TraceOutput> {
-    let result = config.match_command(command, None);
+    let result = config.match_command(match_str, None);
     steps.push(TraceStep {
         stage: "Config rules".to_string(),
         matched: result.is_some(),

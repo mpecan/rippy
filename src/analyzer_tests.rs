@@ -664,6 +664,91 @@ fn command_sub_without_heredoc_still_asks() {
     assert_eq!(v.decision, Decision::Ask);
 }
 
+// ---- Assignment-expansion security guard (Part A) ----
+
+#[test]
+fn bare_assignment_with_cmdsub_asks() {
+    // Previously auto-approved as "empty command" — a real silent-execution
+    // hole. The value `$(rm -rf /)` runs before the (empty) command.
+    let mut a = make_analyzer();
+    let v = a.analyze("x=$(rm -rf /)").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn assignment_prefix_with_cmdsub_asks() {
+    // `FOO=$(whoami) ls` — ls is safe, but the assignment value executes.
+    let mut a = make_analyzer();
+    let v = a.analyze("FOO=$(whoami) ls").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn assignment_with_backtick_asks() {
+    let mut a = make_analyzer();
+    let v = a.analyze("FOO=`rm -rf /` ls").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn assignment_prefix_with_cmdsub_in_list_asks() {
+    // The guard fires even when the command is nested in a list.
+    let mut a = make_analyzer();
+    let v = a.analyze("true && FOO=$(rm -rf /) ls").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn literal_assignment_prefix_still_allows() {
+    // No expansion in the value — unaffected by the guard.
+    let mut a = make_analyzer();
+    let v = a.analyze("FOO=bar ls").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+// ---- Env-prefix config-matching bug fix (Part B) ----
+
+fn make_analyzer_with_config(toml: &str) -> Analyzer {
+    use crate::config::ConfigFormat;
+    let config = Config::load_from_str(toml, ConfigFormat::Toml).unwrap();
+    Analyzer::new_with_var_lookup(
+        config,
+        false,
+        PathBuf::from("/tmp"),
+        false,
+        Box::new(MockLookup::new()),
+    )
+    .unwrap()
+}
+
+const FOO_ALLOW_TOML: &str = "[[rules]]\naction = \"allow\"\ncommand = \"foo\"\n";
+
+#[test]
+fn env_prefix_matches_command_rule() {
+    // Without stripping, the first token would be `VAR=x`, hiding `foo`.
+    let mut a = make_analyzer_with_config(FOO_ALLOW_TOML);
+    let v = a.analyze("VAR=x foo").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+#[test]
+fn multi_assignment_prefix_stripped() {
+    let mut a = make_analyzer_with_config(FOO_ALLOW_TOML);
+    let v = a.analyze("A=1 B=2 foo").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+#[test]
+fn env_prefix_with_cmdsub_not_stripped_still_asks() {
+    // Critical coupling test: the ALLOW rule for `foo` must NOT rescue a
+    // command substitution hidden in the env prefix. strip_env_prefix refuses
+    // to strip (value has an expansion), so the config layer never matches and
+    // the assignment-expansion guard forces Ask.
+    let mut a = make_analyzer_with_config(FOO_ALLOW_TOML);
+    let v = a.analyze("FOO=$(rm -rf /) foo").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
 #[test]
 fn variable_value_containing_dollar_is_not_re_expanded() {
     // bash does NOT recursively expand variable values, and neither do we:

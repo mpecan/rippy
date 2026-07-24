@@ -1,6 +1,23 @@
 [meta]
 description = "Injection via command/process substitution, variables, brace/arithmetic expansion"
 
+# Assignment values are executed and must be inspected (issue #133 security guard).
+[[case]]
+command = "x=$(rm -rf /)"
+decision = "ask"
+reason_contains = "assignment with expansion"
+
+[[case]]
+command = "FOO=$(whoami) ls"
+decision = "ask"
+reason_contains = "assignment with expansion"
+
+# Coupling: an ALLOW-able command must not rescue a cmdsub in the env prefix.
+[[case]]
+command = "FOO=$(rm -rf /) cargo test"
+decision = "ask"
+reason_contains = "assignment with expansion"
+
 # Command substitution
 [[case]]
 command = "echo $(rm -rf /)"
