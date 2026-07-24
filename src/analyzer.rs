@@ -431,6 +431,9 @@ impl Analyzer {
         if Self::assignment_has_expansion(assignments) {
             return Verdict::ask("assignment with expansion");
         }
+        if Self::assignment_is_dangerous(assignments) {
+            return Verdict::ask("dangerous env-var assignment");
+        }
         let checkpoint = self.locals.len();
         self.push_literal_bindings(assignments);
         let v = self.analyze_command_node(words, redirects, cwd, depth);
@@ -515,6 +518,21 @@ impl Analyzer {
     /// (`FOO=bar ls`) contain no expansion and pass through unaffected.
     fn assignment_has_expansion(assignments: &[Node]) -> bool {
         assignments.iter().any(ast::has_expansions)
+    }
+
+    /// Returns `true` if any assignment on a simple command sets a
+    /// code-influencing variable (`LD_PRELOAD`, `GIT_SSH_COMMAND`,
+    /// `GIT_CONFIG_*`, ...). Such a literal prefix turns an otherwise-safe
+    /// command into arbitrary code execution, so the analyzer Asks before the
+    /// safe-command fast path or any handler can approve it.
+    /// See docs/security-invariants.md#dangerous-env-name.
+    fn assignment_is_dangerous(assignments: &[Node]) -> bool {
+        assignments.iter().any(|a| {
+            ast::literal_assignment(a)
+                .map(|(n, _)| n)
+                .or_else(|| ast::append_assignment_name(a))
+                .is_some_and(|n| ast::is_dangerous_env_name(&n))
+        })
     }
 
     fn analyze_command_node(
