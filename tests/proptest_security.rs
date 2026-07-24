@@ -19,7 +19,31 @@ use std::sync::LazyLock;
 
 use proptest::prelude::*;
 use rippy_cli::allowlists;
+use rippy_cli::analyzer::Analyzer;
+use rippy_cli::config::{Config, ConfigDirective};
+use rippy_cli::environment::Environment;
 use rippy_cli::verdict::Decision;
+
+/// Candidate safe-scope inputs, including dangerous/degenerate ones (`/`, `~`,
+/// empty) that must never widen auto-approval to an unrelated path.
+const SCOPE_INPUTS: &[&str] = &["/", "~", "", "/opt", "/opt/repos", "/srv/work"];
+
+/// Absolute paths that are NOT under any legitimate `SCOPE_INPUTS` prefix, nor
+/// under the test cwd (`/project`) or the default safe dirs.
+const OUTSIDE_PATHS: &[&str] = &[
+    "/etc/secrets",
+    "/usr/local/bin",
+    "/var/log/syslog",
+    "/root/.ssh",
+];
+
+fn analyzer_with_scope_input(scope: &str) -> Analyzer {
+    let config = Config::from_directives(vec![ConfigDirective::SafeScope(
+        std::path::PathBuf::from(scope),
+    )]);
+    let env = Environment::for_test(std::path::PathBuf::from("/project"));
+    Analyzer::from_env(config, env).expect("analyzer builds")
+}
 
 /// Cached sorted lists — avoid re-sorting on every proptest iteration.
 static SAFE_CMDS: LazyLock<Vec<&'static str>> = LazyLock::new(allowlists::all_simple_safe);
@@ -206,5 +230,25 @@ proptest! {
             wrapper, cmd, verdict.reason,
         );
         prop_assert!(verdict.decision >= Decision::Ask, "{}", msg);
+    }
+
+    /// A declared safe scope (even a degenerate `/`, `~`, or empty input) must
+    /// never auto-approve a `cd` into a path outside a genuine declared prefix.
+    /// Guards the root/broad-scope bypass and the prefix-boundary guarantee (#134).
+    #[test]
+    fn declared_scope_never_auto_approves_outside_path(
+        scope_idx in 0..SCOPE_INPUTS.len(),
+        path_idx in 0..OUTSIDE_PATHS.len(),
+    ) {
+        let scope = SCOPE_INPUTS[scope_idx];
+        let outside = OUTSIDE_PATHS[path_idx];
+        let mut analyzer = analyzer_with_scope_input(scope);
+        let cmd = format!("cd {outside}");
+        let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
+        prop_assert!(
+            verdict.decision >= Decision::Ask,
+            "scope {:?} auto-approved outside path {:?} => {:?}",
+            scope, outside, verdict.reason,
+        );
     }
 }

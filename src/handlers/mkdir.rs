@@ -52,7 +52,7 @@ impl Handler for MkdirHandler {
                 normalize_path(&ctx.working_directory.join(arg.as_str()))
             };
 
-            if !is_within_scope(&resolved, &normalized_cwd, ctx.cd_allowed_dirs) {
+            if !is_within_scope(&resolved, &normalized_cwd, ctx.safe_scopes) {
                 return Classification::Ask(format!("mkdir outside allowed scope ({arg})"));
             }
 
@@ -81,7 +81,7 @@ mod tests {
             working_directory: cwd,
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         }
     }
 
@@ -96,7 +96,7 @@ mod tests {
             working_directory: cwd,
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: allowed,
+            safe_scopes: allowed,
         }
     }
 
@@ -204,7 +204,7 @@ mod tests {
             working_directory: &cwd,
             remote: true,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         };
         assert!(is_ask(&MKDIR_HANDLER.classify(&ctx)));
     }

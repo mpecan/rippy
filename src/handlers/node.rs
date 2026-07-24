@@ -74,7 +74,7 @@ mod tests {
             working_directory: Path::new("/tmp"),
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         }
     }
 
@@ -173,7 +173,7 @@ mod tests {
             working_directory: dir.path(),
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         };
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
@@ -196,7 +196,7 @@ mod tests {
             working_directory: dir.path(),
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         };
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
@@ -213,7 +213,7 @@ mod tests {
             working_directory: std::path::Path::new("/tmp"),
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         };
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
@@ -230,7 +230,7 @@ mod tests {
             working_directory: std::path::Path::new("/tmp"),
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         };
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),

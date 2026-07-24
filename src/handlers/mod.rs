@@ -34,8 +34,9 @@ pub struct HandlerContext<'a> {
     pub working_directory: &'a Path,
     pub remote: bool,
     pub receives_piped_input: bool,
-    /// Extra directories that `cd` is allowed to navigate to (from config).
-    pub cd_allowed_dirs: &'a [std::path::PathBuf],
+    /// User-declared safe scopes: extra directories that path-based handlers
+    /// (`cd`, `mkdir`, `git -C`) may enter/create in without prompting (from config).
+    pub safe_scopes: &'a [std::path::PathBuf],
 }
 
 /// Maximum file size (64 KB) for `read_file` — prevents reading huge files.
@@ -282,20 +283,24 @@ pub fn normalize_path(path: &Path) -> std::path::PathBuf {
 }
 
 /// Check if a resolved, normalized path is within the working directory,
-/// a config-allowed directory, or a default safe directory.
+/// a user-declared safe scope, or a default safe directory.
 ///
 /// Both `path` and `normalized_cwd` must already be normalized.
-/// `allowed_dirs` are normalized at config load time.
+/// `safe_scopes` are expanded and normalized at config load time.
+///
+/// Matching uses `Path::starts_with`, which respects path-component
+/// boundaries: a scope of `/opt/repos` matches `/opt/repos/x` but NOT the
+/// sibling `/opt/repos-evil`. Do not replace this with string `starts_with`.
 pub fn is_within_scope(
     path: &Path,
     normalized_cwd: &Path,
-    allowed_dirs: &[std::path::PathBuf],
+    safe_scopes: &[std::path::PathBuf],
 ) -> bool {
     if path.starts_with(normalized_cwd) {
         return true;
     }
 
-    if allowed_dirs.iter().any(|d| path.starts_with(d)) {
+    if safe_scopes.iter().any(|d| path.starts_with(d)) {
         return true;
     }
 
@@ -314,8 +319,24 @@ mod tests {
             working_directory: dir,
             remote,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         }
+    }
+
+    #[test]
+    fn is_within_scope_respects_component_boundary() {
+        let cwd = Path::new("/project");
+        let scopes = [std::path::PathBuf::from("/opt/repos")];
+        // Sibling dir sharing a string prefix must NOT match.
+        assert!(!is_within_scope(Path::new("/opt/repos-evil"), cwd, &scopes));
+        assert!(!is_within_scope(
+            Path::new("/opt/repos-evil/x"),
+            cwd,
+            &scopes
+        ));
+        // Exact scope and children DO match.
+        assert!(is_within_scope(Path::new("/opt/repos"), cwd, &scopes));
+        assert!(is_within_scope(Path::new("/opt/repos/x"), cwd, &scopes));
     }
 
     #[test]

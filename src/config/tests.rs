@@ -594,3 +594,73 @@ message = "team policy"
     assert!(v.is_some());
     assert_eq!(v.unwrap().decision, Decision::Deny);
 }
+
+// ---------------------------------------------------------------------------
+// Safe scope expansion
+// ---------------------------------------------------------------------------
+
+#[test]
+fn expand_scope_expands_leading_tilde() {
+    let home = std::path::Path::new("/home/alice");
+    let got = expand_scope_path(std::path::Path::new("~/src"), Some(home)).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/home/alice/src"));
+}
+
+#[test]
+fn expand_scope_bare_tilde_is_home() {
+    let home = std::path::Path::new("/home/alice");
+    let got = expand_scope_path(std::path::Path::new("~"), Some(home)).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/home/alice"));
+}
+
+#[test]
+fn expand_scope_normalizes_dotdot() {
+    let got = expand_scope_path(std::path::Path::new("/opt/repos/../work"), None).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/opt/work"));
+}
+
+#[test]
+fn expand_scope_rejects_root() {
+    assert!(expand_scope_path(std::path::Path::new("/"), None).is_none());
+    // Tilde escaping up to root is rejected too.
+    let home = std::path::Path::new("/home");
+    assert!(expand_scope_path(std::path::Path::new("~/.."), Some(home)).is_none());
+}
+
+#[test]
+fn expand_scope_unknown_env_var_stays_literal() {
+    // A variable that is (almost certainly) undefined must not expand to empty
+    // and thereby collapse the path — it stays literal.
+    let got = expand_scope_path(
+        std::path::Path::new("/opt/$RIPPY_NO_SUCH_VAR_XYZ/repos"),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        got,
+        std::path::PathBuf::from("/opt/$RIPPY_NO_SUCH_VAR_XYZ/repos")
+    );
+}
+
+#[test]
+fn safe_scope_directive_expands_and_populates() {
+    let home = std::path::PathBuf::from("/home/bob");
+    let config = Config::from_directives_with_home(
+        vec![ConfigDirective::SafeScope(std::path::PathBuf::from(
+            "~/src/other",
+        ))],
+        Some(home.as_path()),
+    );
+    assert_eq!(
+        config.safe_scopes,
+        vec![std::path::PathBuf::from("/home/bob/src/other")]
+    );
+}
+
+#[test]
+fn safe_scope_root_entry_dropped() {
+    let config = Config::from_directives(vec![ConfigDirective::SafeScope(
+        std::path::PathBuf::from("/"),
+    )]);
+    assert!(config.safe_scopes.is_empty());
+}

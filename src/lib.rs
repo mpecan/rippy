@@ -28,6 +28,7 @@ pub mod resolve;
 pub mod risk;
 pub mod ruby_safety;
 pub mod rule_cmd;
+pub mod scope_cmd;
 pub mod self_protect;
 pub mod sessions;
 pub mod setup;

@@ -161,7 +161,7 @@ fn check_repo_path_flags(ctx: &HandlerContext) -> Option<Classification> {
                 } else {
                     normalize_path(&ctx.working_directory.join(value.as_str()))
                 };
-                if !is_within_scope(&resolved, &normalized_cwd, ctx.cd_allowed_dirs) {
+                if !is_within_scope(&resolved, &normalized_cwd, ctx.safe_scopes) {
                     return Some(Classification::Ask(format!(
                         "git {arg} targets outside allowed scope ({value})"
                     )));
@@ -291,7 +291,7 @@ mod tests {
             working_directory: Path::new("/tmp"),
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &[],
+            safe_scopes: &[],
         }
     }
 
@@ -386,6 +386,51 @@ mod tests {
         assert!(matches!(result, Classification::Allow(_)));
     }
 
+    // Rejected-widening guard: read-only `git -C <undeclared> log` must still
+    // Ask. An arbitrary repo's `.git/config` (pager/alias) can run code even on
+    // a "read" subcommand, so scope opt-in is required — see #134.
+    #[test]
+    fn dash_c_undeclared_read_only_still_asks() {
+        let args = vec!["-C".into(), "/opt/other-repo".into(), "log".into()];
+        let result = GIT_HANDLER.classify(&ctx(&args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    // Within a declared scope, the same read-only command is allowed (parity).
+    #[test]
+    fn dash_c_declared_scope_read_only_allows() {
+        let allowed = vec![std::path::PathBuf::from("/opt/repos")];
+        let args = vec!["-C".into(), "/opt/repos/other".into(), "log".into()];
+        let ctx = HandlerContext {
+            command_name: "git",
+            args: &args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+            receives_piped_input: false,
+            safe_scopes: &allowed,
+        };
+        assert!(matches!(
+            GIT_HANDLER.classify(&ctx),
+            Classification::Allow(_)
+        ));
+    }
+
+    // Within a declared scope, a writing subcommand still Asks (write guard).
+    #[test]
+    fn dash_c_declared_scope_write_still_asks() {
+        let allowed = vec![std::path::PathBuf::from("/opt/repos")];
+        let args = vec!["-C".into(), "/opt/repos/other".into(), "push".into()];
+        let ctx = HandlerContext {
+            command_name: "git",
+            args: &args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+            receives_piped_input: false,
+            safe_scopes: &allowed,
+        };
+        assert!(matches!(GIT_HANDLER.classify(&ctx), Classification::Ask(_)));
+    }
+
     #[test]
     fn dash_c_config_allowed() {
         let allowed = vec![std::path::PathBuf::from("/opt/repos")];
@@ -396,7 +441,7 @@ mod tests {
             working_directory: Path::new("/tmp"),
             remote: false,
             receives_piped_input: false,
-            cd_allowed_dirs: &allowed,
+            safe_scopes: &allowed,
         };
         assert!(matches!(
             GIT_HANDLER.classify(&ctx),
