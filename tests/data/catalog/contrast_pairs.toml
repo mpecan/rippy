@@ -163,11 +163,14 @@ dangerous = [
 [[contrast]]
 description = "redirect target safety"
 template = "echo foo > {CMD}"
+# #136: /dev/null and the trusted safe-dir set (/tmp) are safe write targets;
+# a path outside every safe dir still asks.
 safe = [
     { inner = "/dev/null" },
+    { inner = "/tmp/output.txt" },
 ]
 dangerous = [
-    { inner = "/tmp/output.txt" },
+    { inner = "/etc/output.txt" },
 ]
 
 # Self-protection contrast

@@ -366,7 +366,7 @@ fn char_range(start: char, end: char) -> Vec<String> {
 }
 
 /// Strip surrounding `'...'` or `"..."` quotes from a literal word value.
-fn strip_outer_quotes(s: &str) -> String {
+pub(crate) fn strip_outer_quotes(s: &str) -> String {
     let bytes = s.as_bytes();
     if bytes.len() >= 2
         && ((bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'')

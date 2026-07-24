@@ -33,8 +33,19 @@ fn redirect_to_dev_null_safe() {
 }
 
 #[test]
-fn redirect_to_file_asks() {
+fn redirect_to_tmp_allows() {
+    // #136: write redirects into the shared trusted safe-dir set are auto-approved.
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo foo > /tmp/output.txt"}}"#;
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn redirect_outside_safe_dirs_asks() {
+    // A redirect to a path outside every safe dir keeps asking.
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo foo > /etc/rippy-test-out"}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();

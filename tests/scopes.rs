@@ -61,6 +61,32 @@ fn mkdir_in_declared_scope_allows() {
 }
 
 // ---------------------------------------------------------------------------
+// Write redirects (#136) honor the same trusted-dir set.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn redirect_into_declared_scope_allows() {
+    let mut a = analyzer_with_scope("/opt/repos", "/project");
+    assert_eq!(
+        decide(&mut a, "echo x > /opt/repos/other/out"),
+        Decision::Allow
+    );
+}
+
+#[test]
+fn redirect_outside_scope_and_safe_dirs_asks() {
+    let mut a = analyzer_with_scope("/opt/repos", "/project");
+    assert_eq!(decide(&mut a, "echo x > /etc/out"), Decision::Ask);
+}
+
+#[test]
+fn redirect_into_tmp_allows_even_with_unrelated_scope() {
+    // /tmp is a default safe dir regardless of what scope is declared.
+    let mut a = analyzer_with_scope("/opt/repos", "/project");
+    assert_eq!(decide(&mut a, "echo x > /tmp/out"), Decision::Allow);
+}
+
+// ---------------------------------------------------------------------------
 // Nothing outside the project becomes safe without opt-in.
 // ---------------------------------------------------------------------------
 

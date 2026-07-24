@@ -283,7 +283,9 @@ impl Analyzer {
     }
 
     fn analyze_pipeline(&mut self, commands: &[Node], cwd: &Path, depth: usize) -> Verdict {
-        let has_unsafe_redirect = commands.iter().any(ast::has_unsafe_file_redirect);
+        let has_unsafe_redirect = commands
+            .iter()
+            .any(|c| self.command_has_unsafe_redirect(c, cwd));
 
         let mut verdicts: Vec<Verdict> = commands
             .iter()
@@ -439,13 +441,13 @@ impl Analyzer {
         }
     }
 
-    fn analyze_redirects(&self, redirects: &[Node], _cwd: &Path, _depth: usize) -> Vec<Verdict> {
+    fn analyze_redirects(&self, redirects: &[Node], cwd: &Path, _depth: usize) -> Vec<Verdict> {
         let mut verdicts = Vec::new();
         for redir in redirects {
             match &redir.kind {
                 NodeKind::Redirect { .. } => {
                     if let Some((op, target)) = ast::redirect_info(redir) {
-                        verdicts.push(self.analyze_redirect(op, &target));
+                        verdicts.push(self.analyze_redirect(op, &target, cwd));
                     }
                 }
                 NodeKind::HereDoc {
@@ -488,7 +490,7 @@ impl Analyzer {
         self.default_verdict(cmd_name)
     }
 
-    fn analyze_redirect(&self, op: ast::RedirectOp, target: &str) -> Verdict {
+    fn analyze_redirect(&self, op: ast::RedirectOp, target: &str, cwd: &Path) -> Verdict {
         if op == ast::RedirectOp::Read {
             return Verdict::allow("input redirect");
         }
@@ -504,7 +506,57 @@ impl Analyzer {
         if let Some(verdict) = self.config.match_redirect(target, Some(&self.match_ctx())) {
             return verdict;
         }
+        // Write/append into the shared trusted safe-dir set (declared scopes or
+        // default safe dirs like /tmp) is auto-approved. This runs AFTER
+        // self_protect and explicit user rules so those stronger decisions win.
+        if matches!(op, ast::RedirectOp::Write | ast::RedirectOp::Append)
+            && self.is_safe_write_target(target, cwd)
+        {
+            return Verdict::allow(format!("redirect to {target} (safe dir)"));
+        }
         Verdict::ask(format!("redirect to {target}"))
+    }
+
+    /// Returns `true` only for statically-known write targets that resolve
+    /// inside the trusted safe-dir set (declared scopes or default safe dirs).
+    ///
+    /// Conservative by construction: any target whose runtime value we cannot
+    /// know statically — shell expansions (`$VAR`, `${...}`, `$(...)`,
+    /// backticks), a leading `~`, or glob metacharacters — is rejected so it
+    /// keeps asking. Relative targets resolve against `cwd`; since the safe-dir
+    /// set excludes the cwd, a redirect that stays in the project still asks.
+    fn is_safe_write_target(&self, target: &str, cwd: &Path) -> bool {
+        let target = resolve::strip_outer_quotes(target);
+        if ast::has_shell_expansion_pattern(&target)
+            || target.starts_with('~')
+            || target.contains(['*', '?', '['])
+        {
+            return false;
+        }
+        let raw = Path::new(&target);
+        let resolved = if raw.is_absolute() {
+            handlers::normalize_path(raw)
+        } else {
+            handlers::normalize_path(&cwd.join(raw))
+        };
+        handlers::is_within_safe_dir(&resolved, &self.config.safe_scopes)
+    }
+
+    /// Scope-aware analogue of [`ast::has_unsafe_file_redirect`]: a command has
+    /// an unsafe write/append redirect only when its target is neither
+    /// inherently safe (`/dev/null`) nor inside the trusted safe-dir set.
+    fn command_has_unsafe_redirect(&self, node: &Node, cwd: &Path) -> bool {
+        let NodeKind::Command { redirects, .. } = &node.kind else {
+            return false;
+        };
+        redirects.iter().any(|r| {
+            let Some((op, target)) = ast::redirect_info(r) else {
+                return false;
+            };
+            matches!(op, ast::RedirectOp::Write | ast::RedirectOp::Append)
+                && !ast::is_safe_redirect_target(&target)
+                && !self.is_safe_write_target(&target, cwd)
+        })
     }
 
     fn analyze_heredoc_node(quoted: bool, content: Option<&str>) -> Verdict {
@@ -606,7 +658,7 @@ impl Analyzer {
                     resolved_command: None,
                 }];
                 for target in &targets {
-                    verdicts.push(self.analyze_redirect(ast::RedirectOp::Write, target));
+                    verdicts.push(self.analyze_redirect(ast::RedirectOp::Write, target, cwd));
                 }
                 Verdict::combine(&verdicts)
             }

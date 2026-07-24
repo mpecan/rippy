@@ -264,6 +264,28 @@ proptest! {
         );
     }
 
+    /// A write redirect (`>`/`>>`) whose target is outside every declared scope
+    /// and the default safe dirs must never auto-approve (#136) — the redirect
+    /// analogue of `git_repo_redirect_outside_never_auto_approves`.
+    #[test]
+    fn write_redirect_outside_never_auto_approves(
+        scope_idx in 0..SCOPE_INPUTS.len(),
+        path_idx in 0..OUTSIDE_PATHS.len(),
+        append in any::<bool>(),
+    ) {
+        let scope = SCOPE_INPUTS[scope_idx];
+        let outside = OUTSIDE_PATHS[path_idx];
+        let op = if append { ">>" } else { ">" };
+        let cmd = format!("echo x {op} {outside}");
+        let mut analyzer = analyzer_with_scope_input(scope);
+        let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
+        prop_assert!(
+            verdict.decision >= Decision::Ask,
+            "write redirect {:?} with scope {:?} auto-approved outside path => {:?}",
+            cmd, scope, verdict.reason,
+        );
+    }
+
     /// A read-only git command redirected (any flag form, separated or `=`) to a
     /// path outside every declared scope must never auto-approve — the attached
     /// `=` form must not slip past the guard the separated form enforces (#134).

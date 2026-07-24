@@ -9,10 +9,12 @@ fn make_analyzer() -> Analyzer {
 }
 
 fn make_analyzer_with(lookup: MockLookup) -> Analyzer {
+    // cwd is /project (not a safe dir) so relative redirect targets resolve
+    // into the project and keep asking, while /tmp etc. are auto-approved.
     Analyzer::new_with_var_lookup(
         Config::empty(),
         false,
-        PathBuf::from("/tmp"),
+        PathBuf::from("/project"),
         false,
         Box::new(lookup),
     )
@@ -70,8 +72,79 @@ fn redirect_to_dev_null() {
 
 #[test]
 fn redirect_to_file_asks() {
+    // Relative target resolves under the /project cwd (not a safe dir) → Ask.
     let mut a = make_analyzer();
     let v = a.analyze("echo foo > output.txt").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+// ---- Safe-dir write redirects (#136) ----
+
+#[test]
+fn redirect_to_tmp_write_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /tmp/out.txt").unwrap();
+    // echo is safe and the /tmp redirect is auto-approved → overall Allow.
+    // (The reason surfaces the dominant `echo is safe` verdict.)
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn redirect_append_private_tmp_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo >> /private/tmp/x/log").unwrap();
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn redirect_to_etc_asks() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /etc/passwd").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn redirect_dotdot_escape_asks() {
+    // Traversal that escapes /tmp collapses to /etc/passwd before the check.
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /tmp/../etc/passwd").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn redirect_dynamic_target_asks() {
+    let mut a = make_analyzer_with(MockLookup::new().with("VAR", "/tmp/x"));
+    for cmd in [
+        "echo foo > $HOME/x",
+        "echo foo > ~/x",
+        "echo foo > \"$VAR\"",
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask, "{cmd} -> {}", v.reason);
+    }
+}
+
+#[test]
+fn redirect_component_boundary_asks() {
+    // /tmpevil shares a string prefix with /tmp but is a different component.
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /tmpevil/x").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn pipeline_redirect_to_tmp_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("cat f | grep x > /tmp/out").unwrap();
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn unsafe_cmd_with_safe_redirect_still_asks() {
+    // The redirect target is safe, but the left-hand command is not: combine
+    // keeps the most-restrictive decision.
+    let mut a = make_analyzer();
+    let v = a.analyze("rm -rf / > /tmp/out").unwrap();
     assert_eq!(v.decision, Decision::Ask);
 }
 

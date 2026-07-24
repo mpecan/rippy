@@ -268,7 +268,12 @@ pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
 }
 
 /// Default directories that are always considered safe for path-based handlers.
-pub const SAFE_DIRECTORIES: &[&str] = &["/tmp", "/var/tmp"];
+///
+/// The `/private/...` entries are the macOS canonical locations for `/tmp` and
+/// `/var/tmp`. rippy normalizes paths logically (no symlink resolution), so a
+/// literal `/private/tmp/...` target — e.g. the session scratchpad — would not
+/// otherwise match `/tmp`.
+pub const SAFE_DIRECTORIES: &[&str] = &["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
 
 /// Logical path normalization: resolve `.` and `..` components without
 /// filesystem access (the target directory may not exist yet).
@@ -300,10 +305,21 @@ pub fn is_within_scope(
     normalized_cwd: &Path,
     safe_scopes: &[std::path::PathBuf],
 ) -> bool {
-    if path.starts_with(normalized_cwd) {
-        return true;
-    }
+    path.starts_with(normalized_cwd) || is_within_safe_dir(path, safe_scopes)
+}
 
+/// Check if a resolved, normalized path is within a user-declared safe scope or
+/// a default safe directory — but NOT the working directory.
+///
+/// This is the trusted-write set: unlike [`is_within_scope`], it deliberately
+/// excludes the cwd so redirect targets (`>`, `>>`) inside the project keep
+/// asking, while `/tmp`, `/var/tmp` (and their `/private` equivalents) plus any
+/// declared scope are auto-approved.
+///
+/// Matching uses `Path::starts_with`, which respects path-component boundaries
+/// (see [`is_within_scope`]). `safe_scopes` are expanded and normalized at
+/// config load time.
+pub fn is_within_safe_dir(path: &Path, safe_scopes: &[std::path::PathBuf]) -> bool {
     if safe_scopes.iter().any(|d| path.starts_with(d)) {
         return true;
     }
@@ -341,6 +357,22 @@ mod tests {
         // Exact scope and children DO match.
         assert!(is_within_scope(Path::new("/opt/repos"), cwd, &scopes));
         assert!(is_within_scope(Path::new("/opt/repos/x"), cwd, &scopes));
+    }
+
+    #[test]
+    fn is_within_safe_dir_matches_default_and_scope_but_not_cwd() {
+        let scopes = [std::path::PathBuf::from("/opt/repos")];
+        // Default safe dirs (including macOS /private equivalents).
+        assert!(is_within_safe_dir(Path::new("/tmp/out.txt"), &scopes));
+        assert!(is_within_safe_dir(Path::new("/private/tmp/x/log"), &scopes));
+        assert!(is_within_safe_dir(Path::new("/var/tmp/y"), &scopes));
+        // Declared scope.
+        assert!(is_within_safe_dir(Path::new("/opt/repos/other/f"), &scopes));
+        // The cwd is NOT a safe write dir here (redirects into it must ask).
+        assert!(!is_within_safe_dir(Path::new("/project/out.txt"), &scopes));
+        // Component boundary: a sibling sharing a string prefix must NOT match.
+        assert!(!is_within_safe_dir(Path::new("/tmpevil/x"), &scopes));
+        assert!(!is_within_safe_dir(Path::new("/opt/repos-evil/x"), &scopes));
     }
 
     #[test]

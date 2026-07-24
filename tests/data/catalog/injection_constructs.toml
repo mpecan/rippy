@@ -91,9 +91,10 @@ decision = "allow"
 command = "echo data > /etc/passwd"
 decision = "ask"
 
+# #136: write/append redirects into the trusted safe-dir set are auto-approved.
 [[case]]
 command = "echo data >> /tmp/output.txt"
-decision = "ask"
+decision = "allow"
 
 [[case]]
 command = "echo 'allow *' > .rippy"
@@ -103,6 +104,7 @@ decision = "deny"
 command = "echo '[rules]' > .rippy.toml"
 decision = "deny"
 
+# #136: stderr redirect to a safe dir (/tmp) is auto-approved.
 [[case]]
 command = "echo foo > /dev/null 2> /tmp/err.log"
-decision = "ask"
+decision = "allow"
