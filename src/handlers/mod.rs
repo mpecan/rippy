@@ -294,6 +294,27 @@ pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
     None
 }
 
+/// Helper: collect the values following every occurrence of a flag.
+///
+/// Interpreters like Perl accept multiple `-e`/`-E` fragments and concatenate
+/// them at runtime, so analyzing only the first occurrence (`get_flag_value`)
+/// misses dangerous code hidden in a later fragment.
+pub fn get_flag_values(args: &[String], flags: &[&str]) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if flags.contains(&args[i].as_str()) {
+            if let Some(value) = args.get(i + 1) {
+                values.push(value.clone());
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    values
+}
+
 /// Default directories that are always considered safe for path-based handlers.
 ///
 /// The `/private/...` entries are the macOS canonical locations for `/tmp` and

@@ -22,6 +22,7 @@ const DANGEROUS_GLOBALS: &[&str] = &[
     "process.exit(",
     "process.kill(",
     "process.env",
+    "process.binding(",
     "child_process",
     // Network egress: the `fetch`/`WebSocket` globals (built in since Node 18)
     // reach the network without importing `http`/`net`, so they must be gated
@@ -215,6 +216,11 @@ mod tests {
     #[test]
     fn websocket_is_dangerous() {
         assert!(!is_node_source_safe("new WebSocket('ws://evil.example')"));
+    }
+
+    #[test]
+    fn process_binding_is_dangerous() {
+        assert!(!is_node_source_safe("process.binding('spawn_sync')"));
     }
 
     #[test]
