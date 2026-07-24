@@ -3,19 +3,14 @@
 //! Scans for dangerous system calls, file operations, requires, and evals.
 //! Returns `true` if no dangerous patterns are found.
 
-const DANGEROUS_CALLS: &[&str] = &[
-    "system(",
-    "exec(",
-    "%x(",
-    "%x{",
-    "%x[",
-    "%x|",
+const DANGEROUS_WORD_CALLS: &[&str] = &["system", "exec", "spawn"];
+
+const DANGEROUS_SUBSTRING_CALLS: &[&str] = &[
     "IO.popen(",
     "Open3.",
     "Kernel.system(",
     "Kernel.exec(",
     "Kernel.`",
-    "spawn(",
 ];
 
 const DANGEROUS_FILE_OPS: &[&str] = &[
@@ -62,10 +57,14 @@ pub fn is_ruby_source_safe(source: &str) -> bool {
         && !has_dangerous_requires(source)
         && !has_dangerous_evals(source)
         && !has_backtick_execution(source)
+        && !has_dangerous_percent_x(source)
 }
 
 fn has_dangerous_calls(source: &str) -> bool {
-    DANGEROUS_CALLS.iter().any(|c| source.contains(c))
+    DANGEROUS_WORD_CALLS
+        .iter()
+        .any(|c| contains_word(source, c))
+        || DANGEROUS_SUBSTRING_CALLS.iter().any(|c| source.contains(c))
 }
 
 fn has_dangerous_file_ops(source: &str) -> bool {
@@ -91,6 +90,59 @@ fn has_dangerous_evals(source: &str) -> bool {
 
 fn has_backtick_execution(source: &str) -> bool {
     source.contains('`')
+}
+
+/// A byte is a Ruby "word" character if it could be part of an identifier.
+const fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Check whether `word` appears in `source` as a standalone token — not as a
+/// prefix/substring of a longer identifier (e.g. `system` must not match
+/// inside `spawn_count`). Ruby allows calling `system`/`exec`/`spawn` with or
+/// without parens (`system "id"`, `system("id")`), so only the boundary
+/// before and after the match is checked.
+fn contains_word(source: &str, word: &str) -> bool {
+    let bytes = source.as_bytes();
+    let wlen = word.len();
+    if wlen == 0 || bytes.len() < wlen {
+        return false;
+    }
+    for start in 0..=(bytes.len() - wlen) {
+        if &source[start..start + wlen] != word {
+            continue;
+        }
+        let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
+        let after_ok = start + wlen == bytes.len() || !is_word_byte(bytes[start + wlen]);
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+/// Detect Ruby's `%x` command-execution literal with any delimiter (not just
+/// the commonly enumerated `( { [ |`) — `%x` accepts any non-alphanumeric
+/// delimiter, e.g. `%x/id/`, `%x!id!`, `%x#id#`.
+fn has_dangerous_percent_x(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i + 1 < len {
+        if bytes[i] == b'%' && bytes[i + 1] == b'x' {
+            let before_ok = i == 0 || !is_word_byte(bytes[i - 1]);
+            if before_ok
+                && let Some(&delim) = bytes.get(i + 2)
+                && !delim.is_ascii_alphanumeric()
+                && delim != b'_'
+                && !delim.is_ascii_whitespace()
+            {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg(test)]
@@ -124,13 +176,33 @@ mod tests {
     }
 
     #[test]
-    fn system_is_dangerous() {
+    fn word_literal_is_safe() {
+        assert!(is_ruby_source_safe("puts %w[a b]"));
+    }
+
+    #[test]
+    fn system_call_is_dangerous() {
         assert!(!is_ruby_source_safe("system('rm -rf /')"));
+    }
+
+    #[test]
+    fn system_bare_is_dangerous() {
+        assert!(!is_ruby_source_safe("system \"id\""));
     }
 
     #[test]
     fn exec_is_dangerous() {
         assert!(!is_ruby_source_safe("exec('ls')"));
+    }
+
+    #[test]
+    fn exec_bare_is_dangerous() {
+        assert!(!is_ruby_source_safe("exec \"id\""));
+    }
+
+    #[test]
+    fn spawn_bare_is_dangerous() {
+        assert!(!is_ruby_source_safe("spawn \"id\""));
     }
 
     #[test]
@@ -141,6 +213,11 @@ mod tests {
     #[test]
     fn percent_x_is_dangerous() {
         assert!(!is_ruby_source_safe("%x(rm -rf /)"));
+    }
+
+    #[test]
+    fn percent_x_slash_delimiter_is_dangerous() {
+        assert!(!is_ruby_source_safe("%x/id/"));
     }
 
     #[test]
@@ -191,5 +268,10 @@ mod tests {
     #[test]
     fn open3_is_dangerous() {
         assert!(!is_ruby_source_safe("Open3.capture2('ls')"));
+    }
+
+    #[test]
+    fn identifier_prefix_is_not_dangerous() {
+        assert!(is_ruby_source_safe("spawn_count = 1; puts spawn_count"));
     }
 }

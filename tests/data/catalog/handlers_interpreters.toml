@@ -26,6 +26,38 @@ decision = "ask"
 command = "ruby -e '`ls`'"
 decision = "ask"
 
+# #159: bare (no-parens) system/exec/spawn calls are standard Ruby syntax and
+# were missed by the old parens-only denylist entries.
+[[case]]
+command = "ruby -e 'system \"id\"'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'puts \"id\"'"
+decision = "allow"
+
+[[case]]
+command = "ruby -e 'exec \"id\"'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'puts 1+1'"
+decision = "allow"
+
+[[case]]
+command = "ruby -e 'spawn \"id\"'"
+decision = "ask"
+
+# #159: %x with an arbitrary delimiter was missed by the old enumerated
+# %x( %x{ %x[ %x| list. %w[...] (word-array literal) must keep Allowing.
+[[case]]
+command = "ruby -e '%x/id/'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'puts %w[a b]'"
+decision = "allow"
+
 [[case]]
 command = "ruby"
 decision = "ask"
@@ -58,6 +90,40 @@ decision = "ask"
 [[case]]
 command = "perl -E \"system('ls')\""
 decision = "ask"
+
+# #159: qx with an arbitrary delimiter (no-parens/braces form) was missed by the
+# old enumerated qx( qx{ qx[ qx| list.
+[[case]]
+command = "perl -e 'qx/id/'"
+decision = "ask"
+
+# #159: bare exec/system calls without parens or a space before the argument.
+[[case]]
+command = "perl -e 'exec\"id\"'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 'system\"id\"'"
+decision = "ask"
+
+# #159: only the first -e fragment was analyzed; a dangerous call in a later
+# fragment (which Perl concatenates with the first at runtime) was missed.
+[[case]]
+command = "perl -e 1 -e 'system(\"id\")'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 1 -e 'print 1'"
+decision = "allow"
+
+# #159: the s///e substitution flag evaluates the replacement as Perl code.
+[[case]]
+command = "perl -e 's/x/id/e'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 's/x/y/'"
+decision = "allow"
 
 [[case]]
 command = "perl"
@@ -128,6 +194,16 @@ decision = "ask"
 [[case]]
 command = "node -p \"eval('1+1')\""
 decision = "ask"
+
+# #159: process.binding is a low-level escape hatch not covered by the
+# existing require()/child_process checks.
+[[case]]
+command = "node -e 'process.binding(\"spawn_sync\")'"
+decision = "ask"
+
+[[case]]
+command = "node -e 'console.log(1)'"
+decision = "allow"
 
 [[case]]
 command = "node"

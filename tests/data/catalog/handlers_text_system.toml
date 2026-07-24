@@ -40,6 +40,31 @@ command = "sed 's/foo/bar/gw output.txt' file.txt"
 decision = "ask"
 reason_contains = "writes to file"
 
+# #159: the s///e flag executes the replacement as a shell command.
+[[case]]
+command = "sed s/x/id/e file.txt"
+decision = "ask"
+
+# #159: an address-prefixed `e` command (`/regex/e`, `Ne`) was missed by the
+# old bare-token-only `e` detection.
+[[case]]
+command = "sed '/foo/e cmd' file.txt"
+decision = "ask"
+reason_contains = "shell execution"
+
+[[case]]
+command = "sed '/foo/d' file.txt"
+decision = "allow"
+
+[[case]]
+command = "sed '1e cmd' file.txt"
+decision = "ask"
+reason_contains = "shell execution"
+
+[[case]]
+command = "sed '1d' file.txt"
+decision = "allow"
+
 # ---- awk / gawk ----
 [[case]]
 command = "awk '{print}' file.txt"
@@ -73,6 +98,54 @@ reason_contains = "file redirect"
 command = "gawk '{system(\"echo hi\")}'"
 decision = "ask"
 reason_contains = "system()"
+
+# #159: space before the paren is valid awk call syntax and was missed by the
+# old plain "system(" substring match.
+[[case]]
+command = "awk 'BEGIN{system (\"id\")}' file.txt"
+decision = "ask"
+reason_contains = "system()"
+
+# #159: no-space pipe-to-command, pipe-to-a-variable-command, and
+# pipe-from-command-into-getline were all missed by the old space/quote
+# anchored `" | \"` substring match. `||` logical-or must keep Allowing.
+[[case]]
+command = "awk 'BEGIN{print \"x\"|\"sh\"}' file.txt"
+decision = "ask"
+reason_contains = "pipe"
+
+[[case]]
+command = "awk 'BEGIN{if (1||0) print 1}' file.txt"
+decision = "allow"
+
+[[case]]
+command = "awk 'BEGIN{cmd=\"sh\";print|cmd}' file.txt"
+decision = "ask"
+reason_contains = "pipe"
+
+[[case]]
+command = "awk '$1 > 100 {print}' file.txt"
+decision = "allow"
+
+[[case]]
+command = "awk 'BEGIN{\"id\"|getline x}' file.txt"
+decision = "ask"
+reason_contains = "pipe"
+
+[[case]]
+command = "awk '{getline line < \"data.txt\"}' file.txt"
+decision = "allow"
+
+# #159: no-space file redirect was missed by the old `" > "`/`">> \""`
+# space-anchored substring match. Numeric/string comparisons must keep Allowing.
+[[case]]
+command = "awk 'BEGIN{print \"x\">\"/tmp/evil\"}' file.txt"
+decision = "ask"
+reason_contains = "file redirect"
+
+[[case]]
+command = "awk 'BEGIN{if (a>b) print 1}' file.txt"
+decision = "allow"
 
 # ---- find ----
 [[case]]
@@ -309,6 +382,25 @@ decision = "allow"
 [[case]]
 command = "mysql -e 'INSERT INTO users VALUES (1)'"
 decision = "ask"
+
+# #159: SELECT ... INTO OUTFILE/DUMPFILE is a classic file-write/webshell
+# primitive; the old inverted classifier excluded exactly these from the
+# write check instead of forcing it.
+[[case]]
+command = "mysql -e \"SELECT * FROM t INTO OUTFILE '/tmp/shell.php'\""
+decision = "ask"
+
+[[case]]
+command = "mysql -e 'SELECT * FROM t'"
+decision = "allow"
+
+[[case]]
+command = "mysql -e \"SELECT x INTO DUMPFILE '/tmp/y' FROM t\""
+decision = "ask"
+
+[[case]]
+command = "mysql -e 'SELECT x FROM t'"
+decision = "allow"
 
 [[case]]
 command = "sqlite3 -readonly test.db"
