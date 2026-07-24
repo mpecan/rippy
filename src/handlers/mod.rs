@@ -324,6 +324,18 @@ pub fn is_within_safe_dir(path: &Path, safe_scopes: &[std::path::PathBuf]) -> bo
         return true;
     }
 
+    is_within_default_safe_dir(path)
+}
+
+/// Check if a normalized path is within one of the built-in [`SAFE_DIRECTORIES`]
+/// (`/tmp`, `/var/tmp`, …) — the world-writable defaults, ignoring any declared
+/// scopes.
+///
+/// Callers that auto-approve writes use this to apply extra symlink hardening
+/// to the world-writable defaults without subjecting user-declared scopes (which
+/// are trusted opt-ins) to the same re-check.
+#[must_use]
+pub fn is_within_default_safe_dir(path: &Path) -> bool {
     SAFE_DIRECTORIES.iter().any(|safe| path.starts_with(safe))
 }
 

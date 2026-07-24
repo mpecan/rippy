@@ -174,29 +174,18 @@ pub fn is_safe_redirect_target(target: &str) -> bool {
     matches!(target, "/dev/null" | "/dev/stdout" | "/dev/stderr")
 }
 
-/// Whether a `Command` node carries any redirects at all.
+/// Returns `true` when a [`RedirectOp::FdDup`] target denotes a file
+/// descriptor operation rather than a file write.
 ///
-/// Used to route a single simple command that has redirects (e.g.
-/// `echo x > .env`) through the full analyzer, since the redirect target may be
-/// protected and cannot be judged safe on the command name alone.
+/// `&>`/`>&` are parsed as `FdDup`, but they mean two different things
+/// depending on the target: a bare descriptor (`2>&1`, `>&2`) or a close
+/// (`>&-`) is a real fd duplication, whereas a path (`&> out.log`) is a file
+/// write and must be treated like `>`. Only the descriptor forms are matched
+/// here: an optional leading `&`, then either `-` (close) or all-ASCII digits.
 #[must_use]
-pub const fn command_has_redirects(node: &Node) -> bool {
-    matches!(&node.kind, NodeKind::Command { redirects, .. } if !redirects.is_empty())
-}
-
-/// Check if a command node has file output redirects (>, >>)
-/// to targets other than safe ones.
-#[must_use]
-pub fn has_unsafe_file_redirect(node: &Node) -> bool {
-    let NodeKind::Command { redirects, .. } = &node.kind else {
-        return false;
-    };
-    redirects.iter().any(|r| {
-        let Some((op, target)) = redirect_info(r) else {
-            return false;
-        };
-        matches!(op, RedirectOp::Write | RedirectOp::Append) && !is_safe_redirect_target(&target)
-    })
+pub fn is_fd_dup_target(target: &str) -> bool {
+    let t = target.strip_prefix('&').unwrap_or(target);
+    t == "-" || (!t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Check if a node is a harmless fallback command (for `|| true` patterns).
@@ -378,6 +367,22 @@ mod tests {
         let (op, target) = redirect_info(&redirects[0]).unwrap();
         assert_eq!(op, RedirectOp::Append);
         assert_eq!(target, "log.txt");
+    }
+
+    #[test]
+    fn fd_dup_target_recognizes_descriptors_but_not_paths() {
+        // Bare descriptors and closes are fd operations.
+        assert!(is_fd_dup_target("1"));
+        assert!(is_fd_dup_target("2"));
+        assert!(is_fd_dup_target("&1"));
+        assert!(is_fd_dup_target("-"));
+        assert!(is_fd_dup_target("&-"));
+        // Paths (the `&> file` / `>& file` forms) are file writes, not fd dups.
+        assert!(!is_fd_dup_target("/etc/passwd"));
+        assert!(!is_fd_dup_target("out.log"));
+        assert!(!is_fd_dup_target("/tmp/o"));
+        assert!(!is_fd_dup_target(""));
+        assert!(!is_fd_dup_target("1x"));
     }
 
     // ---- Expansion detection for hardened node types ----

@@ -494,11 +494,21 @@ impl Analyzer {
         if op == ast::RedirectOp::Read {
             return Verdict::allow("input redirect");
         }
+        // `&>`/`>&` parse as `FdDup`, but only bare-descriptor / close targets
+        // (`2>&1`, `>&2`, `>&-`) are true fd operations. A path target
+        // (`&> out.log`) is a *file write* and must run the same safety
+        // pipeline as `>` — otherwise it would bypass self-protection, deny
+        // rules, and the safe-dir check. Re-map it to `Write`.
+        let op = if op == ast::RedirectOp::FdDup {
+            if ast::is_fd_dup_target(target) {
+                return Verdict::allow("fd redirect");
+            }
+            ast::RedirectOp::Write
+        } else {
+            op
+        };
         if ast::is_safe_redirect_target(target) {
             return Verdict::allow(format!("redirect to {target}"));
-        }
-        if op == ast::RedirectOp::FdDup {
-            return Verdict::allow("fd redirect");
         }
         if self.config.self_protect && crate::self_protect::is_protected_path(target) {
             return Verdict::deny(crate::self_protect::PROTECTION_MESSAGE);
@@ -523,8 +533,17 @@ impl Analyzer {
     /// Conservative by construction: any target whose runtime value we cannot
     /// know statically — shell expansions (`$VAR`, `${...}`, `$(...)`,
     /// backticks), a leading `~`, or glob metacharacters — is rejected so it
-    /// keeps asking. Relative targets resolve against `cwd`; since the safe-dir
-    /// set excludes the cwd, a redirect that stays in the project still asks.
+    /// keeps asking. Relative targets resolve against `cwd`.
+    ///
+    /// Two extra guards keep the auto-approval from being widened:
+    /// - **cwd exclusion:** a target inside the working directory subtree keeps
+    ///   asking even when the cwd itself lives under a safe dir (e.g. a checkout
+    ///   under `/tmp`), so project writes are never silently approved.
+    /// - **symlink resolution:** the world-writable default safe dirs (`/tmp`,
+    ///   `/var/tmp`) let an attacker plant a symlink, so for those the target's
+    ///   real path (deepest existing ancestor canonicalized) must ALSO stay in
+    ///   the defaults — a redirect through `/tmp/evil -> /etc` is rejected.
+    ///   User-declared scopes are trusted opt-ins and skip this re-check.
     fn is_safe_write_target(&self, target: &str, cwd: &Path) -> bool {
         let target = resolve::strip_outer_quotes(target);
         if ast::has_shell_expansion_pattern(&target)
@@ -539,12 +558,29 @@ impl Analyzer {
         } else {
             handlers::normalize_path(&cwd.join(raw))
         };
-        handlers::is_within_safe_dir(&resolved, &self.config.safe_scopes)
+        // Never auto-approve writes into the project directory itself, even when
+        // the cwd lives under a safe dir (e.g. a checkout under /tmp): project
+        // files must keep asking.
+        if resolved.starts_with(handlers::normalize_path(cwd)) {
+            return false;
+        }
+        // Declared safe scopes are user-trusted opt-ins: a logical match is
+        // enough, no symlink re-check.
+        let scopes = &self.config.safe_scopes;
+        if scopes.iter().any(|d| resolved.starts_with(d)) {
+            return true;
+        }
+        // The built-in default dirs (/tmp, /var/tmp) are world-writable, so an
+        // attacker can plant a symlink. Require BOTH the logical target and its
+        // symlink-resolved real path to stay inside the defaults, so a redirect
+        // through `/tmp/evil -> /etc` is rejected.
+        handlers::is_within_default_safe_dir(&resolved)
+            && handlers::is_within_default_safe_dir(&canonicalize_existing_ancestor(&resolved))
     }
 
-    /// Scope-aware analogue of [`ast::has_unsafe_file_redirect`]: a command has
-    /// an unsafe write/append redirect only when its target is neither
-    /// inherently safe (`/dev/null`) nor inside the trusted safe-dir set.
+    /// Scope-aware unsafe-redirect check: a command has an unsafe write/append
+    /// redirect only when its target is neither inherently safe (`/dev/null`)
+    /// nor inside the trusted safe-dir set.
     fn command_has_unsafe_redirect(&self, node: &Node, cwd: &Path) -> bool {
         let NodeKind::Command { redirects, .. } = &node.kind else {
             return false;
@@ -708,6 +744,32 @@ fn annotate_with_resolution(mut v: Verdict, resolved: &str) -> Verdict {
     }
     v.resolved_command = Some(resolved.to_string());
     v
+}
+
+/// Resolve symlinks by canonicalizing the deepest ancestor of `path` that
+/// exists on disk, then re-appending the non-existing tail components.
+///
+/// Unlike [`handlers::normalize_path`] (purely logical), this follows symlinks,
+/// so a redirect target routed through a planted symlink resolves to its real
+/// location. The tail is preserved because a write target usually does not
+/// exist yet. Falls back to the input path when nothing can be canonicalized.
+fn canonicalize_existing_ancestor(path: &Path) -> PathBuf {
+    let mut ancestor = path;
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(real) = std::fs::canonicalize(ancestor) {
+            let mut result = real;
+            result.extend(tail.iter().rev());
+            return result;
+        }
+        match (ancestor.file_name(), ancestor.parent()) {
+            (Some(name), Some(parent)) => {
+                tail.push(name.to_os_string());
+                ancestor = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
 }
 
 fn extract_cd_target(node: &Node) -> Option<String> {
