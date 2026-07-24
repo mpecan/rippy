@@ -1022,3 +1022,114 @@ fn variable_value_containing_dollar_is_not_re_expanded() {
     // The literal `$B` ends up single-quoted to prevent re-expansion.
     assert_eq!(v.resolved_command.as_deref(), Some("echo '$B'"));
 }
+
+// ---- Local variable-binding scope (issue #132) ----
+
+#[test]
+fn for_loop_echo_var_allows() {
+    // Loop var in a simple-safe body: `echo $i` is safe regardless of value.
+    let mut a = make_analyzer();
+    let v = a.analyze("for i in 1 2 3; do echo $i; done").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+#[test]
+fn for_loop_glob_wc_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("for f in *.rs; do wc -l $f; done").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+#[test]
+fn for_loop_rm_still_asks() {
+    // A handler command with a dynamic arg must stay Ask — its behavior
+    // depends on the argument value we cannot know.
+    let mut a = make_analyzer();
+    let v = a.analyze("for f in *.rs; do rm -rf $f; done").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn for_loop_dynamic_arg_handler_asks() {
+    let mut a = make_analyzer();
+    let v = a
+        .analyze("for f in *.rs; do git checkout $f; done")
+        .unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn for_loop_iteration_words_substitution_asks() {
+    // Defensive: a command substitution in the iteration words must not skip
+    // analysis just because the body is simple-safe.
+    let mut a = make_analyzer();
+    let v = a.analyze("for f in $(curl x); do echo $f; done").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn literal_prior_assignment_binds() {
+    let mut a = make_analyzer();
+    let v = a.analyze("SCRATCH=/tmp/x; ls $SCRATCH").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+    assert_eq!(v.resolved_command.as_deref(), Some("ls /tmp/x"));
+}
+
+#[test]
+fn env_prefix_same_command_binds() {
+    let mut a = make_analyzer();
+    let v = a.analyze("DIR=/tmp ls $DIR").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+#[test]
+fn dynamic_command_substitution_assignment_still_asks() {
+    // `x=$(...)` is intentionally never bound: the assignment-expansion guard
+    // and the blanket command-substitution policy keep it Ask.
+    let mut a = make_analyzer();
+    let v = a.analyze("x=$(ls); echo $x").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn status_var_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo $?").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+#[test]
+fn pipestatus_subscript_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo ${PIPESTATUS[0]}").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+#[test]
+fn command_position_dynamic_loop_var_asks() {
+    // The loop var in command position (`$c`) is dynamic execution → Ask,
+    // unchanged from before.
+    let mut a = make_analyzer();
+    let v = a.analyze("for c in ls; do $c; done").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn local_binding_does_not_leak() {
+    // The loop var must not satisfy a `$i` after the loop closes — the trailing
+    // reference is unbound and forces Ask (proves scope truncation).
+    let mut a = make_analyzer();
+    let v = a
+        .analyze("for i in 1 2 3; do echo $i; done; echo $i")
+        .unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn env_prefix_binding_does_not_leak_to_sibling() {
+    // A `VAR=val cmd` prefix binds VAR only for that command; a later sibling
+    // referencing $VAR must not resolve it.
+    let mut a = make_analyzer();
+    let v = a.analyze("DIR=/tmp ls $DIR; ls $DIR").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}

@@ -231,6 +231,34 @@ fn leftmost_simple_command(node: &Node) -> Option<(&[Node], &[Node])> {
     }
 }
 
+/// Extract the `(name, value)` of a *literal* `NAME=VALUE` (or `NAME+=VALUE`)
+/// assignment node — i.e. one whose value contains no shell expansion.
+///
+/// Reads the name and value directly from the assignment `Word`'s `value`
+/// (`"NAME=VALUE"`), so no source string needs threading into the deep walk.
+/// Returns `None` when the node is not a word, the value contains an expansion
+/// (command substitution, parameter expansion, ...), or the name is empty.
+///
+/// The value has any outer quotes stripped, matching how the analyzer treats
+/// argument words, so `FOO='a b'` yields `("FOO", "a b")`.
+#[must_use]
+pub fn literal_assignment(assignment: &Node) -> Option<(String, String)> {
+    let NodeKind::Word { value, parts, .. } = &assignment.kind else {
+        return None;
+    };
+    // A non-literal value (`x=$(cmd)`, `x=$y`) must never be bound — its real
+    // value is unknown, so binding a fabricated one would be unsound.
+    if parts.iter().any(has_expansions) {
+        return None;
+    }
+    let (name, val) = value.split_once('=')?;
+    let name = name.strip_suffix('+').unwrap_or(name);
+    if name.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), strip_quotes(val)))
+}
+
 /// Extract the variable name of a `NAME=VALUE` (or `NAME+=VALUE`) assignment node.
 fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
     let text = assignment.source_text(source);

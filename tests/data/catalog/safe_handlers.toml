@@ -223,3 +223,30 @@ decision = "allow"
 [[case]]
 command = "tokf summary git log"
 decision = "allow"
+
+# Local variable-binding scope (issue #132): a variable bound within the command
+# — for/select loop var, literal prior assignment, env prefix, or shell status
+# var — no longer forces Ask for a command that is safe regardless of arg values.
+[[case]]
+command = "for i in 1 2 3; do echo $i; done"
+decision = "allow"
+
+[[case]]
+command = "for f in *.rs; do wc -l $f; done"
+decision = "allow"
+
+[[case]]
+command = "SCRATCH=/tmp/x; ls $SCRATCH"
+decision = "allow"
+
+[[case]]
+command = "DIR=/tmp ls $DIR"
+decision = "allow"
+
+[[case]]
+command = "echo $?"
+decision = "allow"
+
+[[case]]
+command = "echo ${PIPESTATUS[0]}"
+decision = "allow"

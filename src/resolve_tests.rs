@@ -467,3 +467,148 @@ fn env_lookup_returns_none_for_unset() {
             .is_none()
     );
 }
+
+// ---- Scoped lookup: local + status-var bindings (issue #132) ----
+
+fn scoped_words<'a>(
+    source: &str,
+    locals: &'a [(String, LocalBinding)],
+    inner: &'a dyn VarLookup,
+) -> (Vec<Node>, ScopedLookup<'a>) {
+    (extract_words(source), ScopedLookup::new(locals, inner))
+}
+
+#[test]
+fn resolve_status_var_is_set() {
+    // `$?` / `$PIPESTATUS` are known-set with a dynamic value → DynamicKnown,
+    // never Unresolvable "not set".
+    let inner = MockLookup::new();
+    let locals: Vec<(String, LocalBinding)> = Vec::new();
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert_eq!(
+        resolve_word(&first_arg_node("echo $?"), &scoped),
+        WordResolution::DynamicKnown
+    );
+    assert_eq!(
+        resolve_word(&first_arg_node("echo $PIPESTATUS"), &scoped),
+        WordResolution::DynamicKnown
+    );
+    assert_eq!(
+        resolve_word(&first_arg_node("echo ${PIPESTATUS[0]}"), &scoped),
+        WordResolution::DynamicKnown
+    );
+    assert_eq!(
+        resolve_word(&first_arg_node("echo $1"), &scoped),
+        WordResolution::DynamicKnown
+    );
+}
+
+#[test]
+fn resolve_literal_local_substitutes() {
+    let inner = MockLookup::new();
+    let locals = vec![(
+        "SCRATCH".to_string(),
+        LocalBinding::Literal("/tmp/x".into()),
+    )];
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert_eq!(
+        resolve_word(&first_arg_node("ls $SCRATCH"), &scoped),
+        WordResolution::Literal("/tmp/x".to_string())
+    );
+}
+
+#[test]
+fn resolve_dynamic_local_is_dynamic_known() {
+    let inner = MockLookup::new();
+    let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert_eq!(
+        resolve_word(&first_arg_node("echo $f"), &scoped),
+        WordResolution::DynamicKnown
+    );
+}
+
+#[test]
+fn resolve_scoped_falls_back_to_env() {
+    // An unbound name still consults the inner lookup.
+    let inner = MockLookup::new().with("HOME", "/home/me");
+    let locals: Vec<(String, LocalBinding)> = Vec::new();
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert_eq!(
+        resolve_word(&first_arg_node("ls $HOME"), &scoped),
+        WordResolution::Literal("/home/me".to_string())
+    );
+}
+
+#[test]
+fn resolve_dynamic_known_sets_arg_flag() {
+    let inner = MockLookup::new();
+    let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
+    let (words, scoped) = scoped_words("wc -l $f", &locals, &inner);
+    let result = resolve_command_args(&words, &scoped);
+    assert!(result.arg_position_dynamic);
+    assert!(!result.command_position_dynamic);
+    assert!(result.args.is_none());
+}
+
+#[test]
+fn resolve_dynamic_in_command_position_flags_command_dynamic() {
+    let inner = MockLookup::new();
+    let locals = vec![("c".to_string(), LocalBinding::Dynamic)];
+    let (words, scoped) = scoped_words("$c arg", &locals, &inner);
+    let result = resolve_command_args(&words, &scoped);
+    assert!(result.command_position_dynamic);
+    // A command-position dynamic is not an argument-position dynamic.
+    assert!(!result.arg_position_dynamic);
+    assert!(result.args.is_none());
+}
+
+#[test]
+fn resolve_combine_propagates_dynamic_known() {
+    // `pre$dyn` — a literal prefix concatenated with a dynamic value stays
+    // DynamicKnown (never a fabricated literal).
+    let inner = MockLookup::new();
+    let locals = vec![("dyn".to_string(), LocalBinding::Dynamic)];
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert_eq!(
+        resolve_word(&first_arg_node("echo pre$dyn"), &scoped),
+        WordResolution::DynamicKnown
+    );
+}
+
+#[test]
+fn resolve_unresolvable_wins_over_dynamic_in_word() {
+    // A word mixing a dynamic part with an unresolvable part resolves to the
+    // more conservative Unresolvable (forces Ask for even simple-safe commands).
+    let inner = MockLookup::new();
+    let locals = vec![("dyn".to_string(), LocalBinding::Dynamic)];
+    let scoped = ScopedLookup::new(&locals, &inner);
+    assert!(matches!(
+        resolve_word(&first_arg_node("echo $dyn$(whoami)"), &scoped),
+        WordResolution::Unresolvable { .. }
+    ));
+}
+
+#[test]
+fn is_status_var_matches_specials_and_positionals() {
+    for name in [
+        "?",
+        "$",
+        "#",
+        "!",
+        "-",
+        "*",
+        "@",
+        "0",
+        "9",
+        "42",
+        "PIPESTATUS",
+        "RANDOM",
+    ] {
+        assert!(is_status_var(name), "{name} should be a status var");
+    }
+    assert!(is_status_var("PIPESTATUS[0]"));
+    for name in ["HOME", "PATH", "f", ""] {
+        assert!(!is_status_var(name), "{name} should not be a status var");
+    }
+}
