@@ -29,6 +29,17 @@ simple command carrying a literal assignment whose name matches
 The `env` handler applies the same check to the `NAME=VALUE` args it sets, since
 delegating to the inner command alone would hide them.
 
+GNU `env -S "STRING"` / `--split-string=STRING` (also the `-vS` short cluster)
+reparses `STRING` as the whole command line. Because that payload arg contains
+`=`, it otherwise looks like a bare `env` invocation and is auto-approved,
+carrying both a dangerous env prefix (`env -S "LD_PRELOAD=x cat"`) and any
+dangerous inner command (`env -S "X=1 rm -rf /"`) past every check. The handler
+therefore extracts the split-string payload and `Recurse`s into it so the
+dangerous-env gate and inner-command analysis both run. A short cluster whose
+leading flags are not known booleans (e.g. `-uS`, where `-u` consumes an
+argument) has an ambiguous option boundary and is treated as an empty payload so
+the handler Asks rather than misparse.
+
 `is_dangerous_env_name` covers the dynamic-linker families (`LD_*`, `DYLD_*`), a
 fixed list of interpreter/shell hooks (`BASH_ENV`, `PERL5OPT`, `NODE_OPTIONS`,
 `GIT_SSH_COMMAND`, ...), and two **prefix** families:

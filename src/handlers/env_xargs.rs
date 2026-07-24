@@ -13,7 +13,28 @@ impl Handler for EnvHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // Bare `env` prints environment
+        // `env -S`/`--split-string` reparses its payload as the whole command line;
+        // recurse so it cannot smuggle a dangerous prefix or inner command past the
+        // analyzer. see docs/security-invariants.md#dangerous-env-name
+        if let Some(payload) = split_string_payload(ctx.args) {
+            if payload.trim().is_empty() {
+                return Classification::Ask("env (split-string)".into());
+            }
+            return Classification::Recurse(payload);
+        }
+
+        // Gate code-influencing NAME=VALUE args before the bare-env allow so a
+        // bodiless `env LD_PRELOAD=x` cannot slip through.
+        let dangerous_assignment = ctx
+            .args
+            .iter()
+            .filter(|a| a.contains('=') && !a.starts_with('-'))
+            .filter_map(|a| a.split_once('=').map(|(n, _)| n))
+            .any(ast::is_dangerous_env_name);
+        if dangerous_assignment {
+            return Classification::Ask("env (dangerous env-var assignment)".into());
+        }
+
         let positionals: Vec<&str> = ctx
             .args
             .iter()
@@ -25,22 +46,41 @@ impl Handler for EnvHandler {
             return Classification::Allow("env (print environment)".into());
         }
 
-        // A code-influencing NAME=VALUE (LD_PRELOAD, GIT_CONFIG_*, ...) here is
-        // the same injection the analyzer gates on a bare env prefix; the inner
-        // command alone would not reveal it. See docs#dangerous-env-name.
-        let dangerous_assignment = ctx
-            .args
-            .iter()
-            .filter(|a| a.contains('=') && !a.starts_with('-'))
-            .filter_map(|a| a.split_once('=').map(|(n, _)| n))
-            .any(ast::is_dangerous_env_name);
-        if dangerous_assignment {
-            return Classification::Ask("env (dangerous env-var assignment)".into());
-        }
-
         // Delegate inner command
         Classification::Recurse(positionals.join(" "))
     }
+}
+
+/// Extract the payload of a GNU `env` split-string option (`-S`, `-SSTR`,
+/// `--split-string=STR`, a `-vS`-style short cluster), or `None` when absent.
+///
+/// A cluster whose leading chars are not known boolean flags (e.g. `-uS`, where
+/// `-u` consumes an argument) is treated as split-string with an empty payload
+/// so the caller fails closed rather than mis-parsing the option boundary.
+fn split_string_payload(args: &[String]) -> Option<String> {
+    for (i, arg) in args.iter().enumerate() {
+        let a = arg.as_str();
+        if let Some(v) = a.strip_prefix("--split-string=") {
+            return Some(v.to_string());
+        }
+        if a == "--split-string" || a == "-S" {
+            return Some(args.get(i + 1).map(String::to_string).unwrap_or_default());
+        }
+        if a.starts_with('-')
+            && !a.starts_with("--")
+            && let Some(idx) = a.find('S')
+        {
+            if !a[1..idx].chars().all(|c| matches!(c, 'i' | 'v' | '0')) {
+                return Some(String::new());
+            }
+            let rest = &a[idx + 1..];
+            if rest.is_empty() {
+                return Some(args.get(i + 1).map(String::to_string).unwrap_or_default());
+            }
+            return Some(rest.to_string());
+        }
+    }
+    None
 }
 
 // xargs
@@ -179,5 +219,48 @@ mod tests {
         let args: Vec<String> = vec!["FOO=bar".into(), "git".into(), "status".into()];
         let result = ENV_HANDLER.classify(&HandlerContext::test("env", &args));
         assert!(matches!(result, Classification::Recurse(_)));
+    }
+
+    #[test]
+    fn split_string_separate_arg() {
+        let args: Vec<String> = vec!["-S".into(), "LD_PRELOAD=x cat f".into()];
+        assert_eq!(
+            split_string_payload(&args).as_deref(),
+            Some("LD_PRELOAD=x cat f")
+        );
+    }
+
+    #[test]
+    fn split_string_attached_short_and_long() {
+        let short: Vec<String> = vec!["-SFOO=1 cat".into()];
+        assert_eq!(split_string_payload(&short).as_deref(), Some("FOO=1 cat"));
+        let long: Vec<String> = vec!["--split-string=FOO=1 cat".into()];
+        assert_eq!(split_string_payload(&long).as_deref(), Some("FOO=1 cat"));
+    }
+
+    #[test]
+    fn split_string_bundled_boolean_cluster() {
+        let next: Vec<String> = vec!["-vS".into(), "FOO=1 cat".into()];
+        assert_eq!(split_string_payload(&next).as_deref(), Some("FOO=1 cat"));
+        let attached: Vec<String> = vec!["-vSFOO=1 cat".into()];
+        assert_eq!(
+            split_string_payload(&attached).as_deref(),
+            Some("FOO=1 cat")
+        );
+    }
+
+    #[test]
+    fn split_string_uncertain_cluster_fails_closed() {
+        // `-u` consumes an argument, so the S boundary is ambiguous: fail closed.
+        let args: Vec<String> = vec!["-uS".into(), "FOO=1 cat".into()];
+        assert_eq!(split_string_payload(&args).as_deref(), Some(""));
+        let result = ENV_HANDLER.classify(&HandlerContext::test("env", &args));
+        assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn split_string_absent() {
+        let args: Vec<String> = vec!["-i".into(), "FOO=1".into(), "cat".into()];
+        assert_eq!(split_string_payload(&args), None);
     }
 }
