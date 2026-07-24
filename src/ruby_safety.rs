@@ -5,28 +5,34 @@
 
 const DANGEROUS_WORD_CALLS: &[&str] = &["system", "exec", "spawn"];
 
-const DANGEROUS_SUBSTRING_CALLS: &[&str] = &[
-    "IO.popen(",
-    "Open3.",
-    "Kernel.system(",
-    "Kernel.exec(",
-    "Kernel.`",
+// Ruby allows calling these with or without parens (`IO.popen "cmd"` runs a
+// shell exactly like `IO.popen("cmd")`), so callers must use `contains_word`
+// rather than a paren-anchored `source.contains`.
+const DANGEROUS_WORD_SUBSTRING_CALLS: &[&str] =
+    &["IO.popen", "Open3", "Kernel.system", "Kernel.exec"];
+
+const DANGEROUS_SUBSTRING_CALLS: &[&str] = &["Kernel.`"];
+
+// Exact method names — call with or without parens, so matched word-anchored.
+const DANGEROUS_FILE_OPS: &[&str] = &[
+    "File.delete",
+    "File.unlink",
+    "File.write",
+    "File.open",
+    "File.rename",
+    "File.chmod",
+    "File.chown",
+    "Dir.rmdir",
+    "Dir.delete",
 ];
 
-const DANGEROUS_FILE_OPS: &[&str] = &[
-    "File.delete(",
-    "File.unlink(",
-    "File.write(",
-    "File.open(",
-    "File.rename(",
-    "File.chmod(",
-    "File.chown(",
+// FileUtils methods have suffixed variants (`rm_rf`, `rm_r`, `cp_r`, ...), so
+// these stay plain substrings rather than word-anchored.
+const DANGEROUS_SUBSTRING_FILE_OPS: &[&str] = &[
     "FileUtils.rm",
     "FileUtils.mv",
     "FileUtils.cp",
     "FileUtils.chmod",
-    "Dir.rmdir(",
-    "Dir.delete(",
 ];
 
 const DANGEROUS_REQUIRES: &[&str] = &[
@@ -64,11 +70,17 @@ fn has_dangerous_calls(source: &str) -> bool {
     DANGEROUS_WORD_CALLS
         .iter()
         .any(|c| contains_word(source, c))
+        || DANGEROUS_WORD_SUBSTRING_CALLS
+            .iter()
+            .any(|c| contains_word(source, c))
         || DANGEROUS_SUBSTRING_CALLS.iter().any(|c| source.contains(c))
 }
 
 fn has_dangerous_file_ops(source: &str) -> bool {
-    DANGEROUS_FILE_OPS.iter().any(|f| source.contains(f))
+    DANGEROUS_FILE_OPS.iter().any(|f| contains_word(source, f))
+        || DANGEROUS_SUBSTRING_FILE_OPS
+            .iter()
+            .any(|f| source.contains(f))
 }
 
 fn has_dangerous_requires(source: &str) -> bool {
@@ -273,5 +285,30 @@ mod tests {
     #[test]
     fn identifier_prefix_is_not_dangerous() {
         assert!(is_ruby_source_safe("spawn_count = 1; puts spawn_count"));
+    }
+
+    #[test]
+    fn io_popen_bare_is_dangerous() {
+        assert!(!is_ruby_source_safe("IO.popen \"id\""));
+    }
+
+    #[test]
+    fn file_write_bare_is_dangerous() {
+        assert!(!is_ruby_source_safe("File.write \"/tmp/x\", \"d\""));
+    }
+
+    #[test]
+    fn file_open_bare_is_dangerous() {
+        assert!(!is_ruby_source_safe("File.open \"/tmp/x\", \"w\""));
+    }
+
+    #[test]
+    fn file_delete_bare_is_dangerous() {
+        assert!(!is_ruby_source_safe("File.delete \"/tmp/x\""));
+    }
+
+    #[test]
+    fn open3_identifier_prefix_is_not_dangerous() {
+        assert!(is_ruby_source_safe("Open3ish = 1; puts Open3ish"));
     }
 }

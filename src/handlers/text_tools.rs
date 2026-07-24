@@ -199,23 +199,82 @@ fn awk_has_system_call(program: &str) -> bool {
     }
 }
 
+/// A byte is a "word" character for the purposes of distinguishing awk's `/`
+/// division operator (follows an identifier/number/`)`/`]`/`$`) from a `/regex/`
+/// literal start (follows anything else, including the start of the program).
+const fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b')' || b == b']' || b == b'$'
+}
+
+/// Skip over a double-quoted string literal starting at `quote_idx` (the
+/// opening `"`), honoring backslash escapes. Returns the index just past the
+/// closing quote (or the end of the program if unterminated).
+fn skip_awk_string(bytes: &[u8], quote_idx: usize) -> usize {
+    let mut j = quote_idx + 1;
+    while j < bytes.len() {
+        if bytes[j] == b'\\' {
+            j += 2;
+            continue;
+        }
+        if bytes[j] == b'"' {
+            return j + 1;
+        }
+        j += 1;
+    }
+    j
+}
+
+/// Skip over a `/regex/` literal starting at `slash_idx` (the opening `/`),
+/// honoring backslash escapes. Returns the index just past the closing `/`
+/// (or the end of the program if unterminated).
+fn skip_awk_regex(bytes: &[u8], slash_idx: usize) -> usize {
+    let mut j = slash_idx + 1;
+    while j < bytes.len() {
+        if bytes[j] == b'\\' {
+            j += 2;
+            continue;
+        }
+        if bytes[j] == b'/' {
+            return j + 1;
+        }
+        j += 1;
+    }
+    j
+}
+
 /// Detect awk pipe-to-command patterns: `print ... | "cmd"`, `"cmd" | getline`,
 /// `print | cmd_var`. Awk's grammar has no bitwise/single-pipe operator other
 /// than pipe-to-command / pipe-from-command-into-getline, so any `|` that is
-/// not part of a `||` logical-or is unconditionally one of those two forms —
-/// this replaces the old spacing/quote-anchored substring match, which missed
-/// no-space calls (`|"sh"`) and pipes to a variable holding a command.
+/// not part of a `||` logical-or and not inside a string or `/regex/` literal
+/// (where `|` is ordinary alternation, e.g. `/foo|bar/`) is unconditionally
+/// one of those two forms.
 fn awk_has_pipe_to_command(program: &str) -> bool {
     let bytes = program.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
-        if b != b'|' {
+    let mut prev_significant: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' {
+            i = skip_awk_string(bytes, i);
+            prev_significant = Some(b'"');
             continue;
         }
-        let prev_is_pipe = i > 0 && bytes[i - 1] == b'|';
-        let next_is_pipe = i + 1 < bytes.len() && bytes[i + 1] == b'|';
-        if !prev_is_pipe && !next_is_pipe {
-            return true;
+        if b == b'/' && !matches!(prev_significant, Some(c) if is_word_byte(c)) {
+            i = skip_awk_regex(bytes, i);
+            prev_significant = Some(b'/');
+            continue;
         }
+        if b == b'|' {
+            let prev_is_pipe = i > 0 && bytes[i - 1] == b'|';
+            let next_is_pipe = i + 1 < bytes.len() && bytes[i + 1] == b'|';
+            if !prev_is_pipe && !next_is_pipe {
+                return true;
+            }
+        }
+        if !b.is_ascii_whitespace() {
+            prev_significant = Some(b);
+        }
+        i += 1;
     }
     false
 }
@@ -285,6 +344,36 @@ mod tests {
         };
         let result = AWK_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn awk_regex_alternation_is_not_pipe() {
+        assert!(!awk_has_pipe_to_command("/foo|bar/ {print}"));
+    }
+
+    #[test]
+    fn awk_regex_alternation_field_match_is_not_pipe() {
+        assert!(!awk_has_pipe_to_command("$1 ~ /a|b/ {print}"));
+    }
+
+    #[test]
+    fn awk_regex_alternation_in_gsub_is_not_pipe() {
+        assert!(!awk_has_pipe_to_command(r#"{gsub(/x|y/,"z")}"#));
+    }
+
+    #[test]
+    fn awk_string_literal_pipe_is_not_pipe_to_command() {
+        assert!(!awk_has_pipe_to_command(r#"BEGIN{print "a|b"}"#));
+    }
+
+    #[test]
+    fn awk_pipe_to_command_still_detected() {
+        assert!(awk_has_pipe_to_command(r#"{print $0 | "sort"}"#));
+    }
+
+    #[test]
+    fn awk_pipe_to_command_no_space_still_detected() {
+        assert!(awk_has_pipe_to_command(r#"{print $0|"sh"}"#));
     }
 
     #[test]

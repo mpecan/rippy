@@ -70,6 +70,32 @@ decision = "ask"
 command = "ruby nonexistent_ruby_xyz.rb"
 decision = "ask"
 
+# #159 (review follow-up): IO.popen/File.* without parens are standard Ruby
+# call syntax and were missed by the old paren-anchored substring denylist.
+[[case]]
+command = "ruby -e 'IO.popen \"id\"'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'IO.popen(\"id\")'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'File.write \"/tmp/x\",\"d\"'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'File.write(\"/tmp/x\",\"d\")'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'File.open \"/tmp/x\",\"w\"'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'File.delete \"/tmp/x\"'"
+decision = "ask"
+
 # ---- perl ----
 [[case]]
 command = "perl --version"
@@ -132,6 +158,29 @@ decision = "ask"
 [[case]]
 command = "perl nonexistent_perl_xyz.pl"
 decision = "ask"
+
+# #159 (review follow-up): Perl's open() is routinely called without parens;
+# pipe-open (shell exec) and write-mode open (file write) must still Ask.
+[[case]]
+command = "perl -e 'open FH, \"| sh\"'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 'open(FH, \"| sh\")'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 'open FH,\">/tmp/pwn\"; print FH \"x\"'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 'open my $fh, \">\", \"/tmp/x\"'"
+decision = "ask"
+
+# Contrast: a plain no-paren read-mode open must still Allow.
+[[case]]
+command = "perl -e 'open FH, \"input.txt\"'"
+decision = "allow"
 
 # ---- python (handler-driven: safe inline Allows) ----
 [[case]]

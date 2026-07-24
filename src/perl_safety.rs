@@ -60,13 +60,30 @@ fn has_backtick_execution(source: &str) -> bool {
     source.contains('`')
 }
 
-/// Detect `open()` with write modes (`>`, `>>`, `|`).
+/// Detect `open` with write modes (`>`, `>>`, `|`) — Perl's `open` is
+/// routinely called without parens (`open FH, "|cmd"`, `open my $fh, ">",
+/// "/tmp/x"`), so the whole-word occurrence is located rather than anchoring
+/// on the literal `open(`.
 fn has_dangerous_open(source: &str) -> bool {
-    let Some(idx) = source.find("open(") else {
+    let bytes = source.as_bytes();
+    let wlen = 4;
+    if bytes.len() < wlen {
         return false;
-    };
-    let after = &source[idx + 5..];
-    after.contains('>') || after.contains('|')
+    }
+    for start in 0..=(bytes.len() - wlen) {
+        if &source[start..start + wlen] != "open" {
+            continue;
+        }
+        let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
+        let after_ok = start + wlen == bytes.len() || !is_word_byte(bytes[start + wlen]);
+        if before_ok && after_ok {
+            let after = &source[start + wlen..];
+            if after.contains('>') || after.contains('|') {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// A byte is a Perl "word" character if it could be part of an identifier.
@@ -279,6 +296,33 @@ mod tests {
     fn open_read_is_safe() {
         // open() for reading doesn't contain > or |
         assert!(is_perl_source_safe("open(FH, 'input.txt')"));
+    }
+
+    #[test]
+    fn open_pipe_no_paren_is_dangerous() {
+        assert!(!is_perl_source_safe("open FH, \"| sh\""));
+    }
+
+    #[test]
+    fn open_write_no_paren_is_dangerous() {
+        assert!(!is_perl_source_safe("open FH, \">/tmp/pwn\""));
+    }
+
+    #[test]
+    fn open_write_three_arg_no_paren_is_dangerous() {
+        assert!(!is_perl_source_safe("open my $fh, \">\", \"/tmp/x\""));
+    }
+
+    #[test]
+    fn open_read_no_paren_is_safe() {
+        assert!(is_perl_source_safe("open FH, \"input.txt\""));
+    }
+
+    #[test]
+    fn open_identifier_prefix_is_not_dangerous() {
+        assert!(is_perl_source_safe(
+            "my $reopen_count = 1; print \">not_open> $reopen_count\""
+        ));
     }
 
     #[test]

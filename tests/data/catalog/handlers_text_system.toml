@@ -147,6 +147,31 @@ reason_contains = "file redirect"
 command = "awk 'BEGIN{if (a>b) print 1}' file.txt"
 decision = "allow"
 
+# #159 (review follow-up): `|` inside a /regex/ or "string" literal is ordinary
+# alternation/text, not pipe-to-command. The rewritten pipe-to-command scan
+# must skip such literals so these common read-only idioms keep Allowing.
+[[case]]
+command = "awk '/foo|bar/ {print}' file.txt"
+decision = "allow"
+
+[[case]]
+command = "awk '$1 ~ /a|b/ {print}' file.txt"
+decision = "allow"
+
+[[case]]
+command = "awk '{gsub(/x|y/,\"z\")}' file.txt"
+decision = "allow"
+
+[[case]]
+command = "awk 'BEGIN{print \"a|b\"}' file.txt"
+decision = "allow"
+
+# Contrast: real pipe-to-command must still Ask even alongside a regex literal.
+[[case]]
+command = "awk '/foo|bar/ {print $0 | \"sort\"}' file.txt"
+decision = "ask"
+reason_contains = "pipe"
+
 # ---- find ----
 [[case]]
 command = "find . -name '*.tmp' -delete"
