@@ -42,17 +42,7 @@ fn classify_single(sql: &str) -> Option<bool> {
     let first_word = upper.split_whitespace().next()?;
 
     match first_word {
-        "SELECT" => {
-            // SELECT INTO is a write operation
-            if contains_keyword(&upper, "INTO")
-                && !contains_keyword(&upper, "INTO OUTFILE")
-                && is_select_into(&upper)
-            {
-                Some(false)
-            } else {
-                Some(true)
-            }
-        }
+        "SELECT" => Some(!select_writes_a_target(&upper)),
         "SHOW" | "DESCRIBE" | "DESC" | "EXPLAIN" | "PRAGMA" | "TABLE" => Some(true),
         "WITH" => {
             // CTE not fully stripped — try to find the main statement
@@ -66,14 +56,17 @@ fn classify_single(sql: &str) -> Option<bool> {
     }
 }
 
-/// Check if the SELECT statement has an INTO clause that makes it a write.
+/// Every `INTO` clause on a SELECT is a write — a variable/new-table target,
+/// or `INTO OUTFILE`/`INTO DUMPFILE`, which writes an arbitrary file.
+fn select_writes_a_target(upper_sql: &str) -> bool {
+    contains_keyword(upper_sql, "INTO OUTFILE")
+        || contains_keyword(upper_sql, "INTO DUMPFILE")
+        || is_select_into(upper_sql)
+}
+
+/// Check if the SELECT statement has any `INTO` clause.
 fn is_select_into(upper_sql: &str) -> bool {
-    // Heuristic: SELECT ... INTO <target>, excluding INTO OUTFILE/DUMPFILE.
-    upper_sql.find(" INTO ").is_some_and(|into_pos| {
-        let after_into = &upper_sql[into_pos + 6..];
-        let next_word = after_into.split_whitespace().next().unwrap_or("");
-        !matches!(next_word, "OUTFILE" | "DUMPFILE")
-    })
+    upper_sql.contains(" INTO ")
 }
 
 /// Strip SQL comments (-- line comments and /* */ block comments).
@@ -277,5 +270,21 @@ mod tests {
     #[test]
     fn exec_is_ambiguous() {
         assert_eq!(classify_sql("EXEC sp_something"), None);
+    }
+
+    #[test]
+    fn select_into_outfile_is_write() {
+        assert_eq!(
+            classify_sql("SELECT * FROM t INTO OUTFILE '/tmp/x'"),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn select_into_dumpfile_is_write() {
+        assert_eq!(
+            classify_sql("SELECT x INTO DUMPFILE '/tmp/y' FROM t"),
+            Some(false)
+        );
     }
 }

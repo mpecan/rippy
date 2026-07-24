@@ -17,6 +17,49 @@ analyzer's redirect or assignment-expansion guards via an env prefix. On
 unparseable input we fall back to the raw string and the real parse error still
 surfaces downstream.
 
+## dangerous-env-name
+
+Refusing to *strip* a code-influencing env prefix is not enough on its own: the
+un-stripped command still lands on the analyzer, and if the command itself is
+safe-listed (`cat`, `git fetch`, `bash -c :`, `perl`, `node`) the fast path would
+Allow it with the dangerous assignment intact (issue #157). So `analyze_command`
+enforces the gate directly — `Analyzer::assignment_is_dangerous` Asks on any
+simple command carrying a literal assignment whose name matches
+`ast::is_dangerous_env_name`, before the safe-command path or any handler runs.
+The `env` handler applies the same check to the `NAME=VALUE` args it sets, since
+delegating to the inner command alone would hide them.
+
+GNU `env -S "STRING"` / `--split-string=STRING` (also the `-vS` short cluster)
+reparses `STRING` as the whole command line. Because that payload arg contains
+`=`, it otherwise looks like a bare `env` invocation and is auto-approved,
+carrying both a dangerous env prefix (`env -S "LD_PRELOAD=x cat"`) and any
+dangerous inner command (`env -S "X=1 rm -rf /"`) past every check. The handler
+therefore extracts the split-string payload and `Recurse`s into it so the
+dangerous-env gate and inner-command analysis both run. A short cluster whose
+leading flags are not known booleans (e.g. `-uS`, where `-u` consumes an
+argument) has an ambiguous option boundary and is treated as an empty payload so
+the handler Asks rather than misparse.
+
+`is_dangerous_env_name` covers the dynamic-linker families (`LD_*`, `DYLD_*`), a
+fixed list of interpreter/shell hooks (`BASH_ENV`, `PERL5OPT`, `NODE_OPTIONS`,
+`GIT_SSH_COMMAND`, ...), and two **prefix** families:
+
+- `GIT_CONFIG*` — env-based git-config injection (git >= 2.31):
+  `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n` /
+  `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` / `GIT_CONFIG_PARAMETERS` inject
+  `core.pager` / `alias.*` / `core.hooksPath` that git executes during
+  ordinarily-"safe" commands (the same vectors as #git-undeclared-repo, reachable
+  purely from the environment).
+- `BASH_FUNC_*` — exported-function injection (Shellshock family): a
+  `BASH_FUNC_foo%%` binding defines a function that shadows a command name in a
+  child bash.
+
+A prefix match is used (rather than an exact enumeration) because these families
+have per-index or per-name members (`GIT_CONFIG_KEY_0`, `BASH_FUNC_anything`); the
+broad match may Ask on an unrelated variable that literally starts with
+`GIT_CONFIG`, an accepted fail-closed trade-off. Ordinary build/CI prefixes
+(`FOO`, `NODE_ENV`, `CI`, `RUST_LOG`, ...) are not matched and stay Allow.
+
 ## append-assignment-shadow
 
 `push_literal_bindings` binds only literal `VAR=val` assignments. A `NAME+=VALUE`
@@ -113,15 +156,14 @@ The fix moves string-rule matching **into the per-leaf AST walk**. Two parts:
   dangerous leaf's Ask/Deny dominates, and a deny/ask rule now catches a leaf even
   when it is not the leading command.
 
-Per-leaf matching is sound because the two laundering vectors are closed:
+Per-leaf matching is sound because the laundering vectors are closed:
 
-- **Dangerous env prefix.** A leaf whose `assignments` set a code-influencing var
-  (`LD_PRELOAD=`, `BASH_ENV=`, ...; `ast::assignment_is_dangerous_env`) is excluded
-  from `leaf_string_rule`, mirroring `strip_env_prefix`'s refusal to strip such
-  prefixes. The `env` handler likewise refuses to recurse-launder a bare inner
-  command when it sets such a var (`env LD_PRELOAD=… cargo test` → Ask), and the
-  `time`/`nohup`/`command` wrappers preserve the prefix as text so it re-parses as
-  an assignment on the recursed leaf.
+- **Dangerous env prefix.** The `analyze_command` dangerous-env gate (see
+  #dangerous-env-name) runs *before* `leaf_string_rule`, so a leaf carrying a
+  code-influencing prefix (`LD_PRELOAD=`, `BASH_ENV=`, `PAGER=`, ...) Asks and is
+  never allow-listed by a string rule — single or chained. The `env` handler and
+  the `time`/`nohup`/`command` wrappers close the same laundering through
+  recursion (see #dangerous-env-name).
 - **Redirects.** `leaf_string_rule` routes an allow-ruled leaf through
   `with_redirects`, so `cargo build > ~/.rippy/config.toml` still reaches
   `self_protect`/safe-dir and Denies.

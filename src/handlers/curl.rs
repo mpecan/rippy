@@ -1,4 +1,7 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag, is_sole_help_flag};
+use super::{
+    Classification, Handler, HandlerContext, get_flag_value, has_flag, has_flag_or_prefixed,
+    is_sole_help_flag,
+};
 
 pub static CURL_HANDLER: CurlHandler = CurlHandler;
 
@@ -19,6 +22,32 @@ const DATA_FLAGS: &[&str] = &[
 ];
 
 const UNSAFE_METHODS: &[&str] = &["POST", "PUT", "DELETE", "PATCH"];
+
+/// curl short-flag characters that combine with `-O`/`-J` in the common
+/// "download and save" idiom (`curl -fsSLO url`).
+///
+/// curl clusters single-dash boolean short options into one token, so
+/// `-O`/`-J` can appear glued inside a cluster (`-fsSLO`, `-sJO`) rather than
+/// as their own token, bypassing an exact-match check. This list is
+/// intentionally narrow (booleans only) so a cluster containing a
+/// value-taking short flag (`-X`, `-A`, ...) is never misread as a bundle.
+const CURL_BOOLEAN_CLUSTER_FLAGS: &[char] = &[
+    'f', 's', 'S', 'L', 'k', 'v', 'i', 'g', 'q', 'n', 'N', '#', '0', '1', '2', '3', '4', '6', 'O',
+    'J',
+];
+
+/// Detect `-O`/`-J` glued inside a boolean short-option cluster (`-fsSLO`).
+fn has_bundled_write_flag(args: &[String]) -> bool {
+    args.iter().any(|a| {
+        a.starts_with('-')
+            && !a.starts_with("--")
+            && a.len() > 1
+            && a.chars()
+                .skip(1)
+                .all(|c| CURL_BOOLEAN_CLUSTER_FLAGS.contains(&c))
+            && a.chars().skip(1).any(|c| c == 'O' || c == 'J')
+    })
+}
 
 impl Handler for CurlHandler {
     fn commands(&self) -> &[&str] {
@@ -54,6 +83,23 @@ impl Handler for CurlHandler {
                 "curl with output file".into(),
                 vec![output],
             );
+        }
+
+        // Server-named-write flags: the filename is server-controlled, so we
+        // can't emit a redirect target — fail closed rather than Allow.
+        if has_flag(
+            ctx.args,
+            &[
+                "-O",
+                "--remote-name",
+                "--remote-name-all",
+                "-J",
+                "--remote-header-name",
+            ],
+        ) || has_flag_or_prefixed(ctx.args, &["--output-dir"])
+            || has_bundled_write_flag(ctx.args)
+        {
+            return Classification::Ask("curl with server-named output (write request)".into());
         }
 
         Classification::Allow("curl (GET request)".into())

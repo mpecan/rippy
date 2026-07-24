@@ -81,13 +81,47 @@ impl Payload {
 }
 
 /// Detect hook type from the payload.
+///
+/// Prefers the harness-provided `hook_event_name` field (the authoritative
+/// signal) over inferring from field presence. When that field is absent,
+/// fails closed: any payload carrying an analyzable command is treated as
+/// `PreToolUse` regardless of an accompanying `tool_result`, so a command
+/// is never silently skipped just because it also carries a `tool_result`
+/// key (see issue #161). Only a command-less payload with a `tool_result`
+/// falls back to `PostToolUse`.
 fn detect_hook_type(raw: &Value) -> HookType {
-    // PostToolUse payloads typically contain tool_result
+    if let Some(name) = raw.get("hook_event_name").and_then(Value::as_str) {
+        return if name.eq_ignore_ascii_case("PostToolUse") {
+            HookType::PostToolUse
+        } else {
+            HookType::PreToolUse
+        };
+    }
+
+    if has_analyzable_command(raw) {
+        return HookType::PreToolUse;
+    }
+
     if raw.get("tool_result").is_some() {
         HookType::PostToolUse
     } else {
         HookType::PreToolUse
     }
+}
+
+/// Whether the payload carries anything an analyzer could evaluate:
+/// `tool_input.command` (Claude), `tool_input` as a string (Gemini/Codex),
+/// or a top-level `command` string (Cursor).
+fn has_analyzable_command(raw: &Value) -> bool {
+    if let Some(tool_input) = raw.get("tool_input") {
+        if tool_input.is_string() {
+            return true;
+        }
+        if tool_input.get("command").and_then(Value::as_str).is_some() {
+            return true;
+        }
+    }
+    raw.get("command").and_then(Value::as_str).is_some()
 }
 
 /// Auto-detect the AI tool mode from the JSON structure.
@@ -194,11 +228,50 @@ mod tests {
     }
 
     #[test]
-    fn post_tool_use_detection() {
+    fn post_tool_use_detection_via_explicit_event_name() {
         let json = concat!(
             r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"#,
-            r#""tool_result":{"output":"file.txt"}}"#
+            r#""tool_result":{"output":"file.txt"},"hook_event_name":"PostToolUse"}"#
         );
+        let payload = Payload::parse(json, None).unwrap();
+        assert_eq!(payload.hook_type, HookType::PostToolUse);
+    }
+
+    #[test]
+    fn pre_tool_use_when_explicit_event_name_overrides_tool_result() {
+        let json = concat!(
+            r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"#,
+            r#""tool_result":{"output":"file.txt"},"hook_event_name":"PreToolUse"}"#
+        );
+        let payload = Payload::parse(json, None).unwrap();
+        assert_eq!(payload.hook_type, HookType::PreToolUse);
+    }
+
+    #[test]
+    fn unrecognized_hook_event_name_fails_closed_to_pre_tool_use() {
+        let json = concat!(
+            r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"#,
+            r#""hook_event_name":"garbled"}"#
+        );
+        let payload = Payload::parse(json, None).unwrap();
+        assert_eq!(payload.hook_type, HookType::PreToolUse);
+    }
+
+    #[test]
+    fn tool_result_with_command_and_no_event_name_is_pre_tool_use() {
+        // Issue #161 PoC: a command payload must be analyzed even if it
+        // also carries a tool_result key and no explicit hook_event_name.
+        let json = concat!(
+            r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf ~/important"},"#,
+            r#""tool_result":{}}"#
+        );
+        let payload = Payload::parse(json, None).unwrap();
+        assert_eq!(payload.hook_type, HookType::PreToolUse);
+    }
+
+    #[test]
+    fn command_less_tool_result_without_event_name_is_post_tool_use() {
+        let json = r#"{"tool_name":"Bash","tool_result":{"output":"done"}}"#;
         let payload = Payload::parse(json, None).unwrap();
         assert_eq!(payload.hook_type, HookType::PostToolUse);
     }

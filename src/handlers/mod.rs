@@ -294,6 +294,57 @@ pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
     None
 }
 
+/// Helper: check if any arg matches a flag exactly OR as its `flag=value` form.
+///
+/// `has_flag`/`get_flag_value` only match space-separated tokens, so
+/// `--use-compress-program=sh` or `--output=/tmp/x` slip past them. This
+/// catches both forms without matching an unrelated longer flag name
+/// (`--foo=bar` matches `--foo`, not `--foobar`).
+pub fn has_flag_or_prefixed(args: &[String], flags: &[&str]) -> bool {
+    args.iter().any(|a| {
+        flags
+            .iter()
+            .any(|f| a == f || a.strip_prefix(f).is_some_and(|rest| rest.starts_with('=')))
+    })
+}
+
+/// Helper: check if any arg matches a short (single-dash, two-char) flag glued
+/// directly to its value with no separator (getopt's `-Ivalue`, e.g. tar's
+/// `-Ish` for `--use-compress-program=sh`).
+///
+/// `has_flag_or_prefixed` only catches the `flag=value` form, so a glued short
+/// option slips past it. This is restricted to two-char flags (`-I`, `-F`) —
+/// long options never take a glued value without `=` — so it cannot swallow
+/// an unrelated longer flag.
+pub fn has_glued_short_flag(args: &[String], flags: &[&str]) -> bool {
+    args.iter().any(|a| {
+        flags
+            .iter()
+            .any(|f| f.len() == 2 && a.starts_with(f) && a.len() > f.len())
+    })
+}
+
+/// Helper: collect the values following every occurrence of a flag.
+///
+/// Interpreters like Perl accept multiple `-e`/`-E` fragments and concatenate
+/// them at runtime, so analyzing only the first occurrence (`get_flag_value`)
+/// misses dangerous code hidden in a later fragment.
+pub fn get_flag_values(args: &[String], flags: &[&str]) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if flags.contains(&args[i].as_str()) {
+            if let Some(value) = args.get(i + 1) {
+                values.push(value.clone());
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    values
+}
+
 /// Default directories that are always considered safe for path-based handlers.
 ///
 /// The `/private/...` entries are the macOS canonical locations for `/tmp` and
@@ -370,6 +421,31 @@ pub fn is_within_default_safe_dir(path: &Path) -> bool {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn has_flag_or_prefixed_matches_bare_and_equals_form() {
+        let flags = ["--foo"];
+        let args = |s: &str| vec![s.to_string()];
+
+        assert!(has_flag_or_prefixed(&args("--foo"), &flags));
+        assert!(has_flag_or_prefixed(&args("--foo=bar"), &flags));
+        assert!(!has_flag_or_prefixed(&args("--foobar"), &flags));
+        assert!(!has_flag_or_prefixed(&args("--foobar=x"), &flags));
+        assert!(!has_flag_or_prefixed(&args("--other"), &flags));
+    }
+
+    #[test]
+    fn has_glued_short_flag_matches_attached_value_only() {
+        let flags = ["-I", "-F"];
+        let args = |s: &str| vec![s.to_string()];
+
+        assert!(has_glued_short_flag(&args("-Ish"), &flags));
+        assert!(has_glued_short_flag(&args("-I/bin/sh"), &flags));
+        assert!(has_glued_short_flag(&args("-Fscript"), &flags));
+        assert!(!has_glued_short_flag(&args("-I"), &flags));
+        assert!(!has_glued_short_flag(&args("-i"), &flags));
+        assert!(!has_glued_short_flag(&args("--info-script"), &flags));
+    }
 
     #[test]
     fn is_within_scope_respects_component_boundary() {

@@ -18,6 +18,10 @@ impl Handler for FindHandler {
             return Classification::Ask("find -ok (interactive)".into());
         }
 
+        if has_flag(ctx.args, &["-fprint", "-fprint0", "-fprintf", "-fls"]) {
+            return Classification::Ask("find (writes to file)".into());
+        }
+
         // -exec / -execdir: extract inner command and delegate
         for (i, arg) in ctx.args.iter().enumerate() {
             if arg == "-exec" || arg == "-execdir" {

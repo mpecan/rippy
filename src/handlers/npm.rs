@@ -20,7 +20,6 @@ const SAFE: &[&str] = &[
     "ping",
     "explain",
     "why",
-    "pack",
     "fund",
     "doctor",
     "licenses",

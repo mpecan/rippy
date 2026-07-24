@@ -610,3 +610,89 @@ fn is_status_var_matches_specials_and_positionals() {
         assert!(!is_status_var(name), "{name} should not be a status var");
     }
 }
+
+fn assert_expansion_unresolvable(src: &str, lookup: &MockLookup) {
+    match resolve_word(&first_arg_node(src), lookup) {
+        WordResolution::Unresolvable { reason } => {
+            assert!(reason.contains("shell expansion"), "{src}: got {reason}");
+        }
+        other => panic!("{src}: expected Unresolvable, got {other:?}"),
+    }
+}
+
+fn assert_literal(src: &str, lookup: &MockLookup, want: &str) {
+    assert_eq!(
+        resolve_word(&first_arg_node(src), lookup),
+        WordResolution::Literal(want.to_string())
+    );
+}
+
+// ${VAR:-x}/${VAR-x}/${VAR:+x} default/alternate text and $"..." locale inner are
+// re-expanded by bash at runtime, so embedded $(...)/backtick must NOT resolve to
+// an inert Literal (which would re-analyze as harmless) — they Ask instead (#156).
+#[test]
+fn reexpanded_text_with_substitution_is_unresolvable() {
+    let unset = MockLookup::new();
+    assert_expansion_unresolvable("cat ${U:-$(id)}", &unset);
+    assert_expansion_unresolvable("cat ${U-$(id)}", &unset);
+    assert_expansion_unresolvable("echo ${U:-`id`}", &unset);
+    assert_expansion_unresolvable("echo $\"$(id)\"", &unset);
+    assert_expansion_unresolvable("cat ${FOO:+$(id)}", &MockLookup::new().with("FOO", "1"));
+}
+
+// Process substitution `<(...)` / `>(...)` in default/alternate/locale text is also
+// executed by bash but is not caught by has_shell_expansion_pattern (`$`/backtick),
+// so literal_if_inert must reject it too — else it leaks back as an inert Literal
+// and re-analyzes as a harmless reader (#156 review bypass).
+#[test]
+fn reexpanded_process_substitution_is_unresolvable() {
+    let unset = MockLookup::new();
+    assert_expansion_unresolvable("cat ${U:-<(id)}", &unset);
+    assert_expansion_unresolvable("cat ${U-<(id)}", &unset);
+    assert_expansion_unresolvable("echo $\"<(id)\"", &unset);
+    assert_expansion_unresolvable("cat ${FOO:+<(id)}", &MockLookup::new().with("FOO", "1"));
+    assert_expansion_unresolvable("tee ${U:->(id)}", &unset);
+}
+
+#[test]
+fn reexpanded_plain_text_stays_literal() {
+    let unset = MockLookup::new();
+    assert_literal("cat ${U:-safe}", &unset, "safe");
+    assert_literal("echo $\"plain\"", &unset, "plain");
+    assert_literal("cat ${FOO:+ok}", &MockLookup::new().with("FOO", "1"), "ok");
+}
+
+// A SET variable's value is NOT re-expanded by bash, so a Value(v) holding `$(id)`
+// must stay a verbatim Literal — guards against an over-broad fix (#156).
+#[test]
+fn set_var_value_containing_expansion_stays_verbatim() {
+    assert_literal(
+        "cat ${V:-x}",
+        &MockLookup::new().with("V", "$(id)"),
+        "$(id)",
+    );
+}
+
+// Scoped to all-unset so the legitimate Value(v)-verbatim path never fires (#156).
+#[test]
+fn no_unset_default_resolves_to_expansion_bearing_literal() {
+    let lookup = MockLookup::new();
+    for src in [
+        "cat ${U:-$(id)}",
+        "cat ${U-$(id)}",
+        "echo ${U:-`id`}",
+        "cat ${U:+$(id)}",
+        "cat ${U:-${V:-$(id)}}",
+        "echo $\"$(id)\"",
+        "echo ${U:-$HOME}",
+        "cat ${U:-<(id)}",
+        "echo $\"<(id)\"",
+    ] {
+        if let WordResolution::Literal(s) = resolve_word(&first_arg_node(src), &lookup) {
+            assert!(
+                !crate::ast::has_shell_expansion_pattern(&s) && !has_process_substitution(&s),
+                "{src} leaked expansion literal {s:?}"
+            );
+        }
+    }
+}

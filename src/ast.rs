@@ -137,7 +137,9 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
     }
 }
 
-/// Check if a string contains shell expansion patterns (`$(`, `` ` ``, `${`, or `$` + identifier).
+/// Check if a string contains shell expansion patterns: `$(`, `` ` ``, `${`,
+/// `$` + identifier, or `$` + a positional/special parameter (`$1`-`$9`, `$@`,
+/// `$*`, `$#`, `$?`, `$$`, `$!`, `$-`).
 ///
 /// Used for heredoc content and other string-level expansion detection where
 /// structured AST nodes are not available.
@@ -155,7 +157,9 @@ pub fn has_shell_expansion_pattern(s: &str) -> bool {
                 || next == b'\''
                 || next == b'"'
                 || next.is_ascii_alphabetic()
-                || next == b'_')
+                || next == b'_'
+                || next.is_ascii_digit()
+                || matches!(next, b'@' | b'*' | b'#' | b'?' | b'$' | b'!' | b'-'))
         {
             return true;
         }
@@ -293,18 +297,26 @@ fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
     Some(name.strip_suffix('+').unwrap_or(name))
 }
 
-/// Whether a name is a code-influencing env var (`LD_PRELOAD`, `BASH_ENV`, ...).
+/// Environment variable names whose values can change how a following command
+/// loads or resolves code, letting a *literal* assignment turn an otherwise-safe
+/// command into arbitrary code execution (e.g. `LD_PRELOAD`, `BASH_ENV`,
+/// `GIT_SSH_COMMAND`). The analyzer's assignment-name gate Asks on any command
+/// carrying such a prefix, and [`strip_env_prefix`] refuses to strip it so a
+/// string-layer allow rule cannot mask it either.
 ///
-/// These change how a following command loads or resolves code, so a *literal*
-/// assignment can turn an otherwise-safe command into arbitrary code execution.
-/// When a leading env prefix sets any of these, [`strip_env_prefix`] refuses to
-/// strip it (so it is not masked by a string-layer allow rule and falls through to
-/// the analyzer), and the `env` handler refuses to recurse-launder it.
+/// The `GIT_CONFIG`/`BASH_FUNC_` prefix matches are deliberately broad — each
+/// covers a whole injection family in one check, mirroring the `LD_`/`DYLD_`
+/// style. See docs/security-invariants.md#dangerous-env-name for the rationale.
 #[must_use]
-pub fn is_dangerous_env_name(name: &str) -> bool {
+pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
     // Dynamic-linker families: Linux `LD_*` (LD_PRELOAD, LD_LIBRARY_PATH,
     // LD_AUDIT, ...) and macOS `DYLD_*` (DYLD_INSERT_LIBRARIES, ...).
     if name.starts_with("LD_") || name.starts_with("DYLD_") {
+        return true;
+    }
+    // GIT_CONFIG* = env-based git-config injection; BASH_FUNC_* = exported
+    // function injection. see docs/security-invariants.md#dangerous-env-name
+    if name.starts_with("GIT_CONFIG") || name.starts_with("BASH_FUNC_") {
         return true;
     }
     matches!(
@@ -329,24 +341,6 @@ pub fn is_dangerous_env_name(name: &str) -> bool {
             | "NODE_OPTIONS"
             | "RUBYOPT"
     )
-}
-
-/// Returns `true` if an assignment node sets a code-influencing env var.
-///
-/// Covers `LD_PRELOAD`, `BASH_ENV`, `GIT_SSH_COMMAND`, and the rest of
-/// [`is_dangerous_env_name`]. Used to disqualify a leaf command from string-rule
-/// allow-listing, mirroring [`strip_env_prefix`]'s refusal to strip such prefixes
-/// so a dangerous prefix cannot be dropped and the bare command matched against a
-/// permissive allow rule.
-#[must_use]
-pub fn assignment_is_dangerous_env(assignment: &Node) -> bool {
-    let NodeKind::Word { value, .. } = &assignment.kind else {
-        return false;
-    };
-    let Some((name, _)) = value.split_once('=') else {
-        return false;
-    };
-    is_dangerous_env_name(name.strip_suffix('+').unwrap_or(name))
 }
 
 /// Check if a redirect target is inherently safe (e.g., /dev/null).
