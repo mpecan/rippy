@@ -21,7 +21,7 @@ impl BashParser {
     ///
     /// Returns `RippyError::Parse` if the source cannot be parsed.
     pub fn parse(&mut self, source: &str) -> Result<Vec<Node>, RippyError> {
-        rable::parse(source, false).map_err(|e| RippyError::Parse(format!("parse error: {e}")))
+        rable::parse(source, false).map_err(|e| RippyError::Parse(format!("{e}")))
     }
 }
 
@@ -90,5 +90,15 @@ mod tests {
         let mut parser = BashParser::new().unwrap();
         let nodes = parser.parse("(echo hello)").unwrap();
         assert!(matches!(nodes[0].kind, NodeKind::Subshell { .. }));
+    }
+
+    #[test]
+    fn parse_error_prefix_not_doubled() {
+        let mut parser = BashParser::new().unwrap();
+        let err = parser.parse("echo $( ( unbalanced").unwrap_err();
+        let msg = err.to_string();
+        // `RippyError::Parse`'s Display prepends exactly one "parse error: ";
+        // the parser closure must not add its own, or the prefix triples.
+        assert_eq!(msg.matches("parse error:").count(), 1, "message: {msg}");
     }
 }

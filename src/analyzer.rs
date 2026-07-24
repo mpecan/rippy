@@ -9,7 +9,7 @@ use crate::condition::MatchContext;
 use crate::config::Config;
 use crate::environment::Environment;
 use crate::error::RippyError;
-use crate::handlers::{self, Classification, HandlerContext};
+use crate::handlers::{self, Classification, HandlerContext, is_sole_help_flag};
 use crate::parser::BashParser;
 use crate::resolve::{self, LocalBinding, VarLookup};
 use crate::verdict::{Decision, Verdict};
@@ -139,13 +139,17 @@ impl Analyzer {
     ///
     /// # Errors
     ///
-    /// Returns `RippyError::Parse` if the command cannot be parsed.
+    /// This method no longer errors on unparseable input: after the
+    /// string-matching config/CC layers run, a command that rable cannot parse
+    /// yields a fail-closed `Ask` verdict (never a propagated error), so an
+    /// unparseable-but-runnable command is gated rather than silently allowed.
+    /// The `Result` signature is retained for call-site stability.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
         // Normalize a leading `NAME=VALUE` env prefix so the string-matching
         // config/CC layers see the real command (e.g. `cargo test`) instead of
         // the assignment token. Parse once and reuse the result below. On
-        // unparseable input we fall back to the raw string and the real parse
-        // error still surfaces at the `?` after the string checks.
+        // unparseable input we fall back to the raw string for the string-match
+        // layers, then fail closed to an Ask verdict (see below).
         // `strip_env_prefix` keeps the rest of the command verbatim (redirects,
         // pipes, `&&` chains), refuses to strip when a value contains an
         // expansion, and refuses to strip code-influencing vars — so no ALLOW
@@ -180,7 +184,15 @@ impl Analyzer {
             return Ok(verdict);
         }
 
-        let nodes = parsed?;
+        // Fail-closed: on unparseable input the string-match layers above
+        // (config/CC) have already had priority; anything reaching here that
+        // rable cannot parse is gated with an Ask rather than propagating an
+        // error that would exit non-blocking and let the command run un-gated.
+        let Ok(nodes) = parsed else {
+            return Ok(Verdict::ask(
+                "rippy could not parse this command; approve manually",
+            ));
+        };
         let cwd = self.working_directory.clone();
         self.node_budget = MAX_NODES;
         Ok(self.analyze_nodes(&nodes, &cwd, 0))
@@ -573,10 +585,12 @@ impl Analyzer {
             return v;
         }
 
-        if args
-            .iter()
-            .any(|a| a == "--help" || a == "-h" || a == "--version")
-        {
+        // A help/version flag may short-circuit to Allow ONLY when it is the
+        // command's sole argument. Matching it anywhere in argv let a dangerous
+        // operand ride along auto-approved (see #149). Bare `-h` is dropped here
+        // because unknown commands overload it (e.g. `-h <host>`); a lone `-h`
+        // then Asks, the safe direction.
+        if is_sole_help_flag(&args, &["--help", "--version"]) {
             return Verdict::allow(format!("{cmd_name} help/version"));
         }
 

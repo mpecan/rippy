@@ -70,6 +70,43 @@ fn oversized_input_returns_error() {
     assert!(v["error"].as_str().unwrap().contains("limit"));
 }
 
+// ---- Fail-closed on unparseable command (Issue #150) ----
+//
+// A valid payload carrying a command that rable cannot parse must NOT exit 1
+// (non-blocking for Claude -> command runs un-gated). The verdict must be a
+// fail-closed Ask on a blocking exit code for every mode.
+
+const UNPARSEABLE_PAYLOAD: &str =
+    r#"{"tool_name":"Bash","tool_input":{"command":"echo $( ( unbalanced"}}"#;
+
+#[test]
+fn claude_unparseable_command_asks_not_fail_open() {
+    let (stdout, code) = run_rippy(UNPARSEABLE_PAYLOAD, "claude", &[]);
+    assert_ne!(code, 1, "exit 1 is non-blocking for Claude (fail-open)");
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+}
+
+#[test]
+fn gemini_unparseable_command_denies_not_fail_open() {
+    let (stdout, code) = run_rippy(UNPARSEABLE_PAYLOAD, "gemini", &[]);
+    assert_ne!(code, 1);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // Gemini has no "ask"; an uncertain Ask maps to deny (blocking).
+    assert_eq!(v["decision"], "deny");
+}
+
+#[test]
+fn cursor_unparseable_command_asks_not_fail_open() {
+    let (stdout, code) = run_rippy(UNPARSEABLE_PAYLOAD, "cursor", &[]);
+    assert_ne!(code, 1);
+    assert_eq!(code, 2);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["permission"], "ask");
+}
+
 // ---- Logging integration test (Issue #2) ----
 
 #[test]

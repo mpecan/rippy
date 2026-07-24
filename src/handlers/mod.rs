@@ -133,12 +133,8 @@ impl Handler for SubcommandHandler {
         let sub = ctx.args.first().map_or("", String::as_str);
         let desc = format!("{} {sub}", self.desc_prefix);
 
-        // Check --help/--version first
-        if ctx
-            .args
-            .iter()
-            .any(|a| a == "--help" || a == "-h" || a == "--version" || a == "-V")
-        {
+        // Check --help/--version first (only when it is the sole argument).
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
             return Classification::Allow(format!("{} help/version", self.desc_prefix));
         }
 
@@ -240,6 +236,19 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
 /// Helper: check if any arg matches a set of flags.
 pub fn has_flag(args: &[String], flags: &[&str]) -> bool {
     args.iter().any(|a| flags.contains(&a.as_str()))
+}
+
+/// Helper: true only when a help/version flag is the command's SOLE argument.
+///
+/// SECURITY: help/version flags must NOT be matched anywhere in argv. Many
+/// commands overload short flags (`docker -h` is `--hostname`, not `--help`) or
+/// consume the next token as a value (`git commit -m --version`), so scanning
+/// argv for a help flag and short-circuiting to Allow lets a dangerous operand
+/// ride along auto-approved (see #149). A lone help/version flag is genuinely
+/// inert everywhere; combined with any other argument it must never pre-empt
+/// evaluation of the rest of the command.
+pub fn is_sole_help_flag(args: &[String], flags: &[&str]) -> bool {
+    args.len() == 1 && flags.contains(&args[0].as_str())
 }
 
 /// Helper: get the first positional argument (non-flag).
@@ -385,6 +394,31 @@ mod tests {
         // Component boundary: a sibling sharing a string prefix must NOT match.
         assert!(!is_within_safe_dir(Path::new("/tmpevil/x"), &scopes));
         assert!(!is_within_safe_dir(Path::new("/opt/repos-evil/x"), &scopes));
+    }
+
+    #[test]
+    fn is_sole_help_flag_only_fires_for_lone_flag() {
+        let flags = &["--help", "-h", "--version"];
+        // Sole help/version flag -> true.
+        assert!(is_sole_help_flag(&["--help".into()], flags));
+        assert!(is_sole_help_flag(&["--version".into()], flags));
+        assert!(is_sole_help_flag(&["-h".into()], flags));
+        // Help flag with any companion operand -> false (must not short-circuit).
+        assert!(!is_sole_help_flag(
+            &["--help".into(), "--danger".into()],
+            flags
+        ));
+        assert!(!is_sole_help_flag(
+            &["run".into(), "-h".into(), "host".into()],
+            flags
+        ));
+        assert!(!is_sole_help_flag(
+            &["--version".into(), "-e".into(), "code".into()],
+            flags
+        ));
+        // No help flag at all, or empty -> false.
+        assert!(!is_sole_help_flag(&["status".into()], flags));
+        assert!(!is_sole_help_flag(&[], flags));
     }
 
     #[test]

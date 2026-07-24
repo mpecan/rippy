@@ -1,4 +1,7 @@
-use super::{Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag};
+use super::{
+    Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag,
+    is_sole_help_flag,
+};
 use crate::python_safety::is_python_source_safe;
 
 pub static PYTHON_HANDLER: PythonHandler = PythonHandler;
@@ -21,7 +24,7 @@ impl Handler for PythonHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--version", "-V", "-VV", "--help", "-h"]) {
+        if is_sole_help_flag(ctx.args, &["--version", "-V", "-VV", "--help", "-h"]) {
             return Classification::Allow("python version/help".into());
         }
 

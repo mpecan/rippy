@@ -1,4 +1,6 @@
-use super::{Classification, Handler, HandlerContext, SubcommandHandler, has_flag};
+use super::{
+    Classification, Handler, HandlerContext, SubcommandHandler, has_flag, is_sole_help_flag,
+};
 
 // ---- tar ----
 
@@ -40,7 +42,7 @@ impl Handler for WgetHandler {
         if has_flag(ctx.args, &["--spider"]) {
             return Classification::Allow("wget --spider".into());
         }
-        if has_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
             return Classification::Allow("wget help/version".into());
         }
         Classification::Ask("wget (download)".into())

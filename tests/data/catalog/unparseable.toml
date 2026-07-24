@@ -1,0 +1,17 @@
+[meta]
+description = "Unparseable-but-runnable commands must fail closed to Ask (#150)"
+
+# rable cannot parse these (unbalanced command substitution / subshell), yet a
+# shell would still run them. Before the fix `analyze` propagated a parse error
+# that exited non-blocking for Claude, leaving the command un-gated. They must
+# now yield a fail-closed Ask. Leading tokens are UNKNOWN (foo/echo) so no
+# stdlib config allow rule short-circuits and changes the decision.
+[[case]]
+command = "foo $( ( bar"
+decision = "ask"
+reason_contains = "could not parse"
+
+[[case]]
+command = "echo $( ( unbalanced"
+decision = "ask"
+reason_contains = "could not parse"

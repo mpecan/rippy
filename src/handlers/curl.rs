@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag, is_sole_help_flag};
 
 pub static CURL_HANDLER: CurlHandler = CurlHandler;
 
@@ -26,7 +26,7 @@ impl Handler for CurlHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
             return Classification::Allow("curl help/version".into());
         }
 

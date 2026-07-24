@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{Classification, Handler, HandlerContext, has_flag, is_sole_help_flag};
 
 pub static HELM_HANDLER: HelmHandler = HelmHandler;
 
@@ -39,7 +39,7 @@ impl Handler for HelmHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "-h", "--version"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
             return Classification::Allow("helm help/version".into());
         }
 

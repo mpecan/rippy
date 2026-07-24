@@ -1,4 +1,7 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag, positional_args};
+use super::{
+    Classification, Handler, HandlerContext, get_flag_value, has_flag, is_sole_help_flag,
+    positional_args,
+};
 use crate::sql::classify_sql;
 
 // ---- psql ----
@@ -13,7 +16,7 @@ impl Handler for PsqlHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "-?", "--version", "-V"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-?", "--version", "-V"]) {
             return Classification::Allow("psql help/version".into());
         }
         if has_flag(ctx.args, &["--list", "-l"]) {
@@ -46,7 +49,7 @@ impl Handler for MysqlHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "--version", "-V"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "--version", "-V"]) {
             return Classification::Allow("mysql help/version".into());
         }
         if let Some(sql) = get_flag_value(ctx.args, &["-e", "--execute"]) {
@@ -68,7 +71,7 @@ impl Handler for Sqlite3Handler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["--help", "-help", "--version"]) {
+        if is_sole_help_flag(ctx.args, &["--help", "-help", "--version"]) {
             return Classification::Allow("sqlite3 help/version".into());
         }
         if has_flag(ctx.args, &["-readonly", "-safe"]) {
