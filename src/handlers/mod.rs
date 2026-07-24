@@ -294,6 +294,20 @@ pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
     None
 }
 
+/// Helper: check if any arg matches a flag exactly OR as its `flag=value` form.
+///
+/// `has_flag`/`get_flag_value` only match space-separated tokens, so
+/// `--use-compress-program=sh` or `--output=/tmp/x` slip past them. This
+/// catches both forms without matching an unrelated longer flag name
+/// (`--foo=bar` matches `--foo`, not `--foobar`).
+pub fn has_flag_or_prefixed(args: &[String], flags: &[&str]) -> bool {
+    args.iter().any(|a| {
+        flags
+            .iter()
+            .any(|f| a == f || a.strip_prefix(f).is_some_and(|rest| rest.starts_with('=')))
+    })
+}
+
 /// Default directories that are always considered safe for path-based handlers.
 ///
 /// The `/private/...` entries are the macOS canonical locations for `/tmp` and
@@ -370,6 +384,18 @@ pub fn is_within_default_safe_dir(path: &Path) -> bool {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn has_flag_or_prefixed_matches_bare_and_equals_form() {
+        let flags = ["--foo"];
+        let args = |s: &str| vec![s.to_string()];
+
+        assert!(has_flag_or_prefixed(&args("--foo"), &flags));
+        assert!(has_flag_or_prefixed(&args("--foo=bar"), &flags));
+        assert!(!has_flag_or_prefixed(&args("--foobar"), &flags));
+        assert!(!has_flag_or_prefixed(&args("--foobar=x"), &flags));
+        assert!(!has_flag_or_prefixed(&args("--other"), &flags));
+    }
 
     #[test]
     fn is_within_scope_respects_component_boundary() {

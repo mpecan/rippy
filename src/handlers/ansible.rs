@@ -1,4 +1,8 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+
+/// Extensions that indicate a static inventory file rather than a dynamic
+/// (executable) inventory script.
+const STATIC_INVENTORY_EXTENSIONS: &[&str] = &[".ini", ".yaml", ".yml", ".json"];
 
 pub static ANSIBLE_HANDLER: AnsibleHandler = AnsibleHandler;
 
@@ -89,11 +93,17 @@ fn classify_config(ctx: &HandlerContext) -> Classification {
 }
 
 fn classify_inventory(ctx: &HandlerContext) -> Classification {
-    if has_flag(ctx.args, &["--list", "--graph", "--host"]) {
-        Classification::Allow("ansible-inventory (read-only query)".into())
-    } else {
-        Classification::Ask("ansible-inventory".into())
+    if !has_flag(ctx.args, &["--list", "--graph", "--host"]) {
+        return Classification::Ask("ansible-inventory".into());
     }
+    if let Some(inventory) = get_flag_value(ctx.args, &["-i", "--inventory"])
+        && !STATIC_INVENTORY_EXTENSIONS
+            .iter()
+            .any(|ext| inventory.ends_with(ext))
+    {
+        return Classification::Ask("ansible-inventory (dynamic inventory script)".into());
+    }
+    Classification::Allow("ansible-inventory (read-only query)".into())
 }
 
 // Behavioral coverage lives in tests/data/catalog/handlers_containers.toml — every

@@ -6,6 +6,31 @@ pub static CD_HANDLER: CdHandler = CdHandler;
 
 pub struct CdHandler;
 
+/// `cd` option flags that take no value and don't change the destination.
+const CD_KNOWN_FLAGS: &[&str] = &["-L", "-P", "-e", "-@"];
+
+/// Skip leading `cd` option tokens (and a `--` terminator) to find the real
+/// destination. Returns `None` (fail closed) if a leading flag is not one of
+/// the known no-op flags, since an unrecognized flag could shift or consume
+/// the destination in ways this handler can't reason about.
+fn resolve_target(args: &[String]) -> Option<&String> {
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--" {
+            return args.get(i + 1);
+        }
+        if arg == "-" || !arg.starts_with('-') {
+            return Some(arg);
+        }
+        if !CD_KNOWN_FLAGS.contains(&arg.as_str()) {
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
 impl Handler for CdHandler {
     fn commands(&self) -> &[&str] {
         &["cd", "pushd", "popd"]
@@ -24,7 +49,9 @@ impl Handler for CdHandler {
             return Classification::Ask(format!("{} (goes to home directory)", ctx.command_name));
         }
 
-        let target = &ctx.args[0];
+        let Some(target) = resolve_target(ctx.args) else {
+            return Classification::Ask(format!("{} (unknown flag)", ctx.command_name));
+        };
 
         if target == "-" {
             return Classification::Allow(format!("{} - (previous directory)", ctx.command_name));
@@ -366,6 +393,63 @@ mod tests {
         let ctx = HandlerContext {
             working_directory: &cwd,
             safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
+        assert!(is_ask(&CD_HANDLER.classify(&ctx)));
+    }
+
+    // leading option flags shifting the destination
+
+    #[test]
+    fn cd_dash_p_outside_scope_asks() {
+        let cwd = PathBuf::from("/project");
+        let args = ["-P".to_string(), "/etc".to_string()];
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
+        assert!(is_ask(&CD_HANDLER.classify(&ctx)));
+    }
+
+    #[test]
+    fn cd_dash_p_within_scope_allows() {
+        let cwd = PathBuf::from("/project");
+        let args = ["-P".to_string(), "src".to_string()];
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
+        assert!(is_allow(&CD_HANDLER.classify(&ctx)));
+    }
+
+    #[test]
+    fn cd_double_dash_outside_scope_asks() {
+        let cwd = PathBuf::from("/project");
+        let args = ["--".to_string(), "/etc".to_string()];
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
+        assert!(is_ask(&CD_HANDLER.classify(&ctx)));
+    }
+
+    #[test]
+    fn cd_double_dash_within_scope_allows() {
+        let cwd = PathBuf::from("/project");
+        let args = ["--".to_string(), "src".to_string()];
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
+        assert!(is_allow(&CD_HANDLER.classify(&ctx)));
+    }
+
+    #[test]
+    fn cd_unknown_flag_asks() {
+        let cwd = PathBuf::from("/project");
+        let args = ["-Z".to_string(), "src".to_string()];
+        let ctx = HandlerContext {
+            working_directory: &cwd,
             ..HandlerContext::test("cd", &args)
         };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));

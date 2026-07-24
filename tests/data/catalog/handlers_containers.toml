@@ -34,6 +34,52 @@ decision = "allow"
 command = "podman ps"
 decision = "allow"
 
+# #160: grouped management nouns (image/system/network/volume/config/context)
+# previously Allowed regardless of action; now the action itself is checked.
+[[case]]
+command = "docker system prune -af --volumes"
+decision = "ask"
+
+[[case]]
+command = "docker image rm foo"
+decision = "ask"
+
+[[case]]
+command = "docker volume prune -f"
+decision = "ask"
+
+[[case]]
+command = "docker network rm mynet"
+decision = "ask"
+
+[[case]]
+command = "docker context use foo"
+decision = "ask"
+
+[[case]]
+command = "docker system df"
+decision = "allow"
+
+[[case]]
+command = "docker network ls"
+decision = "allow"
+
+[[case]]
+command = "docker image ls"
+decision = "allow"
+
+[[case]]
+command = "docker volume ls"
+decision = "allow"
+
+[[case]]
+command = "docker config ls"
+decision = "allow"
+
+[[case]]
+command = "docker context ls"
+decision = "allow"
+
 # ---- helm ----
 [[case]]
 command = "helm list"
@@ -88,6 +134,19 @@ decision = "allow"
 command = "kubectl apply -f deploy.yaml"
 decision = "ask"
 
+# #160: `config` was a blanket-safe noun; now only read children are safe.
+[[case]]
+command = "kubectl config view"
+decision = "allow"
+
+[[case]]
+command = "kubectl config set-credentials evil --token=x"
+decision = "ask"
+
+[[case]]
+command = "kubectl config use-context foo"
+decision = "ask"
+
 [[case]]
 command = "aws ec2 describe-instances"
 decision = "allow"
@@ -96,9 +155,34 @@ decision = "allow"
 command = "aws ec2 create-instance"
 decision = "ask"
 
+# #160: get-login-password prints a registry credential; the `get-` prefix
+# would otherwise mark it safe.
+[[case]]
+command = "aws ecr get-login-password"
+decision = "ask"
+
+# #160: a non-localhost --endpoint-url redirects a signed request off AWS.
+[[case]]
+command = "aws s3 ls --endpoint-url http://attacker.example"
+decision = "ask"
+
+[[case]]
+command = "aws s3 ls --endpoint-url http://localhost:4566"
+decision = "allow"
+
+[[case]]
+command = "aws s3 ls"
+decision = "allow"
+
 [[case]]
 command = "gcloud compute instances list"
 decision = "allow"
+
+# #160: the old "last token over ALL args" heuristic let a mutating verb
+# hide before a trailing positional (`list`) that isn't actually the action.
+[[case]]
+command = "gcloud compute instances delete list"
+decision = "ask"
 
 [[case]]
 command = "gsutil ls"
@@ -107,6 +191,15 @@ decision = "allow"
 [[case]]
 command = "az vm list"
 decision = "allow"
+
+[[case]]
+command = "az group show --name foo"
+decision = "allow"
+
+# #160: `--name list` previously made the flag *value* the resolved "action".
+[[case]]
+command = "az group delete --name list --yes"
+decision = "ask"
 
 # ---- ansible family ----
 [[case]]
@@ -228,3 +321,37 @@ decision = "allow"
 [[case]]
 command = "ansible-inventory -i hosts"
 decision = "ask"
+
+# #160: `--list` with a dynamic (executable) inventory still runs an
+# attacker-controlled script; only static-file inventories stay Allow.
+[[case]]
+command = "ansible-inventory --list -i ./inv.sh"
+decision = "ask"
+
+[[case]]
+command = "ansible-inventory --list -i inventory.ini"
+decision = "allow"
+
+[[case]]
+command = "ansible-inventory --list -i inventory.yml"
+decision = "allow"
+
+# ---- npm / yarn / pnpm / bun ----
+
+# #160: `pack` runs prepare/prepack/postpack lifecycle scripts (supply-chain
+# RCE); it was on the SAFE list and must now Ask.
+[[case]]
+command = "npm pack"
+decision = "ask"
+
+[[case]]
+command = "pnpm pack"
+decision = "ask"
+
+[[case]]
+command = "npm ls"
+decision = "allow"
+
+[[case]]
+command = "npm view react"
+decision = "allow"

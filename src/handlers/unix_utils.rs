@@ -1,6 +1,22 @@
 use super::{
-    Classification, Handler, HandlerContext, SubcommandHandler, has_flag, is_sole_help_flag,
+    Classification, Handler, HandlerContext, SubcommandHandler, has_flag, has_flag_or_prefixed,
+    is_sole_help_flag,
 };
+
+/// tar flags that spawn an external program (RCE regardless of archive flags used).
+///
+/// A denylist is used here rather than an allowlist because tar has dozens of
+/// benign flags (`-z`/`-j`/`-v`/`-f`/`-C`) that an allowlist would over-restrict.
+const TAR_PROGRAM_EXEC_FLAGS: &[&str] = &[
+    "--use-compress-program",
+    "-I",
+    "--to-command",
+    "--checkpoint-action",
+    "--rmt-command",
+    "-F",
+    "--info-script",
+    "--new-volume-script",
+];
 
 // tar
 
@@ -14,14 +30,18 @@ impl Handler for TarHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if has_flag(ctx.args, &["-t", "--list"]) {
-            return Classification::Allow("tar (list)".into());
-        }
-        // --to-command delegates
+        // --to-command delegates to an arbitrary program; recurse before any
+        // other check so its target is evaluated rather than short-circuited.
         if let Some(pos) = ctx.args.iter().position(|a| a == "--to-command")
             && let Some(cmd) = ctx.args.get(pos + 1)
         {
             return Classification::Recurse(cmd.clone());
+        }
+        if has_flag_or_prefixed(ctx.args, TAR_PROGRAM_EXEC_FLAGS) {
+            return Classification::Ask("tar (runs external program)".into());
+        }
+        if has_flag(ctx.args, &["-t", "--list"]) {
+            return Classification::Allow("tar (list)".into());
         }
         Classification::Ask("tar (create/extract)".into())
     }
@@ -125,7 +145,7 @@ impl Handler for SortHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if let Some(pos) = ctx.args.iter().position(|a| a == "-o")
+        if let Some(pos) = ctx.args.iter().position(|a| a == "-o" || a == "--output")
             && let Some(file) = ctx.args.get(pos + 1)
         {
             return Classification::WithRedirects(
@@ -134,8 +154,33 @@ impl Handler for SortHandler {
                 vec![file.clone()],
             );
         }
+        if let Some(file) = attached_output_value(ctx.args) {
+            return Classification::WithRedirects(
+                crate::verdict::Decision::Allow,
+                "sort -o".into(),
+                vec![file],
+            );
+        }
+        if has_flag_or_prefixed(ctx.args, &["-o", "--output"]) {
+            return Classification::Ask("sort (output target not extractable)".into());
+        }
         Classification::Allow("sort".into())
     }
+}
+
+/// Extract the path from an attached `sort` output flag: `--output=path` or `-oPATH`.
+fn attached_output_value(args: &[String]) -> Option<String> {
+    for arg in args {
+        if let Some(path) = arg.strip_prefix("--output=") {
+            return Some(path.to_owned());
+        }
+        if let Some(path) = arg.strip_prefix("-o")
+            && !path.is_empty()
+        {
+            return Some(path.to_owned());
+        }
+    }
+    None
 }
 
 // open

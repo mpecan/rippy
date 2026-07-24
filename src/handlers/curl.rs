@@ -1,4 +1,7 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag, is_sole_help_flag};
+use super::{
+    Classification, Handler, HandlerContext, get_flag_value, has_flag, has_flag_or_prefixed,
+    is_sole_help_flag,
+};
 
 pub static CURL_HANDLER: CurlHandler = CurlHandler;
 
@@ -54,6 +57,22 @@ impl Handler for CurlHandler {
                 "curl with output file".into(),
                 vec![output],
             );
+        }
+
+        // Server-named-write flags: the filename is server-controlled, so we
+        // can't emit a redirect target — fail closed rather than Allow.
+        if has_flag(
+            ctx.args,
+            &[
+                "-O",
+                "--remote-name",
+                "--remote-name-all",
+                "-J",
+                "--remote-header-name",
+            ],
+        ) || has_flag_or_prefixed(ctx.args, &["--output-dir"])
+        {
+            return Classification::Ask("curl with server-named output (write request)".into());
         }
 
         Classification::Allow("curl (GET request)".into())

