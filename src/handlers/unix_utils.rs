@@ -20,9 +20,9 @@ const TAR_PROGRAM_EXEC_FLAGS: &[&str] = &[
 
 // tar
 
-pub static TAR_HANDLER: TarHandler = TarHandler;
+pub(crate) static TAR_HANDLER: TarHandler = TarHandler;
 
-pub struct TarHandler;
+pub(crate) struct TarHandler;
 
 impl Handler for TarHandler {
     fn commands(&self) -> &[&str] {
@@ -51,9 +51,9 @@ impl Handler for TarHandler {
 
 // wget
 
-pub static WGET_HANDLER: WgetHandler = WgetHandler;
+pub(crate) static WGET_HANDLER: WgetHandler = WgetHandler;
 
-pub struct WgetHandler;
+pub(crate) struct WgetHandler;
 
 impl Handler for WgetHandler {
     fn commands(&self) -> &[&str] {
@@ -73,14 +73,14 @@ impl Handler for WgetHandler {
 
 // gzip / unzip
 
-pub static GZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
+pub(crate) static GZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["gzip", "gunzip"],
     &["--stdout", "-c", "--list", "-l", "--test", "-t"],
     &[],
     "gzip",
 );
 
-pub static UNZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
+pub(crate) static UNZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["unzip", "7z", "7za", "7zr", "7zz"],
     &["l", "t"],                // list and test
     &["x", "e", "a", "d", "u"], // extract, add, delete, update
@@ -89,9 +89,9 @@ pub static UNZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
 
 // mktemp
 
-pub static MKTEMP_HANDLER: MktempHandler = MktempHandler;
+pub(crate) static MKTEMP_HANDLER: MktempHandler = MktempHandler;
 
-pub struct MktempHandler;
+pub(crate) struct MktempHandler;
 
 impl Handler for MktempHandler {
     fn commands(&self) -> &[&str] {
@@ -108,9 +108,9 @@ impl Handler for MktempHandler {
 
 // tee
 
-pub static TEE_HANDLER: TeeHandler = TeeHandler;
+pub(crate) static TEE_HANDLER: TeeHandler = TeeHandler;
 
-pub struct TeeHandler;
+pub(crate) struct TeeHandler;
 
 impl Handler for TeeHandler {
     fn commands(&self) -> &[&str] {
@@ -137,9 +137,9 @@ impl Handler for TeeHandler {
 
 // sort
 
-pub static SORT_HANDLER: SortHandler = SortHandler;
+pub(crate) static SORT_HANDLER: SortHandler = SortHandler;
 
-pub struct SortHandler;
+pub(crate) struct SortHandler;
 
 impl Handler for SortHandler {
     fn commands(&self) -> &[&str] {
@@ -187,9 +187,9 @@ fn attached_output_value(args: &[String]) -> Option<String> {
 
 // open
 
-pub static OPEN_HANDLER: OpenHandler = OpenHandler;
+pub(crate) static OPEN_HANDLER: OpenHandler = OpenHandler;
 
-pub struct OpenHandler;
+pub(crate) struct OpenHandler;
 
 impl Handler for OpenHandler {
     fn commands(&self) -> &[&str] {
@@ -206,9 +206,9 @@ impl Handler for OpenHandler {
 
 // yq
 
-pub static YQ_HANDLER: YqHandler = YqHandler;
+pub(crate) static YQ_HANDLER: YqHandler = YqHandler;
 
-pub struct YqHandler;
+pub(crate) struct YqHandler;
 
 impl Handler for YqHandler {
     fn commands(&self) -> &[&str] {

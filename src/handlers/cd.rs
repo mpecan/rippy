@@ -2,9 +2,9 @@ use std::path::Path;
 
 use super::{Classification, Handler, HandlerContext, is_within_scope, normalize_path};
 
-pub static CD_HANDLER: CdHandler = CdHandler;
+pub(crate) static CD_HANDLER: CdHandler = CdHandler;
 
-pub struct CdHandler;
+pub(crate) struct CdHandler;
 
 /// `cd` option flags that take no value and don't change the destination.
 const CD_KNOWN_FLAGS: &[&str] = &["-L", "-P", "-e", "-@"];

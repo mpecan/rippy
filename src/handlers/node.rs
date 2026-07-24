@@ -4,9 +4,9 @@ use super::{
 };
 use crate::node_safety::is_node_source_safe;
 
-pub static NODE_HANDLER: NodeHandler = NodeHandler;
+pub(crate) static NODE_HANDLER: NodeHandler = NodeHandler;
 
-pub struct NodeHandler;
+pub(crate) struct NodeHandler;
 
 impl Handler for NodeHandler {
     fn commands(&self) -> &[&str] {

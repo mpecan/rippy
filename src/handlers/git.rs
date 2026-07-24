@@ -6,9 +6,9 @@ use super::{
 };
 use crate::verdict::Decision;
 
-pub static GIT_HANDLER: GitHandler = GitHandler;
+pub(crate) static GIT_HANDLER: GitHandler = GitHandler;
 
-pub struct GitHandler;
+pub(crate) struct GitHandler;
 
 const SAFE_SUBCOMMANDS: &[&str] = &[
     "status",

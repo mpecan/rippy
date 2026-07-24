@@ -1,8 +1,8 @@
 use super::{Classification, Handler, HandlerContext};
 
-pub static SHELL_HANDLER: ShellHandler = ShellHandler;
+pub(crate) static SHELL_HANDLER: ShellHandler = ShellHandler;
 
-pub struct ShellHandler;
+pub(crate) struct ShellHandler;
 
 impl Handler for ShellHandler {
     fn commands(&self) -> &[&str] {

@@ -3,9 +3,9 @@ use crate::ast;
 
 // env
 
-pub static ENV_HANDLER: EnvHandler = EnvHandler;
+pub(crate) static ENV_HANDLER: EnvHandler = EnvHandler;
 
-pub struct EnvHandler;
+pub(crate) struct EnvHandler;
 
 impl Handler for EnvHandler {
     fn commands(&self) -> &[&str] {
@@ -85,9 +85,9 @@ fn split_string_payload(args: &[String]) -> Option<String> {
 
 // xargs
 
-pub static XARGS_HANDLER: XargsHandler = XargsHandler;
+pub(crate) static XARGS_HANDLER: XargsHandler = XargsHandler;
 
-pub struct XargsHandler;
+pub(crate) struct XargsHandler;
 
 /// Flags that take a value argument (skip both flag and value).
 const XARGS_VALUE_FLAGS: &[&str] = &[

@@ -17,7 +17,7 @@ use crate::verdict::Decision;
 
 /// Top-level structure of a `.rippy.toml` file.
 #[derive(Debug, Deserialize)]
-pub struct TomlConfig {
+pub(crate) struct TomlConfig {
     /// Optional metadata section — used by packages for display purposes,
     /// ignored during directive generation.
     pub meta: Option<TomlMeta>,
@@ -37,10 +37,13 @@ pub struct TomlConfig {
 /// For custom packages, `extends` names a built-in package whose rules are
 /// inherited before the custom package's own rules are layered on top.
 #[derive(Debug, Deserialize)]
-pub struct TomlMeta {
+pub(crate) struct TomlMeta {
     pub name: Option<String>,
     pub tagline: Option<String>,
     pub shield: Option<String>,
+    /// Package description — part of the `[meta]` schema, deserialized but not
+    /// yet surfaced anywhere.
+    #[expect(dead_code, reason = "reserved: [meta] schema field, not surfaced yet")]
     pub description: Option<String>,
     pub extends: Option<String>,
 }
@@ -50,7 +53,7 @@ pub struct TomlMeta {
 /// Legacy back-compat alias for `[scopes] safe`; new configs should prefer
 /// `[scopes]`. Both feed the same internal safe-scope list.
 #[derive(Debug, Deserialize)]
-pub struct TomlCd {
+pub(crate) struct TomlCd {
     /// Additional directories that `cd` is allowed to navigate to.
     #[serde(default, rename = "allowed-dirs")]
     pub allowed_dirs: Vec<String>,
@@ -61,14 +64,14 @@ pub struct TomlCd {
 /// Directories the user explicitly trusts for cross-repo work: reads within
 /// them are auto-approved, writes still ask.
 #[derive(Debug, Deserialize)]
-pub struct TomlScopes {
+pub(crate) struct TomlScopes {
     #[serde(default)]
     pub safe: Vec<String>,
 }
 
 /// Git workflow style configuration.
 #[derive(Debug, Deserialize)]
-pub struct TomlGit {
+pub(crate) struct TomlGit {
     /// Default git workflow style for the project.
     pub style: Option<String>,
     /// Branch-specific style overrides.
@@ -78,7 +81,7 @@ pub struct TomlGit {
 
 /// A branch-specific git style override.
 #[derive(Debug, Deserialize)]
-pub struct TomlGitBranch {
+pub(crate) struct TomlGitBranch {
     /// Branch glob pattern (e.g., "agent/*", "main").
     pub pattern: String,
     /// Style name for branches matching this pattern.
@@ -87,7 +90,7 @@ pub struct TomlGitBranch {
 
 /// Global settings section.
 #[derive(Debug, Deserialize)]
-pub struct TomlSettings {
+pub(crate) struct TomlSettings {
     pub default: Option<String>,
     pub log: Option<String>,
     #[serde(rename = "log-full")]
@@ -113,7 +116,7 @@ pub struct TomlSettings {
 /// being silently ignored — see #117 for the `risk` field regression.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TomlRule {
+pub(crate) struct TomlRule {
     pub action: String,
     /// Glob pattern (optional if structured fields are present).
     pub pattern: Option<String>,
@@ -131,7 +134,7 @@ pub struct TomlRule {
 
 /// An alias entry from the `[[aliases]]` array.
 #[derive(Debug, Deserialize)]
-pub struct TomlAlias {
+pub(crate) struct TomlAlias {
     pub source: String,
     pub target: String,
 }
@@ -144,7 +147,10 @@ pub struct TomlAlias {
 ///
 /// Returns `RippyError::Config` if the TOML is malformed or contains
 /// invalid rule definitions.
-pub fn parse_toml_config(content: &str, path: &Path) -> Result<Vec<ConfigDirective>, RippyError> {
+pub(crate) fn parse_toml_config(
+    content: &str,
+    path: &Path,
+) -> Result<Vec<ConfigDirective>, RippyError> {
     let config: TomlConfig = toml::from_str(content).map_err(|e| RippyError::Config {
         path: path.to_owned(),
         line: 0,
@@ -332,7 +338,7 @@ fn parse_decision(word: &str) -> Decision {
 
 /// Serialize a list of directives into TOML format.
 #[must_use]
-pub fn rules_to_toml(directives: &[ConfigDirective]) -> String {
+pub(crate) fn rules_to_toml(directives: &[ConfigDirective]) -> String {
     let mut out = String::new();
     emit_settings(directives, &mut out);
     emit_scopes(directives, &mut out);

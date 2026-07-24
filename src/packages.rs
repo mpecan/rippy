@@ -17,7 +17,7 @@
 mod custom;
 mod meta;
 
-pub use custom::{CustomPackage, discover_custom_packages, load_custom_package};
+pub(crate) use custom::{CustomPackage, discover_custom_packages, load_custom_package};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -216,7 +216,7 @@ fn known_package_names(home: Option<&Path>) -> Vec<String> {
 /// Returns `RippyError::Config` if the TOML is malformed, or
 /// `RippyError::Setup` if `extends` references an unknown or non-built-in
 /// package.
-pub fn package_directives(package: &Package) -> Result<Vec<ConfigDirective>, RippyError> {
+pub(crate) fn package_directives(package: &Package) -> Result<Vec<ConfigDirective>, RippyError> {
     if let Package::Custom(c) = package {
         return custom_package_directives(c);
     }
@@ -253,7 +253,7 @@ fn custom_package_directives(pkg: &CustomPackage) -> Result<Vec<ConfigDirective>
 
 /// Get the raw TOML source for a package.
 #[must_use]
-pub fn package_toml(package: &Package) -> &str {
+pub(crate) fn package_toml(package: &Package) -> &str {
     package.toml_source()
 }
 

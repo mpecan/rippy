@@ -3,9 +3,9 @@ use super::{
     is_sole_help_flag,
 };
 
-pub static CURL_HANDLER: CurlHandler = CurlHandler;
+pub(crate) static CURL_HANDLER: CurlHandler = CurlHandler;
 
-pub struct CurlHandler;
+pub(crate) struct CurlHandler;
 
 const DATA_FLAGS: &[&str] = &[
     "-d",

@@ -2,9 +2,9 @@ use super::{Classification, Handler, HandlerContext, has_flag};
 
 // fd
 
-pub static FD_HANDLER: FdHandler = FdHandler;
+pub(crate) static FD_HANDLER: FdHandler = FdHandler;
 
-pub struct FdHandler;
+pub(crate) struct FdHandler;
 
 impl Handler for FdHandler {
     fn commands(&self) -> &[&str] {
@@ -32,9 +32,9 @@ impl Handler for FdHandler {
 
 // dmesg
 
-pub static DMESG_HANDLER: DmesgHandler = DmesgHandler;
+pub(crate) static DMESG_HANDLER: DmesgHandler = DmesgHandler;
 
-pub struct DmesgHandler;
+pub(crate) struct DmesgHandler;
 
 impl Handler for DmesgHandler {
     fn commands(&self) -> &[&str] {
@@ -51,9 +51,9 @@ impl Handler for DmesgHandler {
 
 // ip
 
-pub static IP_HANDLER: IpHandler = IpHandler;
+pub(crate) static IP_HANDLER: IpHandler = IpHandler;
 
-pub struct IpHandler;
+pub(crate) struct IpHandler;
 
 const IP_MUTATION_ACTIONS: &[&str] = &["add", "del", "delete", "change", "set", "flush", "replace"];
 
@@ -96,9 +96,9 @@ impl Handler for IpHandler {
 
 // ifconfig
 
-pub static IFCONFIG_HANDLER: IfconfigHandler = IfconfigHandler;
+pub(crate) static IFCONFIG_HANDLER: IfconfigHandler = IfconfigHandler;
 
-pub struct IfconfigHandler;
+pub(crate) struct IfconfigHandler;
 
 impl Handler for IfconfigHandler {
     fn commands(&self) -> &[&str] {

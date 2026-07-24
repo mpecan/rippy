@@ -18,7 +18,7 @@ use super::json_settings::{
 ///
 /// Returns `RippyError::Setup` if the hooks file cannot be read/written,
 /// or if tokf is already installed as a hook.
-pub fn run(args: &DirectHookArgs) -> Result<ExitCode, RippyError> {
+pub(crate) fn run(args: &DirectHookArgs) -> Result<ExitCode, RippyError> {
     let path = resolve_tool_path(args.global, ".cursor", "hooks.json")?;
     install_cursor_hook(&path)?;
     Ok(ExitCode::SUCCESS)

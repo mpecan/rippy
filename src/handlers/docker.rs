@@ -1,8 +1,8 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
 
-pub static DOCKER_HANDLER: DockerHandler = DockerHandler;
+pub(crate) static DOCKER_HANDLER: DockerHandler = DockerHandler;
 
-pub struct DockerHandler;
+pub(crate) struct DockerHandler;
 
 const SAFE: &[&str] = &[
     "version", "help", "info", "ps", "images", "inspect", "logs", "stats", "top", "port", "diff",

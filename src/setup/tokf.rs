@@ -39,7 +39,7 @@ struct TokfSearchDir {
 ///
 /// Returns `RippyError::Setup` if tokf is not installed, the target directory
 /// cannot be determined, or the config file cannot be written.
-pub fn run(args: &TokfSetupArgs) -> Result<ExitCode, RippyError> {
+pub(crate) fn run(args: &TokfSetupArgs) -> Result<ExitCode, RippyError> {
     let info = discover_tokf_info()?;
     let target_dir = select_target_dir(&info, args.global)?;
 

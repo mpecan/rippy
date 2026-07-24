@@ -29,11 +29,15 @@ use std::sync::LazyLock;
 use crate::verdict::Decision;
 
 /// Context passed to handlers for classification.
-pub struct HandlerContext<'a> {
+pub(crate) struct HandlerContext<'a> {
     pub command_name: &'a str,
     pub args: &'a [String],
     pub working_directory: &'a Path,
     pub remote: bool,
+    /// Whether this command receives piped stdin. Populated from the analyzer's
+    /// pipeline state; reserved for handlers that need to gate on piped input
+    /// (none read it yet).
+    #[expect(dead_code, reason = "reserved: piped-input-aware handlers may read it")]
     pub receives_piped_input: bool,
     /// User-declared safe scopes: extra directories that path-based handlers
     /// (`cd`, `mkdir`, `git -C`) may enter/create in without prompting (from config).
@@ -45,12 +49,12 @@ const MAX_FILE_SIZE: u64 = 65_536;
 
 impl HandlerContext<'_> {
     /// Get the first argument (typically a subcommand).
-    pub fn subcommand(&self) -> &str {
+    pub(crate) fn subcommand(&self) -> &str {
         self.args.first().map_or("", String::as_str)
     }
 
     /// Get the Nth argument.
-    pub fn arg(&self, n: usize) -> &str {
+    pub(crate) fn arg(&self, n: usize) -> &str {
         self.args.get(n).map_or("", String::as_str)
     }
 
@@ -58,7 +62,7 @@ impl HandlerContext<'_> {
     ///
     /// Returns `None` if the file can't be read (remote mode, missing,
     /// too large, binary, or outside the working directory).
-    pub fn read_file(&self, path: &str) -> Option<String> {
+    pub(crate) fn read_file(&self, path: &str) -> Option<String> {
         if self.remote {
             return None;
         }
@@ -96,12 +100,17 @@ impl HandlerContext<'_> {
 
 /// The result of classifying a command.
 #[derive(Debug, Clone)]
-pub enum Classification {
+pub(crate) enum Classification {
     /// Auto-approve with description.
     Allow(String),
     /// Needs user confirmation with description.
     Ask(String),
-    /// Block with description.
+    /// Block with description. Wired to `Verdict::deny` in `apply_classification`;
+    /// reserved for handlers that need to hard-block (none construct it yet).
+    #[expect(
+        dead_code,
+        reason = "reserved: handlers may hard-deny; dispatch handles it"
+    )]
     Deny(String),
     /// Re-parse and analyze this inner command string.
     Recurse(String),
@@ -112,13 +121,13 @@ pub enum Classification {
 }
 
 /// Trait for command handlers.
-pub trait Handler: Send + Sync {
+pub(crate) trait Handler: Send + Sync {
     fn commands(&self) -> &[&str];
     fn classify(&self, ctx: &HandlerContext) -> Classification;
 }
 
 /// A data-driven handler for commands with simple subcommand-based classification.
-pub struct SubcommandHandler {
+pub(crate) struct SubcommandHandler {
     cmds: &'static [&'static str],
     safe: &'static [&'static str],
     ask: &'static [&'static str],
@@ -127,7 +136,7 @@ pub struct SubcommandHandler {
 
 impl SubcommandHandler {
     #[must_use]
-    pub const fn new(
+    pub(crate) const fn new(
         cmds: &'static [&'static str],
         safe: &'static [&'static str],
         ask: &'static [&'static str],
@@ -170,19 +179,19 @@ impl Handler for SubcommandHandler {
 
 /// Look up a handler by command name.
 #[must_use]
-pub fn get_handler(command_name: &str) -> Option<&'static dyn Handler> {
+pub(crate) fn get_handler(command_name: &str) -> Option<&'static dyn Handler> {
     HANDLER_REGISTRY.get(command_name).copied()
 }
 
 /// Return the number of registered handler command names.
 #[must_use]
-pub fn handler_count() -> usize {
+pub(crate) fn handler_count() -> usize {
     HANDLER_REGISTRY.len()
 }
 
 /// Return all handler-registered command names, sorted alphabetically.
 #[must_use]
-pub fn all_handler_commands() -> Vec<&'static str> {
+pub(crate) fn all_handler_commands() -> Vec<&'static str> {
     let mut cmds: Vec<_> = HANDLER_REGISTRY.keys().copied().collect();
     cmds.sort_unstable();
     cmds
@@ -252,7 +261,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
 }
 
 /// Helper: check if any arg matches a set of flags.
-pub fn has_flag(args: &[String], flags: &[&str]) -> bool {
+pub(crate) fn has_flag(args: &[String], flags: &[&str]) -> bool {
     args.iter().any(|a| flags.contains(&a.as_str()))
 }
 
@@ -265,19 +274,19 @@ pub fn has_flag(args: &[String], flags: &[&str]) -> bool {
 /// ride along auto-approved (see #149). A lone help/version flag is genuinely
 /// inert everywhere; combined with any other argument it must never pre-empt
 /// evaluation of the rest of the command.
-pub fn is_sole_help_flag(args: &[String], flags: &[&str]) -> bool {
+pub(crate) fn is_sole_help_flag(args: &[String], flags: &[&str]) -> bool {
     args.len() == 1 && flags.contains(&args[0].as_str())
 }
 
 /// Helper: get the first positional argument (non-flag).
-pub fn first_positional(args: &[String]) -> Option<&str> {
+pub(crate) fn first_positional(args: &[String]) -> Option<&str> {
     args.iter()
         .find(|a| !a.starts_with('-'))
         .map(String::as_str)
 }
 
 /// Helper: collect all positional (non-flag) arguments.
-pub fn positional_args(args: &[String]) -> Vec<&str> {
+pub(crate) fn positional_args(args: &[String]) -> Vec<&str> {
     args.iter()
         .filter(|a| !a.starts_with('-'))
         .map(String::as_str)
@@ -285,7 +294,7 @@ pub fn positional_args(args: &[String]) -> Vec<&str> {
 }
 
 /// Helper: get the value following a flag (e.g., `-o output.txt` → `Some("output.txt")`).
-pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
+pub(crate) fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
     for (i, arg) in args.iter().enumerate() {
         if flags.contains(&arg.as_str()) {
             return args.get(i + 1).cloned();
@@ -300,7 +309,7 @@ pub fn get_flag_value(args: &[String], flags: &[&str]) -> Option<String> {
 /// `--use-compress-program=sh` or `--output=/tmp/x` slip past them. This
 /// catches both forms without matching an unrelated longer flag name
 /// (`--foo=bar` matches `--foo`, not `--foobar`).
-pub fn has_flag_or_prefixed(args: &[String], flags: &[&str]) -> bool {
+pub(crate) fn has_flag_or_prefixed(args: &[String], flags: &[&str]) -> bool {
     args.iter().any(|a| {
         flags
             .iter()
@@ -316,7 +325,7 @@ pub fn has_flag_or_prefixed(args: &[String], flags: &[&str]) -> bool {
 /// option slips past it. This is restricted to two-char flags (`-I`, `-F`) —
 /// long options never take a glued value without `=` — so it cannot swallow
 /// an unrelated longer flag.
-pub fn has_glued_short_flag(args: &[String], flags: &[&str]) -> bool {
+pub(crate) fn has_glued_short_flag(args: &[String], flags: &[&str]) -> bool {
     args.iter().any(|a| {
         flags
             .iter()
@@ -329,7 +338,7 @@ pub fn has_glued_short_flag(args: &[String], flags: &[&str]) -> bool {
 /// Interpreters like Perl accept multiple `-e`/`-E` fragments and concatenate
 /// them at runtime, so analyzing only the first occurrence (`get_flag_value`)
 /// misses dangerous code hidden in a later fragment.
-pub fn get_flag_values(args: &[String], flags: &[&str]) -> Vec<String> {
+pub(crate) fn get_flag_values(args: &[String], flags: &[&str]) -> Vec<String> {
     let mut values = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -351,11 +360,12 @@ pub fn get_flag_values(args: &[String], flags: &[&str]) -> Vec<String> {
 /// `/var/tmp`. rippy normalizes paths logically (no symlink resolution), so a
 /// literal `/private/tmp/...` target — e.g. the session scratchpad — would not
 /// otherwise match `/tmp`.
-pub const SAFE_DIRECTORIES: &[&str] = &["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
+pub(crate) const SAFE_DIRECTORIES: &[&str] =
+    &["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"];
 
 /// Logical path normalization: resolve `.` and `..` components without
 /// filesystem access (the target directory may not exist yet).
-pub fn normalize_path(path: &Path) -> std::path::PathBuf {
+pub(crate) fn normalize_path(path: &Path) -> std::path::PathBuf {
     let mut result = std::path::PathBuf::new();
     for component in path.components() {
         match component {
@@ -378,7 +388,7 @@ pub fn normalize_path(path: &Path) -> std::path::PathBuf {
 /// Matching uses `Path::starts_with`, which respects path-component
 /// boundaries: a scope of `/opt/repos` matches `/opt/repos/x` but NOT the
 /// sibling `/opt/repos-evil`. Do not replace this with string `starts_with`.
-pub fn is_within_scope(
+pub(crate) fn is_within_scope(
     path: &Path,
     normalized_cwd: &Path,
     safe_scopes: &[std::path::PathBuf],
@@ -397,7 +407,7 @@ pub fn is_within_scope(
 /// Matching uses `Path::starts_with`, which respects path-component boundaries
 /// (see [`is_within_scope`]). `safe_scopes` are expanded and normalized at
 /// config load time.
-pub fn is_within_safe_dir(path: &Path, safe_scopes: &[std::path::PathBuf]) -> bool {
+pub(crate) fn is_within_safe_dir(path: &Path, safe_scopes: &[std::path::PathBuf]) -> bool {
     if safe_scopes.iter().any(|d| path.starts_with(d)) {
         return true;
     }
@@ -413,7 +423,7 @@ pub fn is_within_safe_dir(path: &Path, safe_scopes: &[std::path::PathBuf]) -> bo
 /// to the world-writable defaults without subjecting user-declared scopes (which
 /// are trusted opt-ins) to the same re-check.
 #[must_use]
-pub fn is_within_default_safe_dir(path: &Path) -> bool {
+pub(crate) fn is_within_default_safe_dir(path: &Path) -> bool {
     SAFE_DIRECTORIES.iter().any(|safe| path.starts_with(safe))
 }
 

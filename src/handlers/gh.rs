@@ -1,8 +1,8 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
 
-pub static GH_HANDLER: GhHandler = GhHandler;
+pub(crate) static GH_HANDLER: GhHandler = GhHandler;
 
-pub struct GhHandler;
+pub(crate) struct GhHandler;
 
 const SAFE_ACTIONS: &[&str] = &[
     "view", "list", "status", "diff", "checks", "search", "download", "watch", "verify", "logs",

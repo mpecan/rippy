@@ -13,7 +13,7 @@ use crate::verdict::Decision;
 
 /// A single Bash command extracted from a session with the user's decision.
 #[derive(Debug, Clone)]
-pub struct SessionCommand {
+pub(crate) struct SessionCommand {
     pub command: String,
     pub allowed: bool,
 }
@@ -26,7 +26,7 @@ pub struct SessionCommand {
 /// # Errors
 ///
 /// Returns `RippyError::Parse` if the file cannot be read.
-pub fn parse_session_file(path: &Path) -> Result<Vec<SessionCommand>, RippyError> {
+pub(crate) fn parse_session_file(path: &Path) -> Result<Vec<SessionCommand>, RippyError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| RippyError::Parse(format!("could not read {}: {e}", path.display())))?;
     Ok(parse_session_content(&content))
@@ -121,7 +121,7 @@ fn extract_tool_results(
 /// # Errors
 ///
 /// Returns `RippyError::Parse` if session files cannot be read.
-pub fn parse_project_sessions(cwd: &Path) -> Result<Vec<SessionCommand>, RippyError> {
+pub(crate) fn parse_project_sessions(cwd: &Path) -> Result<Vec<SessionCommand>, RippyError> {
     let Some(project_dir) = find_project_dir(cwd) else {
         return Err(RippyError::Parse(
             "no Claude Code session directory found for this project".to_string(),
@@ -176,7 +176,7 @@ fn find_project_dir(cwd: &Path) -> Option<PathBuf> {
 /// # Errors
 ///
 /// Returns `RippyError` if the config cannot be loaded.
-pub fn filter_auto_allowed(
+pub(crate) fn filter_auto_allowed(
     commands: &[SessionCommand],
     cwd: &Path,
 ) -> Result<Vec<SessionCommand>, RippyError> {
@@ -204,7 +204,7 @@ pub fn filter_auto_allowed(
 
 /// Convert session commands to `CommandBreakdown` format for the suggest engine.
 #[must_use]
-pub fn to_breakdowns(commands: &[SessionCommand]) -> Vec<CommandBreakdown> {
+pub(crate) fn to_breakdowns(commands: &[SessionCommand]) -> Vec<CommandBreakdown> {
     let mut map: HashMap<String, CommandBreakdown> = HashMap::new();
 
     for cmd in commands {
@@ -238,7 +238,7 @@ pub fn to_breakdowns(commands: &[SessionCommand]) -> Vec<CommandBreakdown> {
 
 /// Audit results: classify commands against current rippy config.
 #[derive(Debug)]
-pub struct AuditResult {
+pub(crate) struct AuditResult {
     pub auto_allowed: Vec<(String, i64)>,
     pub user_allowed: Vec<(String, i64)>,
     pub user_denied: Vec<(String, i64)>,
@@ -250,7 +250,10 @@ pub struct AuditResult {
 /// # Errors
 ///
 /// Returns `RippyError` if the config cannot be loaded.
-pub fn audit_commands(commands: &[SessionCommand], cwd: &Path) -> Result<AuditResult, RippyError> {
+pub(crate) fn audit_commands(
+    commands: &[SessionCommand],
+    cwd: &Path,
+) -> Result<AuditResult, RippyError> {
     let config = crate::config::Config::load(cwd, None)?;
     let cc_rules = crate::cc_permissions::load_cc_rules(cwd);
 
@@ -294,7 +297,7 @@ fn sorted_counts(map: HashMap<String, i64>) -> Vec<(String, i64)> {
 }
 
 /// Print audit results to stdout.
-pub fn print_audit(result: &AuditResult) {
+pub(crate) fn print_audit(result: &AuditResult) {
     let auto_count: i64 = result.auto_allowed.iter().map(|(_, c)| c).sum();
     let user_count: i64 = result.user_allowed.iter().map(|(_, c)| c).sum();
     let deny_count: i64 = result.user_denied.iter().map(|(_, c)| c).sum();

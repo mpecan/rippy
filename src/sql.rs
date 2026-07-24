@@ -5,7 +5,7 @@
 /// - `Some(false)` — write (INSERT, UPDATE, DELETE, CREATE, DROP, etc.)
 /// - `None` — ambiguous, multiple statements, or unrecognizable
 #[must_use]
-pub fn classify_sql(sql: &str) -> Option<bool> {
+pub(crate) fn classify_sql(sql: &str) -> Option<bool> {
     let cleaned = strip_comments(sql);
     let trimmed = cleaned.trim();
 

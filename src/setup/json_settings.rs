@@ -8,7 +8,11 @@ use crate::error::RippyError;
 ///
 /// When `global` is true, resolves relative to the home directory (e.g.
 /// `~/.claude/settings.json`). Otherwise returns a project-relative path.
-pub fn resolve_tool_path(global: bool, dir: &str, file: &str) -> Result<PathBuf, RippyError> {
+pub(crate) fn resolve_tool_path(
+    global: bool,
+    dir: &str,
+    file: &str,
+) -> Result<PathBuf, RippyError> {
     if global {
         dirs::home_dir()
             .map(|h| h.join(dir).join(file))
@@ -19,7 +23,7 @@ pub fn resolve_tool_path(global: bool, dir: &str, file: &str) -> Result<PathBuf,
 }
 
 /// Read a JSON file, returning `{}` if the file does not exist.
-pub fn read_json_file(path: &Path) -> Result<Value, RippyError> {
+pub(crate) fn read_json_file(path: &Path) -> Result<Value, RippyError> {
     match std::fs::read_to_string(path) {
         Ok(content) => serde_json::from_str(&content)
             .map_err(|e| RippyError::Setup(format!("could not parse {}: {e}", path.display()))),
@@ -32,7 +36,7 @@ pub fn read_json_file(path: &Path) -> Result<Value, RippyError> {
 }
 
 /// Write a JSON value to a file, creating parent directories as needed.
-pub fn write_json_file(path: &Path, value: &Value) -> Result<(), RippyError> {
+pub(crate) fn write_json_file(path: &Path, value: &Value) -> Result<(), RippyError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
             RippyError::Setup(format!(
@@ -50,14 +54,14 @@ pub fn write_json_file(path: &Path, value: &Value) -> Result<(), RippyError> {
 }
 
 /// Check if any hook entry in an array contains "tokf" in its command field.
-pub fn has_tokf_hook(hooks_array: &[Value]) -> bool {
+pub(crate) fn has_tokf_hook(hooks_array: &[Value]) -> bool {
     hooks_array
         .iter()
         .any(|entry| entry_has_command(entry, "tokf"))
 }
 
 /// Remove any hook entries that contain "rippy" in their command field.
-pub fn remove_rippy_entries(hooks_array: &mut Vec<Value>) {
+pub(crate) fn remove_rippy_entries(hooks_array: &mut Vec<Value>) {
     hooks_array.retain(|entry| !entry_has_command(entry, "rippy"));
 }
 
@@ -88,7 +92,7 @@ fn entry_has_command(entry: &Value, needle: &str) -> bool {
 ///
 /// Creates intermediate objects and the final array as needed.
 /// Returns `None` only if the structure cannot be created.
-pub fn ensure_hooks_array<'a>(
+pub(crate) fn ensure_hooks_array<'a>(
     root: &'a mut Value,
     key1: &str,
     key2: &str,
@@ -114,7 +118,7 @@ pub fn ensure_hooks_array<'a>(
 ///
 /// Returns `RippyError::Setup` if the file cannot be read/written, or if tokf
 /// is already installed as a hook.
-pub fn install_matcher_hook(
+pub(crate) fn install_matcher_hook(
     path: &Path,
     hook_type_key: &str,
     matcher: &str,

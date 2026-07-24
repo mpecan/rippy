@@ -1,8 +1,8 @@
 use super::{Classification, Handler, HandlerContext, has_flag, is_sole_help_flag};
 
-pub static HELM_HANDLER: HelmHandler = HelmHandler;
+pub(crate) static HELM_HANDLER: HelmHandler = HelmHandler;
 
-pub struct HelmHandler;
+pub(crate) struct HelmHandler;
 
 const SAFE_SUBCOMMANDS: &[&str] = &[
     "completion",

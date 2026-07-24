@@ -41,7 +41,7 @@ fn custom_packages_dir(home: &Path) -> PathBuf {
 /// Malformed files are skipped with a stderr warning so callers like
 /// `rippy profile list` stay robust in the presence of a single bad file.
 #[must_use]
-pub fn discover_custom_packages(home: &Path) -> Vec<Arc<CustomPackage>> {
+pub(crate) fn discover_custom_packages(home: &Path) -> Vec<Arc<CustomPackage>> {
     let dir = custom_packages_dir(home);
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
@@ -73,7 +73,7 @@ pub fn discover_custom_packages(home: &Path) -> Vec<Arc<CustomPackage>> {
 /// # Errors
 ///
 /// Returns `RippyError::Config` if the file is malformed or unreadable.
-pub fn load_custom_package(
+pub(crate) fn load_custom_package(
     home: &Path,
     name: &str,
 ) -> Result<Option<Arc<CustomPackage>>, RippyError> {

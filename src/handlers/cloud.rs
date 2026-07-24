@@ -31,9 +31,9 @@ fn command_path(args: &[String]) -> Vec<&str> {
 
 // kubectl
 
-pub static KUBECTL_HANDLER: KubectlHandler = KubectlHandler;
+pub(crate) static KUBECTL_HANDLER: KubectlHandler = KubectlHandler;
 
-pub struct KubectlHandler;
+pub(crate) struct KubectlHandler;
 
 const KUBECTL_SAFE: &[&str] = &[
     "get",
@@ -126,9 +126,9 @@ fn is_local_endpoint(url: &str) -> bool {
 
 // aws
 
-pub static AWS_HANDLER: AwsHandler = AwsHandler;
+pub(crate) static AWS_HANDLER: AwsHandler = AwsHandler;
 
-pub struct AwsHandler;
+pub(crate) struct AwsHandler;
 
 const AWS_SAFE_PREFIXES: &[&str] = &[
     "describe-",
@@ -222,9 +222,9 @@ impl Handler for AwsHandler {
 
 // gcloud
 
-pub static GCLOUD_HANDLER: GcloudHandler = GcloudHandler;
+pub(crate) static GCLOUD_HANDLER: GcloudHandler = GcloudHandler;
 
-pub struct GcloudHandler;
+pub(crate) struct GcloudHandler;
 
 const GCLOUD_SAFE_KEYWORDS: &[&str] = &[
     "describe",
@@ -285,9 +285,9 @@ impl Handler for GcloudHandler {
 
 // az
 
-pub static AZ_HANDLER: AzHandler = AzHandler;
+pub(crate) static AZ_HANDLER: AzHandler = AzHandler;
 
-pub struct AzHandler;
+pub(crate) struct AzHandler;
 
 const AZ_SAFE_KEYWORDS: &[&str] = &[
     "show",

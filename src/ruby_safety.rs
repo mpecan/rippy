@@ -57,7 +57,7 @@ const DANGEROUS_EVALS: &[&str] = &[
 /// This is a heuristic check — it may have false positives (blocking safe code)
 /// but should not have false negatives (allowing dangerous code).
 #[must_use]
-pub fn is_ruby_source_safe(source: &str) -> bool {
+pub(crate) fn is_ruby_source_safe(source: &str) -> bool {
     !has_dangerous_calls(source)
         && !has_dangerous_file_ops(source)
         && !has_dangerous_requires(source)

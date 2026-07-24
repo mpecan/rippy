@@ -2,9 +2,9 @@ use std::path::Path;
 
 use super::{Classification, Handler, HandlerContext, is_within_scope, normalize_path};
 
-pub static MKDIR_HANDLER: MkdirHandler = MkdirHandler;
+pub(crate) static MKDIR_HANDLER: MkdirHandler = MkdirHandler;
 
-pub struct MkdirHandler;
+pub(crate) struct MkdirHandler;
 
 /// Flags that take a value argument (skip both flag and value).
 const VALUE_FLAGS: &[&str] = &["-m", "--mode"];

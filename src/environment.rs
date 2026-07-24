@@ -18,7 +18,7 @@ pub struct Environment {
 
     /// Variable lookup for static expansion resolution.
     /// Defaults to `EnvLookup` (real `std::env::var`).
-    pub var_lookup: Box<dyn VarLookup>,
+    pub(crate) var_lookup: Box<dyn VarLookup>,
 
     /// Whether the command originates from a remote context (e.g. `docker exec`).
     pub remote: bool,
@@ -60,9 +60,10 @@ impl Environment {
         self
     }
 
-    /// Override the variable lookup (builder pattern).
+    /// Override the variable lookup (builder pattern). Test-only injection point.
+    #[cfg(test)]
     #[must_use]
-    pub fn with_var_lookup(mut self, var_lookup: Box<dyn VarLookup>) -> Self {
+    pub(crate) fn with_var_lookup(mut self, var_lookup: Box<dyn VarLookup>) -> Self {
         self.var_lookup = var_lookup;
         self
     }
