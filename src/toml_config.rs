@@ -341,9 +341,29 @@ fn parse_decision(word: &str) -> Decision {
 pub fn rules_to_toml(directives: &[ConfigDirective]) -> String {
     let mut out = String::new();
     emit_settings(directives, &mut out);
+    emit_scopes(directives, &mut out);
     emit_rules(directives, &mut out);
     emit_aliases(directives, &mut out);
     out
+}
+
+/// Emit a `[scopes] safe = [...]` block for any declared safe scopes so
+/// `rippy migrate` round-trips legacy `scope` / `cd-allow` directives instead
+/// of silently dropping them.
+fn emit_scopes(directives: &[ConfigDirective], out: &mut String) {
+    let scopes: Vec<String> = directives
+        .iter()
+        .filter_map(|d| match d {
+            ConfigDirective::SafeScope(p) => Some(format!("{:?}", p.display().to_string())),
+            _ => None,
+        })
+        .collect();
+    if scopes.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "[scopes]");
+    let _ = writeln!(out, "safe = [{}]", scopes.join(", "));
+    out.push('\n');
 }
 
 fn emit_settings(directives: &[ConfigDirective], out: &mut String) {

@@ -380,48 +380,66 @@ fn resolve_package(home: Option<&PathBuf>, cwd: &Path) -> Option<crate::packages
 
 /// Validate a user-supplied safe-scope directory for the `rippy scope` CLI.
 ///
-/// Expands `~`/`$VAR`, normalizes `.`/`..`, and rejects paths that resolve to
-/// the filesystem root, an empty path, a non-absolute path, or the home
-/// directory itself — all of which would auto-approve far too much. Returns the
+/// Thin wrapper over [`expand_and_validate_scope`] so the CLI and the
+/// config-load path apply exactly the same "too broad" rules. Returns the
 /// expanded absolute path (the caller stores the original as-written string).
 ///
 /// # Errors
 ///
 /// Returns a human-readable message describing why the directory was rejected.
 pub fn validate_safe_scope(dir: &str, home: Option<&Path>) -> Result<PathBuf, String> {
-    let expanded = expand_scope_path(Path::new(dir), home)
-        .ok_or_else(|| format!("'{dir}' resolves to the filesystem root or is empty"))?;
-    if !expanded.is_absolute() {
-        return Err(format!(
-            "'{dir}' must resolve to an absolute path (got '{}')",
-            expanded.display()
-        ));
-    }
-    if let Some(h) = home
-        && expanded == crate::handlers::normalize_path(h)
-    {
-        return Err(format!(
-            "'{dir}' is your home directory — too broad to be a safe scope"
-        ));
-    }
-    Ok(expanded)
+    expand_and_validate_scope(Path::new(dir), home)
 }
 
-/// Expand a declared safe-scope path and validate it.
+/// Expand a declared safe-scope path and validate that it is safe to trust.
 ///
 /// Expands a leading `~` (using `home`) and `$VAR`/`${VAR}` references, then
-/// normalizes `.`/`..` components. Returns `None` for paths that would resolve
-/// to the filesystem root or an empty path — declaring `/` (or `~/..`) as a
-/// safe scope would auto-approve nearly the whole filesystem, so such entries
-/// are rejected rather than silently disabling the hook.
-fn expand_scope_path(raw: &Path, home: Option<&Path>) -> Option<std::path::PathBuf> {
-    let raw_str = raw.to_str()?;
+/// normalizes `.`/`..` components. Rejects paths that resolve to the filesystem
+/// root, an empty path, a non-absolute path, or the home directory itself — all
+/// of which would auto-approve far too much. Both the config-load path
+/// ([`expand_scope_path`]) and the `rippy scope` CLI ([`validate_safe_scope`])
+/// go through here so the two agree on what counts as "too broad".
+///
+/// # Errors
+///
+/// Returns a human-readable message describing why the directory was rejected.
+fn expand_and_validate_scope(raw: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
+    let raw_str = raw
+        .to_str()
+        .ok_or_else(|| format!("'{}' is not valid UTF-8", raw.display()))?;
     let expanded = expand_scope_string(raw_str, home);
     let normalized = crate::handlers::normalize_path(Path::new(&expanded));
     if normalized.as_os_str().is_empty() || normalized == Path::new("/") {
-        return None;
+        return Err(format!(
+            "'{raw_str}' resolves to the filesystem root or is empty"
+        ));
     }
-    Some(normalized)
+    if !normalized.is_absolute() {
+        return Err(format!(
+            "'{raw_str}' must resolve to an absolute path (got '{}')",
+            normalized.display()
+        ));
+    }
+    if let Some(h) = home
+        && normalized == crate::handlers::normalize_path(h)
+    {
+        return Err(format!(
+            "'{raw_str}' is your home directory — too broad to be a safe scope"
+        ));
+    }
+    Ok(normalized)
+}
+
+/// Expand and validate a declared safe-scope path for the config-load path.
+///
+/// Returns `None` for any path that is too broad to trust (filesystem root,
+/// empty, non-absolute, or the home directory) — see
+/// [`expand_and_validate_scope`]. Rejected entries are silently dropped rather
+/// than disabling the hook. This keeps a hand-edited or trusted-project
+/// `[scopes] safe = ["~"]` from widening auto-approval across the whole home
+/// directory, matching what the `rippy scope` CLI refuses to add.
+fn expand_scope_path(raw: &Path, home: Option<&Path>) -> Option<std::path::PathBuf> {
+    expand_and_validate_scope(raw, home).ok()
 }
 
 /// Expand a leading tilde then any `$VAR`/`${VAR}` references in `raw`.

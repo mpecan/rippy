@@ -230,27 +230,42 @@ fn render_scopes_block(scopes: &[String]) -> String {
     format!("[scopes]\nsafe = [{items}]\n")
 }
 
-/// Drop the `[scopes]` table (header through the line before the next table
-/// header or EOF) from `content`.
+/// Drop any existing scopes declaration from `content` so a fresh one can be
+/// appended without producing a duplicate (invalid) `scopes` table.
+///
+/// Handles the canonical `[scopes]` header form (this is what the CLI writes)
+/// and a root-level dotted `scopes.safe = [...]` key. Both feed `read_scopes`
+/// via the real TOML parser, so both must be stripped here for the rewrite to
+/// stay consistent with the read path.
 fn strip_scopes_section(content: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     let mut skipping = false;
+    let mut at_root = true;
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed == "[scopes]" {
             skipping = true;
+            at_root = false;
             continue;
         }
-        if skipping {
-            if trimmed.starts_with('[') {
-                skipping = false;
-            } else {
-                continue;
-            }
+        if trimmed.starts_with('[') {
+            skipping = false;
+            at_root = false;
+            out.push(line);
+            continue;
+        }
+        if skipping || (at_root && is_root_scopes_dotted_key(trimmed)) {
+            continue;
         }
         out.push(line);
     }
     out.join("\n")
+}
+
+/// Whether `trimmed` is a root-level dotted `scopes.<key> = …` assignment,
+/// which declares the same table as a `[scopes]` header.
+fn is_root_scopes_dotted_key(trimmed: &str) -> bool {
+    trimmed.starts_with("scopes.") && trimmed.contains('=')
 }
 
 #[cfg(test)]
@@ -370,5 +385,50 @@ mod tests {
         let home = Path::new("/home/alice");
         let got = config::validate_safe_scope("~/src", Some(home)).unwrap();
         assert_eq!(got, PathBuf::from("/home/alice/src"));
+    }
+
+    #[test]
+    fn resolve_config_path_project_is_local() {
+        assert_eq!(
+            resolve_config_path(false).unwrap(),
+            PathBuf::from(".rippy.toml")
+        );
+    }
+
+    #[test]
+    fn resolve_config_path_global_under_home() {
+        // Home resolution reads $HOME, which the test process has set.
+        if let Ok(path) = resolve_config_path(true) {
+            assert!(
+                path.ends_with(".rippy/config.toml"),
+                "unexpected global path: {}",
+                path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn add_replaces_root_dotted_scopes_key() {
+        // A hand-edited root-level `scopes.safe = [...]` (dotted-key form) must be
+        // stripped on rewrite so we don't emit a duplicate scopes declaration.
+        let (_d, path) = tmp();
+        std::fs::write(&path, "scopes.safe = [\"/opt/a\"]\n").unwrap();
+        add_to_file(&path, "/opt/b").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        // Still valid TOML (a duplicate scopes table would fail to parse).
+        let _parsed: toml::Value = toml::from_str(&content).unwrap();
+        assert_eq!(
+            list_from_file(&path).unwrap(),
+            vec!["/opt/a".to_string(), "/opt/b".to_string()]
+        );
+    }
+
+    #[test]
+    fn remove_cli_absent_exits_nonzero() {
+        // `scope remove` of an undeclared entry reports failure (ExitCode 1).
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join(".rippy.toml");
+        std::fs::write(&path, "[scopes]\nsafe = [\"/opt/a\"]\n").unwrap();
+        assert!(!remove_from_file(&path, "/opt/never").unwrap());
     }
 }

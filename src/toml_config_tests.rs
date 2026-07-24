@@ -390,6 +390,30 @@ fn structured_rule_round_trips() {
 }
 
 #[test]
+fn safe_scopes_round_trip_through_migrate() {
+    // `rippy migrate` must carry legacy `scope` / `cd-allow` directives into a
+    // `[scopes]` block instead of silently dropping them.
+    let directives = vec![
+        ConfigDirective::SafeScope(std::path::PathBuf::from("/opt/repos")),
+        ConfigDirective::SafeScope(std::path::PathBuf::from("~/src")),
+    ];
+    let serialized = rules_to_toml(&directives);
+    assert!(
+        serialized.contains("[scopes]"),
+        "missing block: {serialized}"
+    );
+    assert!(serialized.contains("\"/opt/repos\""));
+    assert!(serialized.contains("\"~/src\""));
+
+    let re_parsed = parse_toml_config(&serialized, Path::new("t.toml")).unwrap();
+    let scope_count = re_parsed
+        .iter()
+        .filter(|d| matches!(d, ConfigDirective::SafeScope(_)))
+        .count();
+    assert_eq!(scope_count, 2, "scopes lost on round-trip: {serialized}");
+}
+
+#[test]
 fn rule_with_risk_field_errors() {
     // Regression: the `risk` field was accepted silently (#117). It is now
     // rejected as an unknown field so users don't write no-op configs.

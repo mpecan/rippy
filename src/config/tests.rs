@@ -607,10 +607,44 @@ fn expand_scope_expands_leading_tilde() {
 }
 
 #[test]
-fn expand_scope_bare_tilde_is_home() {
+fn expand_scope_bare_tilde_rejected_as_home() {
+    // A bare `~` expands to the home directory itself, which is too broad to
+    // trust — the load path drops it (parity with `rippy scope add ~`).
     let home = std::path::Path::new("/home/alice");
-    let got = expand_scope_path(std::path::Path::new("~"), Some(home)).unwrap();
-    assert_eq!(got, std::path::PathBuf::from("/home/alice"));
+    assert!(expand_scope_path(std::path::Path::new("~"), Some(home)).is_none());
+}
+
+#[test]
+fn expand_scope_home_env_form_rejected() {
+    // `$HOME`-style expansion that lands on the home dir is also rejected.
+    let home = std::path::Path::new("/home/alice");
+    assert!(expand_scope_path(std::path::Path::new("/home/alice/"), Some(home)).is_none());
+}
+
+#[test]
+fn expand_scope_expands_env_var() {
+    // `CARGO_PKG_NAME` is set to "rippy-cli" in the test process environment.
+    let got = expand_scope_path(std::path::Path::new("/opt/$CARGO_PKG_NAME/x"), None).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/opt/rippy-cli/x"));
+}
+
+#[test]
+fn expand_scope_expands_braced_env_var() {
+    let got = expand_scope_path(std::path::Path::new("/opt/${CARGO_PKG_NAME}/x"), None).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/opt/rippy-cli/x"));
+}
+
+#[test]
+fn expand_scope_unknown_braced_env_var_stays_literal() {
+    let got = expand_scope_path(
+        std::path::Path::new("/opt/${RIPPY_NO_SUCH_VAR_XYZ}/x"),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        got,
+        std::path::PathBuf::from("/opt/${RIPPY_NO_SUCH_VAR_XYZ}/x")
+    );
 }
 
 #[test]
@@ -663,4 +697,47 @@ fn safe_scope_root_entry_dropped() {
         std::path::PathBuf::from("/"),
     )]);
     assert!(config.safe_scopes.is_empty());
+}
+
+#[test]
+fn safe_scope_home_entry_dropped_at_load() {
+    // A trusted/hand-edited `[scopes] safe = ["~"]` must not widen auto-approval
+    // to the whole home directory — the load path drops it, matching the CLI.
+    let home = std::path::PathBuf::from("/home/carol");
+    let config = Config::from_directives_with_home(
+        vec![
+            ConfigDirective::SafeScope(std::path::PathBuf::from("~")),
+            ConfigDirective::SafeScope(std::path::PathBuf::from("/home/carol")),
+        ],
+        Some(home.as_path()),
+    );
+    assert!(
+        config.safe_scopes.is_empty(),
+        "home-dir scopes must be dropped, got {:?}",
+        config.safe_scopes
+    );
+}
+
+#[test]
+fn project_safe_scope_weakening_note_in_verdict() {
+    // A project config declaring a safe scope must disclose that it widens
+    // auto-approval — both in the suffix and in an actual allow verdict reason.
+    let home = std::path::PathBuf::from("/home/dave");
+    let directives = vec![
+        ConfigDirective::ProjectBoundary,
+        ConfigDirective::SafeScope(std::path::PathBuf::from("/opt/repos")),
+        ConfigDirective::Rule(Rule::new(RuleTarget::Command, Decision::Allow, "echo *")),
+        ConfigDirective::ProjectBoundary,
+    ];
+    let config = Config::from_directives_with_home(directives, Some(home.as_path()));
+    assert!(config.weakening_suffix().contains("declares safe scope"));
+    assert!(config.weakening_suffix().contains("widens auto-approval"));
+
+    let v = config.match_command("echo hi", None).unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+    assert!(
+        v.reason.contains("declares safe scope"),
+        "verdict reason must surface the scope disclosure, got: {}",
+        v.reason
+    );
 }

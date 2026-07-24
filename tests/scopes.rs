@@ -170,3 +170,47 @@ fn cli_scope_add_rejects_root() {
     // No config file should have been created for a rejected scope.
     assert!(!dir.path().join(".rippy.toml").exists());
 }
+
+#[test]
+fn cli_scope_remove_absent_exits_nonzero() {
+    // Removing an entry that was never declared reports failure (exit code 1).
+    let dir = tempfile::TempDir::new().unwrap();
+    assert_ne!(run_scope(dir.path(), &["remove", "/opt/never-added"]), 0);
+}
+
+#[test]
+fn cli_scope_global_add_list() {
+    // `--global` writes to <HOME>/.rippy/config.toml and skips the project
+    // trust guard. Isolate HOME to a tempdir so we never touch the real config.
+    let home = tempfile::TempDir::new().unwrap();
+    let work = tempfile::TempDir::new().unwrap();
+
+    let add = Command::new(common::rippy_binary())
+        .args(["scope", "add", "--global", "/opt/global-smoke"])
+        .current_dir(work.path())
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert_eq!(add.status.code().unwrap_or(-1), 0);
+
+    let cfg = std::fs::read_to_string(home.path().join(".rippy/config.toml")).unwrap();
+    assert!(
+        cfg.contains("[scopes]"),
+        "global config missing scopes: {cfg}"
+    );
+    assert!(cfg.contains("/opt/global-smoke"));
+
+    let list = Command::new(common::rippy_binary())
+        .args(["scope", "list", "--global"])
+        .current_dir(work.path())
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert_eq!(list.status.code().unwrap_or(-1), 0);
+    // The declared scope is echoed to stderr.
+    let stderr = String::from_utf8_lossy(&list.stderr);
+    assert!(
+        stderr.contains("/opt/global-smoke"),
+        "list output: {stderr}"
+    );
+}
