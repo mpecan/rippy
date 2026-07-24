@@ -39,6 +39,44 @@ impl Handler for GhHandler {
 
 const FIELD_FLAGS: &[&str] = &["-f", "-F", "--raw-field", "--field"];
 
+/// Extract a field flag's value when glued to the flag token: `-ftitle=hi`,
+/// `-Ftitle=hi` (pflag shorthand, no separator) or `--field=title=hi`,
+/// `--raw-field=title=hi` (long form with `=`). Space-separated forms
+/// (`-f title=hi`) are handled separately via `FIELD_FLAGS` + next-token.
+fn attached_field_value(arg: &str) -> Option<&str> {
+    for long in ["--field=", "--raw-field="] {
+        if let Some(v) = arg.strip_prefix(long) {
+            return Some(v);
+        }
+    }
+    for short in ["-f", "-F"] {
+        if let Some(rest) = arg.strip_prefix(short) {
+            let rest = rest.strip_prefix('=').unwrap_or(rest);
+            if !rest.is_empty() {
+                return Some(rest);
+            }
+        }
+    }
+    None
+}
+
+fn has_field_flag(args: &[String]) -> bool {
+    args.iter()
+        .any(|a| FIELD_FLAGS.contains(&a.as_str()) || attached_field_value(a).is_some())
+}
+
+fn field_values(args: &[String]) -> impl Iterator<Item = String> + '_ {
+    args.iter().enumerate().filter_map(|(i, arg)| {
+        attached_field_value(arg).map(str::to_owned).or_else(|| {
+            if FIELD_FLAGS.contains(&arg.as_str()) {
+                args.get(i + 1).cloned()
+            } else {
+                None
+            }
+        })
+    })
+}
+
 fn classify_api(ctx: &HandlerContext) -> Classification {
     if let Some(method) = get_flag_value(ctx.args, &["-X", "--method"])
         && UNSAFE_METHODS.contains(&method.to_uppercase().as_str())
@@ -47,11 +85,8 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
     }
 
     // Check for GraphQL mutation in field arguments
-    for (i, arg) in ctx.args.iter().enumerate() {
-        if FIELD_FLAGS.contains(&arg.as_str())
-            && let Some(val) = ctx.args.get(i + 1)
-            && val.contains("mutation")
-        {
+    for val in field_values(ctx.args) {
+        if val.contains("mutation") {
             return Classification::Ask("gh api (GraphQL mutation)".into());
         }
     }
@@ -59,7 +94,7 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
     // Non-GraphQL endpoints: field/data flags silently switch the request to
     // POST even though no -X is present, so any field flag means a write.
     let endpoint = ctx.args.get(1).map(String::as_str).unwrap_or_default();
-    if endpoint != "graphql" && ctx.args.iter().any(|a| FIELD_FLAGS.contains(&a.as_str())) {
+    if endpoint != "graphql" && has_field_flag(ctx.args) {
         return Classification::Ask("gh api (field flag implies write)".into());
     }
 

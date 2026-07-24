@@ -336,6 +336,26 @@ decision = "allow"
 command = "ansible-inventory --list -i inventory.yml"
 decision = "allow"
 
+# #160 remediation: glued/`=`-joined inventory flags (`-i./inv.sh`,
+# `--inventory=./inv.sh`) previously bypassed get_flag_value (space-separated
+# form only), letting the dynamic-inventory check fall through to Allow.
+[[case]]
+command = "ansible-inventory --list --inventory=./inv.sh"
+decision = "ask"
+
+[[case]]
+command = "ansible-inventory --list -i./inv.sh"
+decision = "ask"
+
+# Contrast: the same glued forms with a static inventory file must still Allow.
+[[case]]
+command = "ansible-inventory --list --inventory=inventory.yml"
+decision = "allow"
+
+[[case]]
+command = "ansible-inventory --list -iinventory.ini"
+decision = "allow"
+
 # ---- npm / yarn / pnpm / bun ----
 
 # #160: `pack` runs prepare/prepack/postpack lifecycle scripts (supply-chain

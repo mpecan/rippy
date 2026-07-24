@@ -1,6 +1,6 @@
 use super::{
     Classification, Handler, HandlerContext, SubcommandHandler, has_flag, has_flag_or_prefixed,
-    is_sole_help_flag,
+    has_glued_short_flag, is_sole_help_flag,
 };
 
 /// tar flags that spawn an external program (RCE regardless of archive flags used).
@@ -37,7 +37,9 @@ impl Handler for TarHandler {
         {
             return Classification::Recurse(cmd.clone());
         }
-        if has_flag_or_prefixed(ctx.args, TAR_PROGRAM_EXEC_FLAGS) {
+        if has_flag_or_prefixed(ctx.args, TAR_PROGRAM_EXEC_FLAGS)
+            || has_glued_short_flag(ctx.args, TAR_PROGRAM_EXEC_FLAGS)
+        {
             return Classification::Ask("tar (runs external program)".into());
         }
         if has_flag(ctx.args, &["-t", "--list"]) {

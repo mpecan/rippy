@@ -308,6 +308,22 @@ pub fn has_flag_or_prefixed(args: &[String], flags: &[&str]) -> bool {
     })
 }
 
+/// Helper: check if any arg matches a short (single-dash, two-char) flag glued
+/// directly to its value with no separator (getopt's `-Ivalue`, e.g. tar's
+/// `-Ish` for `--use-compress-program=sh`).
+///
+/// `has_flag_or_prefixed` only catches the `flag=value` form, so a glued short
+/// option slips past it. This is restricted to two-char flags (`-I`, `-F`) —
+/// long options never take a glued value without `=` — so it cannot swallow
+/// an unrelated longer flag.
+pub fn has_glued_short_flag(args: &[String], flags: &[&str]) -> bool {
+    args.iter().any(|a| {
+        flags
+            .iter()
+            .any(|f| f.len() == 2 && a.starts_with(f) && a.len() > f.len())
+    })
+}
+
 /// Default directories that are always considered safe for path-based handlers.
 ///
 /// The `/private/...` entries are the macOS canonical locations for `/tmp` and
@@ -395,6 +411,19 @@ mod tests {
         assert!(!has_flag_or_prefixed(&args("--foobar"), &flags));
         assert!(!has_flag_or_prefixed(&args("--foobar=x"), &flags));
         assert!(!has_flag_or_prefixed(&args("--other"), &flags));
+    }
+
+    #[test]
+    fn has_glued_short_flag_matches_attached_value_only() {
+        let flags = ["-I", "-F"];
+        let args = |s: &str| vec![s.to_string()];
+
+        assert!(has_glued_short_flag(&args("-Ish"), &flags));
+        assert!(has_glued_short_flag(&args("-I/bin/sh"), &flags));
+        assert!(has_glued_short_flag(&args("-Fscript"), &flags));
+        assert!(!has_glued_short_flag(&args("-I"), &flags));
+        assert!(!has_glued_short_flag(&args("-i"), &flags));
+        assert!(!has_glued_short_flag(&args("--info-script"), &flags));
     }
 
     #[test]

@@ -96,14 +96,41 @@ fn classify_inventory(ctx: &HandlerContext) -> Classification {
     if !has_flag(ctx.args, &["--list", "--graph", "--host"]) {
         return Classification::Ask("ansible-inventory".into());
     }
-    if let Some(inventory) = get_flag_value(ctx.args, &["-i", "--inventory"])
-        && !STATIC_INVENTORY_EXTENSIONS
-            .iter()
-            .any(|ext| inventory.ends_with(ext))
-    {
-        return Classification::Ask("ansible-inventory (dynamic inventory script)".into());
+    let inventory = get_flag_value(ctx.args, &["-i", "--inventory"])
+        .or_else(|| attached_inventory_value(ctx.args));
+    match inventory {
+        Some(inv)
+            if STATIC_INVENTORY_EXTENSIONS
+                .iter()
+                .any(|ext| inv.ends_with(ext)) =>
+        {
+            Classification::Allow("ansible-inventory (read-only query)".into())
+        }
+        Some(_) => Classification::Ask("ansible-inventory (dynamic inventory script)".into()),
+        None if has_flag(ctx.args, &["-i", "--inventory"]) => {
+            Classification::Ask("ansible-inventory (inventory target not extractable)".into())
+        }
+        None => Classification::Allow("ansible-inventory (read-only query)".into()),
     }
-    Classification::Allow("ansible-inventory (read-only query)".into())
+}
+
+/// Extract `-i`/`--inventory` value glued to the flag: `-i./inv.sh`
+/// (space-free short form) or `--inventory=./inv.sh` (long form with `=`).
+/// `get_flag_value` only matches the space-separated form, so a glued target
+/// would otherwise skip the dynamic-inventory check below and fall through
+/// to Allow.
+fn attached_inventory_value(args: &[String]) -> Option<String> {
+    for arg in args {
+        if let Some(path) = arg.strip_prefix("--inventory=") {
+            return Some(path.to_owned());
+        }
+        if let Some(path) = arg.strip_prefix("-i")
+            && !path.is_empty()
+        {
+            return Some(path.to_owned());
+        }
+    }
+    None
 }
 
 // Behavioral coverage lives in tests/data/catalog/handlers_containers.toml — every
