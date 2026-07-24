@@ -57,7 +57,7 @@
 //! - `curl_get_allows`
 //! - `git_log_with_command_sub_asks`
 //! - `find_exec_rm_asks`
-//! - `cargo_compound_quality_gate_allows`
+//! - `cargo_compound_quality_gate_asks`
 
 #![allow(clippy::unwrap_used)]
 
@@ -355,9 +355,13 @@ fn find_exec_rm_asks() {
     assert_asks("find . -name \"*.tmp\" -exec rm {} \\;");
 }
 
+// #155: a whole-string config/stdlib ALLOW no longer short-circuits a compound
+// command. cargo's safety lives only in a string rule (no leaf handler), so this
+// chain falls through to the AST walk and asks — the fail-closed trade that closes
+// the `cargo build && rm -rf ~` chaining bypass.
 #[test]
-fn cargo_compound_quality_gate_allows() {
-    assert_allows("cargo fmt && cargo clippy && cargo test");
+fn cargo_compound_quality_gate_asks() {
+    assert_asks("cargo fmt && cargo clippy && cargo test");
 }
 
 // Category 6: rable 0.1.14 / 0.1.15 regression locks.

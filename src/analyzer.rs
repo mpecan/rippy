@@ -154,7 +154,17 @@ impl Analyzer {
             .and_then(|nodes| ast::strip_env_prefix(command, nodes));
         let match_str = stripped.as_deref().unwrap_or(command);
 
-        if let Some(decision) = self.cc_rules.check(match_str) {
+        // A whole-string ALLOW may only short-circuit a single plain command; for a
+        // chain/pipe/subst/redirect the trailing payload would ride along (Ask/Deny
+        // still short-circuit). see docs/security-invariants.md#string-rule-chokepoint
+        let plain = parsed
+            .as_ref()
+            .ok()
+            .is_some_and(|nodes| ast::is_single_plain_command(nodes));
+
+        if let Some(decision) = self.cc_rules.check(match_str)
+            && (decision != Decision::Allow || plain)
+        {
             if self.verbose {
                 eprintln!(
                     "[rippy] CC permission rule matched: {match_str} -> {}",
@@ -167,6 +177,7 @@ impl Analyzer {
         if let Some(verdict) = self
             .config
             .match_command(match_str, Some(&self.match_ctx()))
+            && (verdict.decision != Decision::Allow || plain)
         {
             if self.verbose {
                 eprintln!(

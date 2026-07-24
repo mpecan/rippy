@@ -18,19 +18,22 @@ decision = "allow"
 command = "FOO=bar ls"
 decision = "allow"
 
-# Env prefix on the first command of a pipeline/list must still be stripped so
-# the real command is matched (issue #133 compound-command coverage).
+# Env prefix on the first command of a pipeline/list is still stripped (issue
+# #133), but as of #155 a whole-string ALLOW no longer short-circuits a compound
+# command: these fall through to the AST walk, where cargo has no leaf handler and
+# defaults to Ask. Gating the chain is the intended fail-closed trade — the raw
+# command that once matched here is exactly the chaining-bypass vector.
 [[case]]
 command = "RUST_LOG=debug cargo test | grep foo"
-decision = "allow"
+decision = "ask"
 
 [[case]]
 command = "INSTA_UPDATE=always cargo test && cargo build"
-decision = "allow"
+decision = "ask"
 
 [[case]]
 command = "A=1 cargo build ; cargo test"
-decision = "allow"
+decision = "ask"
 
 # Git safe subcommands
 [[case]]

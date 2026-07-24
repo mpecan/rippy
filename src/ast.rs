@@ -346,6 +346,26 @@ pub const fn command_has_redirects(node: &Node) -> bool {
     matches!(&node.kind, NodeKind::Command { redirects, .. } if !redirects.is_empty())
 }
 
+/// Whether the parsed tree is one plain simple command (no redirects, no word
+/// expansions) — the only shape a whole-string allow rule may be trusted on.
+///
+/// A chain (`a && b`), pipeline (`a | b`), redirect (`a > f`), or command
+/// substitution (`` a `b` ``) parses to a `List`/`Pipeline` or a `Command` that
+/// carries redirects/expansions, none of which match here. Those fall through to
+/// the AST walk so a trailing payload cannot ride along on a leading allow-ruled
+/// command. see docs/security-invariants.md#string-rule-chokepoint
+#[must_use]
+pub fn is_single_plain_command(nodes: &[Node]) -> bool {
+    let [node] = nodes else {
+        return false;
+    };
+    matches!(
+        &node.kind,
+        NodeKind::Command { words, redirects, .. }
+            if redirects.is_empty() && !words.iter().any(has_expansions)
+    )
+}
+
 /// Returns `true` when a [`RedirectOp::FdDup`] target denotes a file
 /// descriptor operation rather than a file write.
 ///

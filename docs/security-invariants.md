@@ -89,3 +89,30 @@ words into typed expansion nodes, so a `Word` whose parts are all literal (e.g.
 `WordLiteral` for `'$(whoami)'`) contains no expansion even though its raw value
 has metacharacters. The textual scan is only a fallback for synthetic words (e.g.
 heredoc content) that carry no parts.
+
+## string-rule-chokepoint
+
+The string-match allow layers (`CcRules::check`, `Config::match_command`, and the
+stdlib rules underneath) run on the whole raw command string and each only inspects
+the *leading* command — a following `&&`/`;`/`|`/`` ` ``/`>` boundary satisfies their
+"word boundary", so `cargo build && rm -rf ~` matched a leading `cargo` allow and
+short-circuited before the AST walk ever ran (#155). A trailing payload thus rode
+along on any allow-ruled command, and the redirect form also skipped `self_protect`.
+
+The fix gates those layers on `ast::is_single_plain_command`: an ALLOW decision may
+only short-circuit when the parsed tree is exactly one plain simple command (no
+chain, pipeline, command substitution, or redirect). Anything more complex falls
+through to the AST walk, which analyzes every leaf and combines to the most
+restrictive verdict — so the trailing `rm`/`curl|sh` is gated and the redirect
+reaches `self_protect`. `Ask`/`Deny` from the string layers still short-circuit
+immediately, since honoring a stronger decision early is always fail-closed.
+
+This is deliberately monotonic: the gate can only turn a former Allow into the
+AST walk's (never-weaker) verdict, so it cannot introduce a fail-open. The cost is
+that a chain/pipeline of individually allow-ruled commands (`cargo fmt && cargo
+test`) now falls through to the AST, where a command whose only allow lives in a
+config/stdlib string rule (e.g. `cargo`, which has no leaf handler) defaults to
+Ask. Preferring Ask over a whole-string Allow bypass is the correct trade for a
+security tool; applying string rules per-leaf instead was rejected because it
+re-opened name-based allows in positions the string layer never vetted (dangerous
+env prefixes escaping through wrapper recursion, piped-input-sensitive commands).
