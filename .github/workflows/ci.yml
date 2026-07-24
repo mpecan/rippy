@@ -33,6 +33,12 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: cargo-lint-extra
+        run: cargo binstall -y cargo-lint-extra && cargo lint-extra -W
+
   test:
     name: Test
     runs-on: ubuntu-latest

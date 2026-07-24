@@ -1,0 +1,30 @@
+[global]
+exclude = ["target"]
+
+# --- Comment rules: STRICT ---
+[rules.redundant-comments]
+level = "deny"
+
+[rules.inline-comments]
+level = "deny"
+max_ratio = 0.3
+max_consecutive = 3
+# Security-core files carry intentional, load-bearing safety rationale whose
+# density exceeds the ratio by design — excluded from this ratio rule.
+# redundant-comments still applies to them; noise is pruned by review.
+exclude = ["src/analyzer.rs", "src/resolve.rs", "src/ast.rs", "src/self_protect.rs", "src/sql.rs"]
+
+[rules.todo-comments]
+level = "deny"
+allow_with_issue = true      # TODO(#123) allowed
+
+# --- Size rules ---
+[rules.file-length]
+level = "deny"
+soft_limit = 500
+hard_limit = 700
+
+[rules.line-length]
+level = "warn"               # bump to deny after cleanup
+soft_limit = 100
+hard_limit = 120
