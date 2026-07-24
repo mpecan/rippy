@@ -93,6 +93,20 @@ decision = "allow"
 command = "deno --version"
 decision = "allow"
 
+# deno's version flag is `-V` (capital); a lone version flag still auto-allows.
+[[case]]
+command = "deno -V"
+decision = "allow"
+
+# Sole help flag on the sole-flag-narrowed handlers still auto-allows.
+[[case]]
+command = "kubectl --help"
+decision = "allow"
+
+[[case]]
+command = "wget --help"
+decision = "allow"
+
 # Safe expansion resolution
 [[case]]
 command = "echo {a,b,c}"

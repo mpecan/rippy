@@ -14,7 +14,9 @@ impl Handler for NodeHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if is_sole_help_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
+        // `-V` (capital) is deno's version flag; node/nodejs use `-v`. Listing
+        // both is safe because the flag must be the SOLE argument to short-circuit.
+        if is_sole_help_flag(ctx.args, &["--version", "-v", "-V", "--help", "-h"]) {
             return Classification::Allow(format!("{} version/help", ctx.command_name));
         }
 
@@ -86,6 +88,24 @@ mod tests {
         let args = vec!["--version".into()];
         assert!(matches!(
             NODE_HANDLER.classify(&ctx(&args)),
+            Classification::Allow(_)
+        ));
+    }
+
+    #[test]
+    fn deno_capital_v_version_allows() {
+        // deno uses `-V` for --version; a lone version flag must short-circuit.
+        let args = vec!["-V".into()];
+        let ctx = HandlerContext {
+            command_name: "deno",
+            args: &args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+            receives_piped_input: false,
+            safe_scopes: &[],
+        };
+        assert!(matches!(
+            NODE_HANDLER.classify(&ctx),
             Classification::Allow(_)
         ));
     }

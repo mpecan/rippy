@@ -9,7 +9,7 @@ use crate::condition::MatchContext;
 use crate::config::Config;
 use crate::environment::Environment;
 use crate::error::RippyError;
-use crate::handlers::{self, Classification, HandlerContext};
+use crate::handlers::{self, Classification, HandlerContext, is_sole_help_flag};
 use crate::parser::BashParser;
 use crate::resolve::{self, LocalBinding, VarLookup};
 use crate::verdict::{Decision, Verdict};
@@ -590,7 +590,7 @@ impl Analyzer {
         // operand ride along auto-approved (see #149). Bare `-h` is dropped here
         // because unknown commands overload it (e.g. `-h <host>`); a lone `-h`
         // then Asks, the safe direction.
-        if args.len() == 1 && matches!(args[0].as_str(), "--help" | "--version") {
+        if is_sole_help_flag(&args, &["--help", "--version"]) {
             return Verdict::allow(format!("{cmd_name} help/version"));
         }
 
