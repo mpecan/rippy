@@ -328,23 +328,39 @@ fn trace_parse_and_classify(
     cwd: &Path,
     steps: &mut Vec<TraceStep>,
 ) -> Result<TraceOutput, RippyError> {
-    let cmd_name = parse_command_name(command);
+    let cmd_name = match classify_parse(command) {
+        ParseOutcome::Unparseable => {
+            steps.push(TraceStep {
+                stage: "Parse".to_string(),
+                matched: false,
+                detail: "parse failed".to_string(),
+            });
+            return Ok(make_output(
+                command,
+                "ask",
+                "could not parse command",
+                steps,
+            ));
+        }
+        ParseOutcome::Compound => {
+            // Pipelines / lists / control-flow / multi-node inputs, or a single
+            // command carrying redirects, are not a plain simple command. Route
+            // them to the full analyzer — the exact engine the hook uses — so the
+            // verdict cannot be judged on the first sub-command alone.
+            steps.push(TraceStep {
+                stage: "Parse".to_string(),
+                matched: true,
+                detail: "compound or redirecting command; analyzed recursively".to_string(),
+            });
+            return run_analyzer_for_trace(command, config, cwd, steps);
+        }
+        ParseOutcome::Simple(name) => name,
+    };
     steps.push(TraceStep {
         stage: "Parse".to_string(),
-        matched: cmd_name.is_some(),
-        detail: cmd_name
-            .as_ref()
-            .map_or_else(|| "parse failed".to_string(), Clone::clone),
+        matched: true,
+        detail: cmd_name.clone(),
     });
-
-    let Some(cmd_name) = cmd_name else {
-        return Ok(make_output(
-            command,
-            "ask",
-            "could not parse command",
-            steps,
-        ));
-    };
 
     let is_safe = allowlists::is_simple_safe(&cmd_name);
     steps.push(TraceStep {
@@ -446,12 +462,41 @@ fn make_output_with_resolution(
     }
 }
 
-/// Extract command name from a command string, if parseable.
-fn parse_command_name(command: &str) -> Option<String> {
+/// The shape of a parsed command, used to route the trace.
+///
+/// `Simple` is deliberately restricted to a single top-level simple `Command`
+/// node so that any compound form (pipeline, list, control-flow, or more than
+/// one top-level node) is routed to the full analyzer instead of being judged
+/// on its first sub-command alone.
+enum ParseOutcome {
+    /// Exactly one top-level node that is a simple `Command` with a name.
+    Simple(String),
+    /// Parse succeeded but the input is not a single simple command.
+    Compound,
+    /// The parser could not parse the input.
+    Unparseable,
+}
+
+/// Classify a command string by parse shape (see [`ParseOutcome`]).
+fn classify_parse(command: &str) -> ParseOutcome {
     let mut parser = BashParser;
-    let nodes = parser.parse(command).ok()?;
-    let first = nodes.first()?;
-    crate::ast::command_name(first).map(String::from)
+    let Ok(nodes) = parser.parse(command) else {
+        return ParseOutcome::Unparseable;
+    };
+    // More than one top-level node (e.g. `ls; echo done` when rable emits two
+    // nodes) must be analyzed recursively, never on the first node alone.
+    let [only] = nodes.as_slice() else {
+        return ParseOutcome::Compound;
+    };
+    // A single simple command that carries redirects (e.g. `echo x > .env`) is
+    // NOT a plain safe command: the redirect target may be protected. Route it
+    // through the full analyzer so the trace verdict matches the hook.
+    if crate::ast::command_has_redirects(only) {
+        return ParseOutcome::Compound;
+    }
+    crate::ast::command_name(only).map_or(ParseOutcome::Compound, |name| {
+        ParseOutcome::Simple(name.to_string())
+    })
 }
 
 fn print_trace_text(output: &TraceOutput) {
@@ -635,6 +680,95 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["handler_count"], 43);
+    }
+
+    #[test]
+    fn trace_pipe_command_parses() {
+        let cwd = std::env::current_dir().unwrap();
+        let output = collect_trace_data("ls -la | head", &cwd, None).unwrap();
+        assert_ne!(output.reason, "could not parse command");
+        // Pin the decision to the analyzer's own verdict rather than a hard-coded
+        // "allow" so this test cannot flap on a developer's global config or CC
+        // permissions.
+        let config = Config::load(&cwd, None).unwrap();
+        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+        let verdict = analyzer.analyze("ls -la | head").unwrap();
+        assert_eq!(output.decision, verdict.decision.as_str());
+        assert!(output.steps.iter().any(|s| s.stage == "Parse" && s.matched));
+    }
+
+    #[test]
+    fn trace_and_operator_parses() {
+        let cwd = std::env::current_dir().unwrap();
+        let output = collect_trace_data("git log --oneline && git status", &cwd, None).unwrap();
+        assert_ne!(output.reason, "could not parse command");
+    }
+
+    #[test]
+    fn trace_compound_never_unparseable() {
+        let cwd = std::env::current_dir().unwrap();
+        let commands = [
+            "ls -la | head",
+            "git log --oneline && git status",
+            "git log --oneline || echo fail",
+            "ls; echo done",
+            "for i in 1 2 3; do echo $i; done",
+            "x=$(ls); echo $x",
+        ];
+        for command in commands {
+            let output = collect_trace_data(command, &cwd, None).unwrap();
+            assert_ne!(
+                output.reason, "could not parse command",
+                "command was wrongly reported unparseable: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn trace_safe_command_with_redirect_not_short_circuited() {
+        // A lone simple-safe command carrying a redirect (`echo x > .env`) must
+        // NOT auto-approve on the command name alone — it must be routed through
+        // the analyzer so the verdict matches the hook (which asks / denies the
+        // protected redirect target). Regression for #137.
+        let cwd = std::env::current_dir().unwrap();
+        let output = collect_trace_data("echo secret > .env", &cwd, None).unwrap();
+
+        let config = Config::load(&cwd, None).unwrap();
+        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+        let verdict = analyzer.analyze("echo secret > .env").unwrap();
+        assert_eq!(output.decision, verdict.decision.as_str());
+        assert_ne!(output.decision, "allow");
+    }
+
+    #[test]
+    fn trace_semicolon_list_not_judged_on_first_cmd() {
+        let cwd = std::env::current_dir().unwrap();
+        let output = collect_trace_data("ls; echo done", &cwd, None).unwrap();
+
+        // The trace decision must equal the analyzer's own verdict, proving the
+        // semicolon command is routed through the recursive analyzer rather than
+        // judged on its safe first word `ls`.
+        let config = Config::load(&cwd, None).unwrap();
+        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+        let verdict = analyzer.analyze("ls; echo done").unwrap();
+        assert_eq!(output.decision, verdict.decision.as_str());
+    }
+
+    #[test]
+    fn trace_unsafe_compound_not_allowed() {
+        let cwd = std::env::current_dir().unwrap();
+        let output = collect_trace_data("ls && rm -rf /", &cwd, None).unwrap();
+        // An unsafe compound must never auto-approve on the strength of `ls`.
+        assert_ne!(output.decision, "allow");
+    }
+
+    #[test]
+    fn trace_truly_unparseable_still_asks() {
+        let cwd = std::env::current_dir().unwrap();
+        // A bare `if` keyword is an incomplete construct rable rejects with Err.
+        let output = collect_trace_data("if", &cwd, None).unwrap();
+        assert_eq!(output.decision, "ask");
+        assert_eq!(output.reason, "could not parse command");
     }
 
     #[test]

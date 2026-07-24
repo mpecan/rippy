@@ -174,6 +174,16 @@ pub fn is_safe_redirect_target(target: &str) -> bool {
     matches!(target, "/dev/null" | "/dev/stdout" | "/dev/stderr")
 }
 
+/// Whether a `Command` node carries any redirects at all.
+///
+/// Used to route a single simple command that has redirects (e.g.
+/// `echo x > .env`) through the full analyzer, since the redirect target may be
+/// protected and cannot be judged safe on the command name alone.
+#[must_use]
+pub const fn command_has_redirects(node: &Node) -> bool {
+    matches!(&node.kind, NodeKind::Command { redirects, .. } if !redirects.is_empty())
+}
+
 /// Check if a command node has file output redirects (>, >>)
 /// to targets other than safe ones.
 #[must_use]
