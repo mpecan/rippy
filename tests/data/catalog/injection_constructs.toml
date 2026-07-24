@@ -108,3 +108,25 @@ decision = "deny"
 [[case]]
 command = "echo foo > /dev/null 2> /tmp/err.log"
 decision = "allow"
+
+# #162: redirect targets containing positional/special parameters ($1, $@, $$,
+# $?, $*, $#, $!, $-) must not be treated as literal paths — the textual scan
+# behind is_safe_write_target previously missed these sigils, letting a target
+# such as /tmp/$1/out be judged "inside /tmp" and auto-approved even though the
+# runtime path depends on an unresolved expansion. Contrast against the plain
+# safe-dir case above, which must keep allowing.
+[[case]]
+command = "echo hi > /tmp/$1/out"
+decision = "ask"
+
+[[case]]
+command = "echo hi > /tmp/$@/y"
+decision = "ask"
+
+[[case]]
+command = "echo hi > /tmp/$$/out"
+decision = "ask"
+
+[[case]]
+command = "echo hi > /tmp/$?/out"
+decision = "ask"

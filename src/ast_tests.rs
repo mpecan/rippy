@@ -207,8 +207,24 @@ fn expansion_pattern_detects_ansi_c() {
 #[test]
 fn expansion_pattern_no_false_positive() {
     assert!(!has_shell_expansion_pattern("hello world"));
-    assert!(!has_shell_expansion_pattern("price is $5"));
     assert!(!has_shell_expansion_pattern(""));
+}
+
+// `$5` is a real positional-parameter expansion in bash, not plain text — see
+// issue #162. `has_shell_expansion_pattern` must flag it (and the other
+// positional/special parameters) rather than treat it as a literal.
+#[test]
+fn expansion_pattern_detects_positional_and_special_params() {
+    assert!(has_shell_expansion_pattern("price is $5"));
+    assert!(has_shell_expansion_pattern("$1"));
+    assert!(has_shell_expansion_pattern("$9"));
+    assert!(has_shell_expansion_pattern("$@"));
+    assert!(has_shell_expansion_pattern("$*"));
+    assert!(has_shell_expansion_pattern("$#"));
+    assert!(has_shell_expansion_pattern("$?"));
+    assert!(has_shell_expansion_pattern("$$"));
+    assert!(has_shell_expansion_pattern("$!"));
+    assert!(has_shell_expansion_pattern("$-"));
 }
 
 // Env-prefix stripping
