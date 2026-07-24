@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
+use crate::ast;
 
 // env
 
@@ -12,7 +13,11 @@ impl Handler for EnvHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // Bare `env` prints environment
+        // A code-influencing var must not be laundered by recursing with the bare
+        // inner command. see docs/security-invariants.md#env-prefix-strip
+        if ctx.args.iter().any(|a| sets_dangerous_env(a)) {
+            return Classification::Ask("env sets a code-influencing variable".into());
+        }
         let positionals: Vec<&str> = ctx
             .args
             .iter()
@@ -23,10 +28,18 @@ impl Handler for EnvHandler {
         if positionals.is_empty() {
             return Classification::Allow("env (print environment)".into());
         }
-
-        // Delegate inner command
         Classification::Recurse(positionals.join(" "))
     }
+}
+
+/// Returns `true` if `arg` is a `NAME=VALUE` assignment setting a code-influencing
+/// env var. Option tokens (`-i`, `--split-string=...`) are not assignments.
+fn sets_dangerous_env(arg: &str) -> bool {
+    if arg.starts_with('-') {
+        return false;
+    }
+    arg.split_once('=')
+        .is_some_and(|(name, _)| ast::is_dangerous_env_name(name))
 }
 
 // xargs

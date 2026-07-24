@@ -67,6 +67,57 @@ impl Analyzer {
         self.default_verdict(cmd_name)
     }
 
+    /// Match a single simple command (leaf) against the CC-permission and config
+    /// string rules, returning the rule's verdict (with any redirects combined in)
+    /// or `None` when no rule matches.
+    ///
+    /// The leaf is reconstructed from its own words only — the leading `NAME=VALUE`
+    /// env prefix lives in the command's separate `assignments` and is never part
+    /// of `words`, so `RUST_LOG=debug cargo test` matches as `cargo test`. Called
+    /// per leaf (not on the raw chained string) so a trailing payload can never
+    /// ride along on a leading allow-ruled command.
+    pub(super) fn leaf_string_rule(
+        &self,
+        name: &str,
+        args: &[String],
+        redirects: &[Node],
+        cwd: &Path,
+    ) -> Option<Verdict> {
+        let leaf = if args.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{name} {}", args.join(" "))
+        };
+        if let Some(decision) = self.cc_rules.check(&leaf) {
+            let v = super::cc_decision_to_verdict(decision, &leaf);
+            return Some(self.with_redirects(v, redirects, cwd));
+        }
+        let ctx = self.match_ctx();
+        self.config
+            .match_command(&leaf, Some(&ctx))
+            .map(|v| self.with_redirects(v, redirects, cwd))
+    }
+
+    /// Combine a command-level verdict with the verdicts of its redirects
+    /// (most-restrictive wins), so an allow rule / safe command cannot bypass the
+    /// redirect safety pipeline (self-protect, safe-dir, deny rules).
+    pub(super) fn with_redirects(
+        &self,
+        verdict: Verdict,
+        redirects: &[Node],
+        cwd: &Path,
+    ) -> Verdict {
+        // `analyze_redirects` ignores the depth argument (redirect targets are leaf
+        // paths, not recursively analyzed commands), so a fixed 0 is fine here.
+        let redirect_verdicts = self.analyze_redirects(redirects, cwd, 0);
+        if redirect_verdicts.is_empty() {
+            return verdict;
+        }
+        let mut all = vec![verdict];
+        all.extend(redirect_verdicts);
+        Verdict::combine(&all)
+    }
+
     pub(super) fn analyze_redirect(
         &self,
         op: ast::RedirectOp,

@@ -99,20 +99,32 @@ the *leading* command — a following `&&`/`;`/`|`/`` ` ``/`>` boundary satisfie
 short-circuited before the AST walk ever ran (#155). A trailing payload thus rode
 along on any allow-ruled command, and the redirect form also skipped `self_protect`.
 
-The fix gates those layers on `ast::is_single_plain_command`: an ALLOW decision may
-only short-circuit when the parsed tree is exactly one plain simple command (no
-chain, pipeline, command substitution, or redirect). Anything more complex falls
-through to the AST walk, which analyzes every leaf and combines to the most
-restrictive verdict — so the trailing `rm`/`curl|sh` is gated and the redirect
-reaches `self_protect`. `Ask`/`Deny` from the string layers still short-circuit
-immediately, since honoring a stronger decision early is always fail-closed.
+The fix moves string-rule matching **into the per-leaf AST walk**. Two parts:
 
-This is deliberately monotonic: the gate can only turn a former Allow into the
-AST walk's (never-weaker) verdict, so it cannot introduce a fail-open. The cost is
-that a chain/pipeline of individually allow-ruled commands (`cargo fmt && cargo
-test`) now falls through to the AST, where a command whose only allow lives in a
-config/stdlib string rule (e.g. `cargo`, which has no leaf handler) defaults to
-Ask. Preferring Ask over a whole-string Allow bypass is the correct trade for a
-security tool; applying string rules per-leaf instead was rejected because it
-re-opened name-based allows in positions the string layer never vetted (dangerous
-env prefixes escaping through wrapper recursion, piped-input-sensitive commands).
+- The top-of-`analyze` whole-string check may only short-circuit an ALLOW when the
+  tree is exactly one plain simple command (`ast::is_single_plain_command`); a
+  chain/pipe/subst/redirect falls through. `Ask`/`Deny` still short-circuit there,
+  since honoring a stronger decision early is always fail-closed.
+- `analyze_command` then matches **each simple command (leaf)** against the string
+  rules (`leaf_string_rule`) before the handler/allowlist path. The leaf is
+  reconstructed from its own `words` only. `Verdict::combine` (most-restrictive)
+  merges the leaves, so a chain whose every leaf is individually allow-ruled
+  (`cargo fmt && cargo test`) is Allow — rippy's compound-safety value — while any
+  dangerous leaf's Ask/Deny dominates, and a deny/ask rule now catches a leaf even
+  when it is not the leading command.
+
+Per-leaf matching is sound because the two laundering vectors are closed:
+
+- **Dangerous env prefix.** A leaf whose `assignments` set a code-influencing var
+  (`LD_PRELOAD=`, `BASH_ENV=`, ...; `ast::assignment_is_dangerous_env`) is excluded
+  from `leaf_string_rule`, mirroring `strip_env_prefix`'s refusal to strip such
+  prefixes. The `env` handler likewise refuses to recurse-launder a bare inner
+  command when it sets such a var (`env LD_PRELOAD=… cargo test` → Ask), and the
+  `time`/`nohup`/`command` wrappers preserve the prefix as text so it re-parses as
+  an assignment on the recursed leaf.
+- **Redirects.** `leaf_string_rule` routes an allow-ruled leaf through
+  `with_redirects`, so `cargo build > ~/.rippy/config.toml` still reaches
+  `self_protect`/safe-dir and Denies.
+- **Expansions.** A leaf with a word expansion skips the string match and is
+  resolved first (`try_resolve`); its re-analysis re-enters `analyze_command` on
+  the literal form, so `cargo $X` cannot match a `cargo` rule before `$X` is known.

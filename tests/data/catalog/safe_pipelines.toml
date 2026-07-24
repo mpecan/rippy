@@ -43,13 +43,12 @@ command = "echo hello | base64"
 decision = "allow"
 
 # Compound commands
-# cargo's safety lives only in a stdlib config string rule (no leaf handler), so as
-# of #155 a whole-string ALLOW no longer short-circuits this chain — it falls
-# through to the AST walk and asks. Commands with a real leaf handler/allowlist
-# entry (git, ls, echo below) still allow when chained.
+# As of #155, string rules (stdlib/config/CC) evaluate per leaf, so a chain whose
+# every leaf is individually allow-ruled combines to Allow. A dangerous leaf's
+# Ask/Deny would dominate (see injection_string_rule_chokepoint.toml).
 [[case]]
 command = "cargo fmt && cargo clippy && cargo test"
-decision = "ask"
+decision = "allow"
 
 [[case]]
 command = "git status && git diff"

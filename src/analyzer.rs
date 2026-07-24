@@ -442,6 +442,20 @@ impl Analyzer {
         if Self::assignment_has_expansion(assignments) {
             return Verdict::ask("assignment with expansion");
         }
+        // A code-influencing env prefix is never allow-listed (docs#env-prefix-strip).
+        if assignments.iter().any(ast::assignment_is_dangerous_env) {
+            return Verdict::ask("command run with a code-influencing env var");
+        }
+        // Per-leaf string-rule match (expansions resolved downstream first).
+        // see docs/security-invariants.md#string-rule-chokepoint
+        if !ast::has_expansions_in_slices(words, &[])
+            && let Some(name) = ast::command_name_from_words(words)
+        {
+            let args = ast::command_args_from_words(words);
+            if let Some(v) = self.leaf_string_rule(name, &args, redirects, cwd) {
+                return v;
+            }
+        }
         let checkpoint = self.locals.len();
         self.push_literal_bindings(assignments);
         let v = self.analyze_command_node(words, redirects, cwd, depth);
@@ -572,11 +586,11 @@ impl Analyzer {
             if self.verbose {
                 eprintln!("[rippy] allowlist: {cmd_name} is safe");
             }
-            let mut v = Verdict::allow(format!("{cmd_name} is safe"));
-            for rv in self.analyze_redirects(redirects, cwd, depth) {
-                v = most_restrictive(v, rv);
-            }
-            return v;
+            return self.with_redirects(
+                Verdict::allow(format!("{cmd_name} is safe")),
+                redirects,
+                cwd,
+            );
         }
 
         // Short-circuit to Allow ONLY when the help/version flag is the sole arg;
@@ -587,15 +601,7 @@ impl Analyzer {
         }
 
         let handler_verdict = self.classify_with_handler(&cmd_name, &args, cwd, depth);
-
-        let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
-        if redirect_verdicts.is_empty() {
-            handler_verdict
-        } else {
-            let mut all = vec![handler_verdict];
-            all.extend(redirect_verdicts);
-            Verdict::combine(&all)
-        }
+        self.with_redirects(handler_verdict, redirects, cwd)
     }
 }
 

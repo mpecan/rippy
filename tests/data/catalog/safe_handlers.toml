@@ -19,21 +19,21 @@ command = "FOO=bar ls"
 decision = "allow"
 
 # Env prefix on the first command of a pipeline/list is still stripped (issue
-# #133), but as of #155 a whole-string ALLOW no longer short-circuits a compound
-# command: these fall through to the AST walk, where cargo has no leaf handler and
-# defaults to Ask. Gating the chain is the intended fail-closed trade — the raw
-# command that once matched here is exactly the chaining-bypass vector.
+# #133). As of #155, string rules evaluate per leaf, so a compound whose every
+# leaf is individually allow-ruled (a safe env prefix + safe cargo subcommands +
+# SIMPLE_SAFE grep) combines to Allow — rippy's compound-safety value. A dangerous
+# leaf would flip these to Ask (see injection_string_rule_chokepoint.toml).
 [[case]]
 command = "RUST_LOG=debug cargo test | grep foo"
-decision = "ask"
+decision = "allow"
 
 [[case]]
 command = "INSTA_UPDATE=always cargo test && cargo build"
-decision = "ask"
+decision = "allow"
 
 [[case]]
 command = "A=1 cargo build ; cargo test"
-decision = "ask"
+decision = "allow"
 
 # Git safe subcommands
 [[case]]
