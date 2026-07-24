@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use super::{Classification, Handler, HandlerContext, has_flag, is_within_scope, normalize_path};
+use super::{
+    Classification, Handler, HandlerContext, has_flag, is_within_scope, normalize_path,
+    positional_args,
+};
+use crate::verdict::Decision;
 
 pub static GIT_HANDLER: GitHandler = GitHandler;
 
@@ -77,6 +81,21 @@ const ASK_SUBCOMMANDS: &[&str] = &[
     "apply",
 ];
 
+/// Config keys `-c`/`--config-env` may set without asking. Deliberately an
+/// allowlist, not a denylist: any key not listed here (core.pager,
+/// core.sshCommand, alias.*, uploadpack.packObjectsHook, protocol.*.allow, ...)
+/// can run arbitrary commands via git's config, so unknown keys fail closed.
+const SAFE_CONFIG_KEYS: &[&str] = &[
+    "user.name",
+    "user.email",
+    "color.ui",
+    "core.autocrlf",
+    "core.quotepath",
+    "init.defaultbranch",
+    "pull.rebase",
+    "advice.detachedhead",
+];
+
 /// Global flags that take a value argument (skip both flag and value).
 const GLOBAL_VALUE_FLAGS: &[&str] = &[
     "-C",
@@ -113,6 +132,10 @@ impl Handler for GitHandler {
             return verdict;
         }
 
+        if let Some(verdict) = check_config_overrides(ctx.args) {
+            return verdict;
+        }
+
         let (sub, sub_args) = extract_subcommand(ctx.args);
         let desc = format!("git {sub}");
 
@@ -121,7 +144,7 @@ impl Handler for GitHandler {
         }
 
         if SAFE_SUBCOMMANDS.contains(&sub.as_str()) {
-            return Classification::Allow(desc);
+            return classify_safe_subcommand(&sub, &sub_args, &desc);
         }
 
         if ASK_SUBCOMMANDS.contains(&sub.as_str()) {
@@ -212,6 +235,181 @@ fn repo_flag_out_of_scope(
             "git {flag} targets outside allowed scope ({value})"
         )))
     }
+}
+
+/// Scrutinize `-c key=value` and `--config-env` overrides before subcommand
+/// dispatch: `extract_subcommand` skips them to find the subcommand, but their
+/// key must be checked against `SAFE_CONFIG_KEYS` first, since these can carry
+/// RCE-bearing keys (core.pager, core.sshCommand, uploadpack.packObjectsHook, ...).
+fn check_config_overrides(args: &[String]) -> Option<Classification> {
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        if arg == "-c" {
+            if let Some(kv) = args.get(i + 1)
+                && let Some(verdict) = check_config_kv(kv)
+            {
+                return Some(verdict);
+            }
+            i += 2;
+            continue;
+        }
+        if let Some(kv) = arg.strip_prefix("--config-env=") {
+            if let Some(verdict) = check_config_kv(kv) {
+                return Some(verdict);
+            }
+            i += 1;
+            continue;
+        }
+        if arg == "--config-env" {
+            if let Some(kv) = args.get(i + 1)
+                && let Some(verdict) = check_config_kv(kv)
+            {
+                return Some(verdict);
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `None` when `kv`'s key (case-insensitive, up to the first `=`) is on the
+/// safe allowlist; `Some(Ask)` otherwise.
+fn check_config_kv(kv: &str) -> Option<Classification> {
+    let key = kv.split('=').next().unwrap_or(kv).to_lowercase();
+    if SAFE_CONFIG_KEYS.contains(&key.as_str()) {
+        None
+    } else {
+        Some(Classification::Ask(format!(
+            "git -c {kv} is not on the safe config allowlist"
+        )))
+    }
+}
+
+/// Dispatch a `SAFE_SUBCOMMANDS` member to its flag-aware classifier, falling
+/// through to a plain `Allow` for members with no dangerous flags.
+fn classify_safe_subcommand(sub: &str, args: &[String], desc: &str) -> Classification {
+    match sub {
+        "diff" => classify_diff(args, desc),
+        "archive" => classify_output_path(args, &["--output"], &["-o", "--output"], desc),
+        "format-patch" => classify_output_path(
+            args,
+            &["--output-directory"],
+            &["-o", "--output-directory"],
+            desc,
+        ),
+        "grep" => classify_grep(args, desc),
+        "difftool" => classify_difftool(args, desc),
+        "fetch" => classify_fetch(args, desc),
+        _ => Classification::Allow(desc.into()),
+    }
+}
+
+fn classify_diff(args: &[String], desc: &str) -> Classification {
+    if has_flag(args, &["--ext-diff"]) {
+        return Classification::Ask("git diff --ext-diff (enables external diff driver)".into());
+    }
+    classify_output_path(args, &["--output"], &["-o", "--output"], desc)
+}
+
+/// Flags whose attached (`--flag=PATH`) or separated (`--flag PATH` / `-o PATH`)
+/// value names a write target; routes through `WithRedirects` so the existing
+/// write-scope pipeline decides Allow (e.g. /tmp) vs Ask.
+fn classify_output_path(
+    args: &[String],
+    eq_flags: &[&str],
+    space_flags: &[&str],
+    desc: &str,
+) -> Classification {
+    if let Some(path) = flag_path_value(args, eq_flags, space_flags) {
+        return Classification::WithRedirects(Decision::Allow, desc.into(), vec![path]);
+    }
+    Classification::Allow(desc.into())
+}
+
+fn flag_path_value(args: &[String], eq_flags: &[&str], space_flags: &[&str]) -> Option<String> {
+    for arg in args {
+        for flag in eq_flags {
+            if let Some(value) = arg
+                .strip_prefix(flag)
+                .and_then(|rest| rest.strip_prefix('='))
+            {
+                return Some(value.to_owned());
+            }
+        }
+    }
+    let mut i = 0;
+    while i < args.len() {
+        if space_flags.contains(&args[i].as_str()) {
+            return args.get(i + 1).cloned();
+        }
+        i += 1;
+    }
+    None
+}
+
+/// True if `arg` is a single-dash short-flag cluster (e.g. `-nOid`, `-xid`) that
+/// contains `letter` anywhere after the leading dash. Git's getopt-style short
+/// options allow a value-taking flag to appear anywhere in the cluster with the
+/// remaining characters as its attached value (e.g. `-nOid` = `-n -Oid`), not
+/// just as the first character, so this checks containment rather than prefix.
+fn short_cluster_contains(arg: &str, letter: char) -> bool {
+    arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains(letter)
+}
+
+fn classify_grep(args: &[String], desc: &str) -> Classification {
+    let pager_flag = args.iter().any(|a| {
+        short_cluster_contains(a, 'O')
+            || a == "--open-files-in-pager"
+            || a.starts_with("--open-files-in-pager=")
+    });
+    if pager_flag {
+        Classification::Ask(
+            "git grep --open-files-in-pager (launches external pager/command)".into(),
+        )
+    } else {
+        Classification::Allow(desc.into())
+    }
+}
+
+fn classify_difftool(args: &[String], desc: &str) -> Classification {
+    let extcmd_flag = args
+        .iter()
+        .any(|a| short_cluster_contains(a, 'x') || a == "--extcmd" || a.starts_with("--extcmd="));
+    if extcmd_flag {
+        Classification::Ask("git difftool --extcmd (launches external command)".into())
+    } else {
+        Classification::Allow(desc.into())
+    }
+}
+
+/// True if `remote` is scp-like remote syntax (`user@host:path` or `host:path`),
+/// which git treats as an SSH transport URL causing network egress the same as
+/// an explicit `ssh://` URL. Distinguished from local refspecs (e.g.
+/// `origin master:master`) by requiring no `/` before the colon, since refspecs
+/// name refs (`refs/heads/...`) or branches, not bare hostnames.
+fn is_scp_like_remote(remote: &str) -> bool {
+    let Some(colon_idx) = remote.find(':') else {
+        return false;
+    };
+    let host_part = &remote[..colon_idx];
+    !host_part.is_empty() && !host_part.contains('/') && !host_part.contains('\\')
+}
+
+fn classify_fetch(args: &[String], desc: &str) -> Classification {
+    let positionals = positional_args(args);
+    if let Some(url) = positionals
+        .iter()
+        .find(|a| a.contains("://") || a.contains("::"))
+    {
+        return Classification::Ask(format!("git fetch (remote URL: {url})"));
+    }
+    if let Some(remote) = positionals.first().filter(|r| is_scp_like_remote(r)) {
+        return Classification::Ask(format!("git fetch (remote URL: {remote})"));
+    }
+    Classification::Allow(desc.into())
 }
 
 fn extract_subcommand(args: &[String]) -> (String, Vec<String>) {
