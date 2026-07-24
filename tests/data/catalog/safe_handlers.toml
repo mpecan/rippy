@@ -176,3 +176,19 @@ decision = "allow"
 [[case]]
 command = "tokf run git status"
 decision = "allow"
+
+[[case]]
+command = "mise tasks ls"
+decision = "allow"
+
+[[case]]
+command = "mise tasks info build"
+decision = "allow"
+
+[[case]]
+command = "tokf test git status"
+decision = "allow"
+
+[[case]]
+command = "tokf summary git log"
+decision = "allow"

@@ -122,3 +122,22 @@ decision = "ask"
 [[case]]
 command = "env FOO=bar rm -rf /"
 decision = "ask"
+
+# Task runner false-allow regressions (Issue #135)
+# A read-only flag AFTER a `just` recipe name is a recipe argument: it RUNS.
+[[case]]
+command = "just deploy --list"
+decision = "ask"
+
+[[case]]
+command = "just build --dump"
+decision = "ask"
+
+# `mise tasks run/edit/add` execute or mutate even though bare `mise tasks` lists.
+[[case]]
+command = "mise tasks run pwn"
+decision = "ask"
+
+[[case]]
+command = "mise tasks edit pwn"
+decision = "ask"

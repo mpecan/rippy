@@ -383,3 +383,42 @@ fn tokf_raw_compound_rm_asks() {
 fn tokf_run_rm_asks() {
     assert_eq!(decision(&payload("tokf run rm -rf /")), "ask");
 }
+
+// SECURITY (Issue #135): a read-only flag placed AFTER a `just` recipe name is
+// a recipe argument, so the recipe RUNS. Must Ask, never inherit introspection.
+#[test]
+fn just_recipe_trailing_list_asks() {
+    assert_eq!(decision(&payload("just deploy --list")), "ask");
+}
+
+#[test]
+fn just_recipe_trailing_dump_asks() {
+    assert_eq!(decision(&payload("just build --dump")), "ask");
+}
+
+// SECURITY (Issue #135): `mise tasks run <task>` executes the task even though
+// bare `mise tasks` is read-only. Must Ask.
+#[test]
+fn mise_tasks_run_asks() {
+    assert_eq!(decision(&payload("mise tasks run pwn")), "ask");
+}
+
+#[test]
+fn mise_tasks_edit_asks() {
+    assert_eq!(decision(&payload("mise tasks edit pwn")), "ask");
+}
+
+#[test]
+fn mise_tasks_ls_allows() {
+    assert_eq!(decision(&payload("mise tasks ls")), "allow");
+}
+
+#[test]
+fn tokf_test_git_status_allows() {
+    assert_eq!(decision(&payload("tokf test git status")), "allow");
+}
+
+#[test]
+fn tokf_summary_rm_asks() {
+    assert_eq!(decision(&payload("tokf summary rm -rf /")), "ask");
+}
