@@ -137,7 +137,9 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
     }
 }
 
-/// Check if a string contains shell expansion patterns (`$(`, `` ` ``, `${`, or `$` + identifier).
+/// Check if a string contains shell expansion patterns: `$(`, `` ` ``, `${`,
+/// `$` + identifier, or `$` + a positional/special parameter (`$1`-`$9`, `$@`,
+/// `$*`, `$#`, `$?`, `$$`, `$!`, `$-`).
 ///
 /// Used for heredoc content and other string-level expansion detection where
 /// structured AST nodes are not available.
@@ -155,7 +157,9 @@ pub fn has_shell_expansion_pattern(s: &str) -> bool {
                 || next == b'\''
                 || next == b'"'
                 || next.is_ascii_alphabetic()
-                || next == b'_')
+                || next == b'_'
+                || next.is_ascii_digit()
+                || matches!(next, b'@' | b'*' | b'#' | b'?' | b'$' | b'!' | b'-'))
         {
             return true;
         }
