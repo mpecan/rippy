@@ -43,6 +43,9 @@ command = "echo hello | base64"
 decision = "allow"
 
 # Compound commands
+# As of #155, string rules (stdlib/config/CC) evaluate per leaf, so a chain whose
+# every leaf is individually allow-ruled combines to Allow. A dangerous leaf's
+# Ask/Deny would dominate (see injection_string_rule_chokepoint.toml).
 [[case]]
 command = "cargo fmt && cargo clippy && cargo test"
 decision = "allow"

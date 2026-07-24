@@ -355,6 +355,10 @@ fn find_exec_rm_asks() {
     assert_asks("find . -name \"*.tmp\" -exec rm {} \\;");
 }
 
+// #155: string rules evaluate per leaf, so a compound whose every leaf is
+// individually allow-ruled combines to Allow (rippy's compound-safety value),
+// while a dangerous leaf (`cargo build && rm -rf ~`) still Asks — the chaining
+// bypass stays closed (covered in injection_string_rule_chokepoint.toml).
 #[test]
 fn cargo_compound_quality_gate_allows() {
     assert_allows("cargo fmt && cargo clippy && cargo test");

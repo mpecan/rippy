@@ -132,3 +132,41 @@ words into typed expansion nodes, so a `Word` whose parts are all literal (e.g.
 `WordLiteral` for `'$(whoami)'`) contains no expansion even though its raw value
 has metacharacters. The textual scan is only a fallback for synthetic words (e.g.
 heredoc content) that carry no parts.
+
+## string-rule-chokepoint
+
+The string-match allow layers (`CcRules::check`, `Config::match_command`, and the
+stdlib rules underneath) run on the whole raw command string and each only inspects
+the *leading* command — a following `&&`/`;`/`|`/`` ` ``/`>` boundary satisfies their
+"word boundary", so `cargo build && rm -rf ~` matched a leading `cargo` allow and
+short-circuited before the AST walk ever ran (#155). A trailing payload thus rode
+along on any allow-ruled command, and the redirect form also skipped `self_protect`.
+
+The fix moves string-rule matching **into the per-leaf AST walk**. Two parts:
+
+- The top-of-`analyze` whole-string check may only short-circuit an ALLOW when the
+  tree is exactly one plain simple command (`ast::is_single_plain_command`); a
+  chain/pipe/subst/redirect falls through. `Ask`/`Deny` still short-circuit there,
+  since honoring a stronger decision early is always fail-closed.
+- `analyze_command` then matches **each simple command (leaf)** against the string
+  rules (`leaf_string_rule`) before the handler/allowlist path. The leaf is
+  reconstructed from its own `words` only. `Verdict::combine` (most-restrictive)
+  merges the leaves, so a chain whose every leaf is individually allow-ruled
+  (`cargo fmt && cargo test`) is Allow — rippy's compound-safety value — while any
+  dangerous leaf's Ask/Deny dominates, and a deny/ask rule now catches a leaf even
+  when it is not the leading command.
+
+Per-leaf matching is sound because the laundering vectors are closed:
+
+- **Dangerous env prefix.** The `analyze_command` dangerous-env gate (see
+  #dangerous-env-name) runs *before* `leaf_string_rule`, so a leaf carrying a
+  code-influencing prefix (`LD_PRELOAD=`, `BASH_ENV=`, `PAGER=`, ...) Asks and is
+  never allow-listed by a string rule — single or chained. The `env` handler and
+  the `time`/`nohup`/`command` wrappers close the same laundering through
+  recursion (see #dangerous-env-name).
+- **Redirects.** `leaf_string_rule` routes an allow-ruled leaf through
+  `with_redirects`, so `cargo build > ~/.rippy/config.toml` still reaches
+  `self_protect`/safe-dir and Denies.
+- **Expansions.** A leaf with a word expansion skips the string match and is
+  resolved first (`try_resolve`); its re-analysis re-enters `analyze_command` on
+  the literal form, so `cargo $X` cannot match a `cargo` rule before `$X` is known.

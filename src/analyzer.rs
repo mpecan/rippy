@@ -154,7 +154,17 @@ impl Analyzer {
             .and_then(|nodes| ast::strip_env_prefix(command, nodes));
         let match_str = stripped.as_deref().unwrap_or(command);
 
-        if let Some(decision) = self.cc_rules.check(match_str) {
+        // A whole-string ALLOW may only short-circuit a single plain command; for a
+        // chain/pipe/subst/redirect the trailing payload would ride along (Ask/Deny
+        // still short-circuit). see docs/security-invariants.md#string-rule-chokepoint
+        let plain = parsed
+            .as_ref()
+            .ok()
+            .is_some_and(|nodes| ast::is_single_plain_command(nodes));
+
+        if let Some(decision) = self.cc_rules.check(match_str)
+            && (decision != Decision::Allow || plain)
+        {
             if self.verbose {
                 eprintln!(
                     "[rippy] CC permission rule matched: {match_str} -> {}",
@@ -167,6 +177,7 @@ impl Analyzer {
         if let Some(verdict) = self
             .config
             .match_command(match_str, Some(&self.match_ctx()))
+            && (verdict.decision != Decision::Allow || plain)
         {
             if self.verbose {
                 eprintln!(
@@ -434,6 +445,16 @@ impl Analyzer {
         if Self::assignment_is_dangerous(assignments) {
             return Verdict::ask("dangerous env-var assignment");
         }
+        // Per-leaf string-rule match (expansions resolved downstream first).
+        // see docs/security-invariants.md#string-rule-chokepoint
+        if !ast::has_expansions_in_slices(words, &[])
+            && let Some(name) = ast::command_name_from_words(words)
+        {
+            let args = ast::command_args_from_words(words);
+            if let Some(v) = self.leaf_string_rule(name, &args, redirects, cwd) {
+                return v;
+            }
+        }
         let checkpoint = self.locals.len();
         self.push_literal_bindings(assignments);
         let v = self.analyze_command_node(words, redirects, cwd, depth);
@@ -579,11 +600,11 @@ impl Analyzer {
             if self.verbose {
                 eprintln!("[rippy] allowlist: {cmd_name} is safe");
             }
-            let mut v = Verdict::allow(format!("{cmd_name} is safe"));
-            for rv in self.analyze_redirects(redirects, cwd, depth) {
-                v = most_restrictive(v, rv);
-            }
-            return v;
+            return self.with_redirects(
+                Verdict::allow(format!("{cmd_name} is safe")),
+                redirects,
+                cwd,
+            );
         }
 
         // Short-circuit to Allow ONLY when the help/version flag is the sole arg;
@@ -594,15 +615,7 @@ impl Analyzer {
         }
 
         let handler_verdict = self.classify_with_handler(&cmd_name, &args, cwd, depth);
-
-        let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
-        if redirect_verdicts.is_empty() {
-            handler_verdict
-        } else {
-            let mut all = vec![handler_verdict];
-            all.extend(redirect_verdicts);
-            Verdict::combine(&all)
-        }
+        self.with_redirects(handler_verdict, redirects, cwd)
     }
 }
 

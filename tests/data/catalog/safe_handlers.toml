@@ -18,8 +18,11 @@ decision = "allow"
 command = "FOO=bar ls"
 decision = "allow"
 
-# Env prefix on the first command of a pipeline/list must still be stripped so
-# the real command is matched (issue #133 compound-command coverage).
+# Env prefix on the first command of a pipeline/list is still stripped (issue
+# #133). As of #155, string rules evaluate per leaf, so a compound whose every
+# leaf is individually allow-ruled (a safe env prefix + safe cargo subcommands +
+# SIMPLE_SAFE grep) combines to Allow — rippy's compound-safety value. A dangerous
+# leaf would flip these to Ask (see injection_string_rule_chokepoint.toml).
 [[case]]
 command = "RUST_LOG=debug cargo test | grep foo"
 decision = "allow"
