@@ -60,6 +60,10 @@ const DANGEROUS_COMMANDS: &[&str] = &[
 /// Injection separators that create compound commands.
 const INJECTION_VECTORS: &[&str] = &["; ", " && ", " || "];
 
+/// File-write redirect operators. `&>`/`>&` parse as fd duplication but with a
+/// path target are file writes, so they must be guarded identically to `>`/`>>`.
+const WRITE_REDIRECT_OPS: &[&str] = &[">", ">>", "&>", ">&"];
+
 /// Git repo-redirect flag forms — separated (`--git-dir PATH`) and attached
 /// (`--git-dir=PATH`). All must be scope-checked identically so a redirect to
 /// an outside repo cannot be smuggled past the guard via the `=` form (#134).
@@ -261,6 +265,30 @@ proptest! {
             verdict.decision >= Decision::Ask,
             "scope {:?} auto-approved outside path {:?} => {:?}",
             scope, outside, verdict.reason,
+        );
+    }
+
+    /// A write redirect whose target is outside every declared scope and the
+    /// default safe dirs must never auto-approve (#136) — the redirect analogue
+    /// of `git_repo_redirect_outside_never_auto_approves`. The `&>`/`>&` forms
+    /// (parsed as fd-dup but really file writes) are included so they cannot
+    /// bypass the safe-dir/self-protection pipeline via the "fd redirect" allow.
+    #[test]
+    fn write_redirect_outside_never_auto_approves(
+        scope_idx in 0..SCOPE_INPUTS.len(),
+        path_idx in 0..OUTSIDE_PATHS.len(),
+        op_idx in 0..WRITE_REDIRECT_OPS.len(),
+    ) {
+        let scope = SCOPE_INPUTS[scope_idx];
+        let outside = OUTSIDE_PATHS[path_idx];
+        let op = WRITE_REDIRECT_OPS[op_idx];
+        let cmd = format!("echo x {op} {outside}");
+        let mut analyzer = analyzer_with_scope_input(scope);
+        let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
+        prop_assert!(
+            verdict.decision >= Decision::Ask,
+            "write redirect {:?} with scope {:?} auto-approved outside path => {:?}",
+            cmd, scope, verdict.reason,
         );
     }
 

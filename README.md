@@ -290,6 +290,15 @@ Semantics inside a declared scope mirror the project directory:
 - **Reads are allowed** — `cd ~/src/other`, `git -C ~/src/other log`, `mkdir ~/src/other/tmp` auto-approve.
 - **Writes still ask** — `git -C ~/src/other push` (and other mutating subcommands) still prompt.
 
+#### Output redirects (`>`, `>>`)
+
+Write/append redirects whose target resolves inside the shared trusted set — `/tmp` and `/var/tmp` (plus their macOS `/private` equivalents, which cover the session scratchpad) and any declared safe scope — are auto-approved, so `git diff > /tmp/out` or `cmd >> /private/tmp/…/scratchpad/log` no longer prompt. Everything else still asks:
+
+- **Project files still ask** — unlike `cd`/`mkdir`, a redirect into the project directory (`echo x > src/foo.rs`) keeps prompting; auto-approval here is scoped to the safe dirs and declared scopes only, never the cwd.
+- **Other paths ask** — `> /etc/hosts`, `> ~/.bashrc`, and any target outside the trusted set prompt.
+- **Dynamic targets always ask** — a target containing a shell expansion (`> $VAR`, `> $(…)`), a leading `~`, or a glob (`> /tmp/*`) is never statically trusted; traversal like `> /tmp/../etc/x` is normalized before the check, so it asks too.
+- **Self-protected paths still deny** — a redirect that would overwrite a rippy config (`> .rippy`) is still blocked, and explicit `allow-redirect` / `deny-redirect` rules still win.
+
 Manage scopes from the CLI instead of hand-editing:
 
 ```sh

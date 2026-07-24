@@ -9,10 +9,12 @@ fn make_analyzer() -> Analyzer {
 }
 
 fn make_analyzer_with(lookup: MockLookup) -> Analyzer {
+    // cwd is /project (not a safe dir) so relative redirect targets resolve
+    // into the project and keep asking, while /tmp etc. are auto-approved.
     Analyzer::new_with_var_lookup(
         Config::empty(),
         false,
-        PathBuf::from("/tmp"),
+        PathBuf::from("/project"),
         false,
         Box::new(lookup),
     )
@@ -70,9 +72,267 @@ fn redirect_to_dev_null() {
 
 #[test]
 fn redirect_to_file_asks() {
+    // Relative target resolves under the /project cwd (not a safe dir) → Ask.
     let mut a = make_analyzer();
     let v = a.analyze("echo foo > output.txt").unwrap();
     assert_eq!(v.decision, Decision::Ask);
+}
+
+// ---- Safe-dir write redirects (#136) ----
+
+#[test]
+fn redirect_to_tmp_write_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /tmp/out.txt").unwrap();
+    // echo is safe and the /tmp redirect is auto-approved → overall Allow.
+    // (The reason surfaces the dominant `echo is safe` verdict.)
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn redirect_append_private_tmp_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo >> /private/tmp/x/log").unwrap();
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn redirect_to_etc_asks() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /etc/passwd").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn redirect_dotdot_escape_asks() {
+    // Traversal that escapes /tmp collapses to /etc/passwd before the check.
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /tmp/../etc/passwd").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn redirect_dynamic_target_asks() {
+    let mut a = make_analyzer_with(MockLookup::new().with("VAR", "/tmp/x"));
+    for cmd in [
+        "echo foo > $HOME/x",
+        "echo foo > ~/x",
+        "echo foo > \"$VAR\"",
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask, "{cmd} -> {}", v.reason);
+    }
+}
+
+#[test]
+fn redirect_component_boundary_asks() {
+    // /tmpevil shares a string prefix with /tmp but is a different component.
+    let mut a = make_analyzer();
+    let v = a.analyze("echo foo > /tmpevil/x").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+#[test]
+fn pipeline_redirect_to_tmp_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("cat f | grep x > /tmp/out").unwrap();
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn unsafe_cmd_with_safe_redirect_still_asks() {
+    // The redirect target is safe, but the left-hand command is not: combine
+    // keeps the most-restrictive decision.
+    let mut a = make_analyzer();
+    let v = a.analyze("rm -rf / > /tmp/out").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+// ---- `&>` / `>&` (FdDup) redirects run the write-safety pipeline (#136) ----
+
+#[test]
+fn fd_dup_to_descriptor_allows() {
+    // Real fd duplications / closes are harmless and stay allowed.
+    let mut a = make_analyzer();
+    for cmd in ["echo x 2>&1", "echo x >&2", "true 1>&2"] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Allow, "{cmd} -> {}", v.reason);
+    }
+}
+
+#[test]
+fn fd_dup_to_dev_null_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo x &> /dev/null").unwrap();
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn fd_dup_to_unsafe_file_asks() {
+    // `&> file` / `>& file` are *file writes*, not fd dups: they must not
+    // bypass the safe-dir check just because rable parses them as FdDup.
+    let mut a = make_analyzer();
+    for cmd in ["echo x &> /etc/all.log", "echo secret >& /etc/passwd"] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask, "{cmd} -> {}", v.reason);
+    }
+}
+
+#[test]
+fn fd_dup_to_safe_dir_allows() {
+    let mut a = make_analyzer();
+    let v = a.analyze("echo x &> /tmp/all.log").unwrap();
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+#[test]
+fn fd_dup_to_self_protected_denies() {
+    // `>& .rippy` must still hit self-protection, not the "fd redirect" allow.
+    let mut a = Analyzer::new_with_var_lookup(
+        Config::from_directives(vec![]),
+        false,
+        PathBuf::from("/project"),
+        false,
+        Box::new(MockLookup::new()),
+    )
+    .unwrap();
+    assert!(a.config.self_protect);
+    let v = a.analyze("echo x >& .rippy").unwrap();
+    assert_eq!(v.decision, Decision::Deny, "{}", v.reason);
+}
+
+// ---- self-protection wins over safe-dir auto-approval (#136) ----
+
+#[test]
+fn self_protected_config_in_safe_dir_denies() {
+    // A self-protected config file whose redirect target lands inside a safe
+    // dir must still DENY: self_protect is checked before the safe-dir approve.
+    let mut a = Analyzer::new_with_var_lookup(
+        Config::from_directives(vec![]),
+        false,
+        PathBuf::from("/project"),
+        false,
+        Box::new(MockLookup::new()),
+    )
+    .unwrap();
+    let v = a.analyze("echo x > /tmp/.rippy").unwrap();
+    assert_eq!(v.decision, Decision::Deny, "{}", v.reason);
+}
+
+#[test]
+fn self_protected_config_in_declared_scope_denies() {
+    use crate::config::ConfigDirective;
+    let config = Config::from_directives(vec![ConfigDirective::SafeScope(PathBuf::from(
+        "/opt/repos",
+    ))]);
+    let mut a = Analyzer::new_with_var_lookup(
+        config,
+        false,
+        PathBuf::from("/project"),
+        false,
+        Box::new(MockLookup::new()),
+    )
+    .unwrap();
+    let v = a.analyze("echo x > /opt/repos/other/.rippy.toml").unwrap();
+    assert_eq!(v.decision, Decision::Deny, "{}", v.reason);
+}
+
+// ---- glob-metacharacter targets keep asking (#136) ----
+
+#[test]
+fn redirect_glob_target_asks() {
+    let mut a = make_analyzer();
+    for cmd in [
+        "echo foo > /tmp/*",
+        "echo foo > /tmp/foo[1]",
+        "echo foo > /tmp/foo?",
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask, "{cmd} -> {}", v.reason);
+    }
+}
+
+// ---- pipeline with an UNSAFE redirect still asks (#136) ----
+
+#[test]
+fn pipeline_redirect_to_unsafe_asks() {
+    let mut a = make_analyzer();
+    let v = a.analyze("cat f | grep x > /etc/out").unwrap();
+    assert_eq!(v.decision, Decision::Ask, "{}", v.reason);
+}
+
+// ---- project writes keep asking even when cwd lives under a safe dir (#136) ----
+
+#[test]
+fn redirect_into_cwd_under_safe_dir_asks() {
+    // The checkout itself lives under /tmp; project-relative and absolute
+    // writes into it must keep asking, not silently auto-approve.
+    let mut a = Analyzer::new_with_var_lookup(
+        Config::empty(),
+        false,
+        PathBuf::from("/tmp/checkout"),
+        false,
+        Box::new(MockLookup::new()),
+    )
+    .unwrap();
+    for cmd in [
+        "echo pwned > src/main.rs",
+        "echo pwned > /tmp/checkout/src/main.rs",
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_eq!(v.decision, Decision::Ask, "{cmd} -> {}", v.reason);
+    }
+    // A sibling target outside the checkout is still auto-approved.
+    let v = a.analyze("echo x > /tmp/other.txt").unwrap();
+    assert_eq!(v.decision, Decision::Allow, "{}", v.reason);
+}
+
+// ---- symlink planted in a world-writable safe dir cannot escape (#136) ----
+
+#[cfg(unix)]
+#[test]
+fn redirect_through_symlink_out_of_safe_dir_asks() {
+    use std::os::unix::fs::symlink;
+
+    // A unique real directory directly under /tmp (a default safe dir).
+    let uniq = format!(
+        "rippy_symtest_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let base = std::path::Path::new("/tmp").join(&uniq);
+    std::fs::create_dir_all(&base).unwrap();
+    // A symlink inside the safe dir that points OUT of the safe set (/etc).
+    let escape = base.join("escape");
+    symlink("/etc", &escape).unwrap();
+    // A plain (non-symlink) sibling dir that stays inside the safe dir.
+    let inside = base.join("inside");
+    std::fs::create_dir_all(&inside).unwrap();
+
+    let mut a = make_analyzer();
+
+    // Through the symlink the real target is /etc/hosts → must ask.
+    let via_symlink = format!("echo pwned > {}/hosts", escape.display());
+    let v = a.analyze(&via_symlink).unwrap();
+    let escape_decision = v.decision;
+
+    // A genuine write staying inside the safe dir is still auto-approved.
+    let via_real = format!("echo ok > {}/out.txt", inside.display());
+    let v2 = a.analyze(&via_real).unwrap();
+    let inside_decision = v2.decision;
+
+    // Best-effort cleanup before asserting.
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(escape_decision, Decision::Ask, "symlink escape must ask");
+    assert_eq!(
+        inside_decision,
+        Decision::Allow,
+        "genuine in-safe-dir write must allow"
+    );
 }
 
 #[test]
