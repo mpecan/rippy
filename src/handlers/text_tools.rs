@@ -25,56 +25,95 @@ impl Handler for SedHandler {
     }
 }
 
-/// Check sed expression arguments for `w` (write) and `e` (execute) commands.
+/// Check sed expression arguments for `w`/`e` flags on `s///` and bare `e`/`w`
+/// (possibly address-prefixed) commands.
 fn check_sed_expression(args: &[String]) -> Option<String> {
     for arg in args {
         if arg.starts_with('-') {
             continue;
         }
-        // `e` command executes a shell command.
-        if arg == "e" || arg.starts_with("e ") || arg.contains(";e ") || arg.contains(";e\n") {
-            return Some("sed e (shell execution)".into());
-        }
-        if sed_has_write_flag(arg) {
-            return Some("sed w (writes to file)".into());
-        }
-        if arg == "w" || arg.starts_with("w ") {
-            return Some("sed w (writes to file)".into());
+        for cmd in arg.split(['\n', ';']) {
+            if let Some(reason) = check_sed_command(cmd.trim()) {
+                return Some(reason);
+            }
         }
     }
     None
 }
 
-/// Check if a sed `s` command has a `w` flag after the third delimiter.
-/// e.g., `s/foo/bar/gw output.txt` — the `w` is in the flags section.
+/// Check a single (already semicolon-split) sed command segment.
+fn check_sed_command(cmd: &str) -> Option<String> {
+    if sed_has_dangerous_flag(cmd) {
+        return Some("sed w/e flag (writes to file or executes)".into());
+    }
+    let rest = strip_sed_address(cmd);
+    if is_bare_e_command(rest) {
+        return Some("sed e (shell execution)".into());
+    }
+    if rest == "w" || rest.starts_with("w ") {
+        return Some("sed w (writes to file)".into());
+    }
+    None
+}
+
+/// Strip a leading sed address (`N`, `N,M`, `$`, `/regex/`, optionally
+/// followed by `!`) from a command segment, returning the remaining command.
+fn strip_sed_address(cmd: &str) -> &str {
+    let bytes = cmd.as_bytes();
+    let mut i = 0;
+    let len = bytes.len();
+
+    if i < len && bytes[i] == b'/' {
+        i += 1;
+        while i < len && bytes[i] != b'/' {
+            i += 1;
+        }
+        if i < len {
+            i += 1; // skip closing '/'
+        }
+    } else {
+        while i < len && (bytes[i].is_ascii_digit() || bytes[i] == b',' || bytes[i] == b'$') {
+            i += 1;
+        }
+    }
+    if i < len && bytes[i] == b'!' {
+        i += 1;
+    }
+    cmd[i..].trim_start()
+}
+
+/// Check whether a (address-stripped) command is a bare `e` execute command,
+/// e.g. `e`, `e cmd`.
+fn is_bare_e_command(rest: &str) -> bool {
+    rest == "e" || rest.starts_with("e ") || rest.starts_with("e\t")
+}
+
+/// Check if a sed `s` command has a `w` (write) or `e` (execute) flag after
+/// the third delimiter. e.g., `s/foo/bar/gw output.txt` or `s/x/id/e` — the
+/// flag is in the flags section, after the replacement text ends.
 /// Avoids false positives like `s/foo/w bar/` where `w` is in the replacement.
-fn sed_has_write_flag(expr: &str) -> bool {
-    // Handle each semicolon-separated command
-    for cmd in expr.split(';') {
-        let cmd = cmd.trim();
-        if !cmd.starts_with('s') || cmd.len() < 4 {
-            continue;
-        }
-        // The delimiter is the character after 's'
-        let delim = cmd.as_bytes()[1];
-        // Find the 3rd occurrence of the delimiter (end of replacement)
-        let mut count = 0u8;
-        let mut flags_start = None;
-        for (i, &b) in cmd.as_bytes()[1..].iter().enumerate() {
-            if b == delim {
-                count += 1;
-                if count == 3 {
-                    flags_start = Some(i + 2); // +1 for skip, +1 for after delim
-                    break;
-                }
+fn sed_has_dangerous_flag(expr: &str) -> bool {
+    let cmd = expr.trim();
+    if !cmd.starts_with('s') || cmd.len() < 4 {
+        return false;
+    }
+    // The delimiter is the character after 's'
+    let delim = cmd.as_bytes()[1];
+    // Find the 3rd occurrence of the delimiter (end of replacement)
+    let mut count = 0u8;
+    let mut flags_start = None;
+    for (i, &b) in cmd.as_bytes()[1..].iter().enumerate() {
+        if b == delim {
+            count += 1;
+            if count == 3 {
+                flags_start = Some(i + 2); // +1 for skip, +1 for after delim
+                break;
             }
         }
-        if let Some(start) = flags_start {
-            let flags = &cmd[start..];
-            if flags.contains('w') {
-                return true;
-            }
-        }
+    }
+    if let Some(start) = flags_start {
+        let flags = &cmd[start..];
+        return flags.contains('w') || flags.contains('e');
     }
     false
 }
@@ -106,7 +145,7 @@ impl Handler for AwkHandler {
 
 /// Check an awk source string for dangerous patterns.
 fn check_awk_source(program: &str, cmd_name: &str) -> Classification {
-    if program.contains("system(") {
+    if awk_has_system_call(program) {
         return Classification::Ask(format!("{cmd_name} -f system() (shell execution)"));
     }
     if awk_has_pipe_to_command(program) {
@@ -124,7 +163,7 @@ fn check_awk_program(args: &[String], cmd_name: &str) -> Option<String> {
         if arg.starts_with('-') {
             continue;
         }
-        if arg.contains("system(") {
+        if awk_has_system_call(arg) {
             return Some(format!("{cmd_name} system() (shell execution)"));
         }
         if awk_has_pipe_to_command(arg) {
@@ -137,19 +176,139 @@ fn check_awk_program(args: &[String], cmd_name: &str) -> Option<String> {
     None
 }
 
-/// Detect awk pipe-to-command patterns: `print ... | "cmd"`.
-fn awk_has_pipe_to_command(program: &str) -> bool {
-    // Look for `| "` preceded by a space (statement context, not inside a string)
-    program.contains(" | \"") || program.contains("\t| \"")
+/// Detect an awk `system(...)` call, tolerating whitespace between the
+/// function name and its opening paren (`system ("id")` is valid awk syntax
+/// and was missed by a plain `"system("` substring match).
+fn awk_has_system_call(program: &str) -> bool {
+    let bytes = program.as_bytes();
+    let Some(mut idx) = program.find("system") else {
+        return false;
+    };
+    loop {
+        let before_ok =
+            idx == 0 || !bytes[idx - 1].is_ascii_alphanumeric() && bytes[idx - 1] != b'_';
+        let after = &program[idx + 6..];
+        let trimmed = after.trim_start();
+        if before_ok && trimmed.starts_with('(') {
+            return true;
+        }
+        match program[idx + 6..].find("system") {
+            Some(next) => idx = idx + 6 + next,
+            None => return false,
+        }
+    }
 }
 
-/// Detect awk file redirect patterns: `print ... > "file"` or `>> "file"`.
+/// A byte is a "word" character for the purposes of distinguishing awk's `/`
+/// division operator (follows an identifier/number/`)`/`]`/`$`) from a `/regex/`
+/// literal start (follows anything else, including the start of the program).
+const fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b')' || b == b']' || b == b'$'
+}
+
+/// Skip over a double-quoted string literal starting at `quote_idx` (the
+/// opening `"`), honoring backslash escapes. Returns the index just past the
+/// closing quote (or the end of the program if unterminated).
+fn skip_awk_string(bytes: &[u8], quote_idx: usize) -> usize {
+    let mut j = quote_idx + 1;
+    while j < bytes.len() {
+        if bytes[j] == b'\\' {
+            j += 2;
+            continue;
+        }
+        if bytes[j] == b'"' {
+            return j + 1;
+        }
+        j += 1;
+    }
+    j
+}
+
+/// Skip over a `/regex/` literal starting at `slash_idx` (the opening `/`),
+/// honoring backslash escapes. Returns the index just past the closing `/`
+/// (or the end of the program if unterminated).
+fn skip_awk_regex(bytes: &[u8], slash_idx: usize) -> usize {
+    let mut j = slash_idx + 1;
+    while j < bytes.len() {
+        if bytes[j] == b'\\' {
+            j += 2;
+            continue;
+        }
+        if bytes[j] == b'/' {
+            return j + 1;
+        }
+        j += 1;
+    }
+    j
+}
+
+/// Detect awk pipe-to-command patterns: `print ... | "cmd"`, `"cmd" | getline`,
+/// `print | cmd_var`. Awk's grammar has no bitwise/single-pipe operator other
+/// than pipe-to-command / pipe-from-command-into-getline, so any `|` that is
+/// not part of a `||` logical-or and not inside a string or `/regex/` literal
+/// (where `|` is ordinary alternation, e.g. `/foo|bar/`) is unconditionally
+/// one of those two forms.
+fn awk_has_pipe_to_command(program: &str) -> bool {
+    let bytes = program.as_bytes();
+    let mut prev_significant: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' {
+            i = skip_awk_string(bytes, i);
+            prev_significant = Some(b'"');
+            continue;
+        }
+        if b == b'/' && !matches!(prev_significant, Some(c) if is_word_byte(c)) {
+            i = skip_awk_regex(bytes, i);
+            prev_significant = Some(b'/');
+            continue;
+        }
+        if b == b'|' {
+            let prev_is_pipe = i > 0 && bytes[i - 1] == b'|';
+            let next_is_pipe = i + 1 < bytes.len() && bytes[i + 1] == b'|';
+            if !prev_is_pipe && !next_is_pipe {
+                return true;
+            }
+        }
+        if !b.is_ascii_whitespace() {
+            prev_significant = Some(b);
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Detect awk file redirect patterns: `print ... > "file"` / `>> "file"`
+/// (destination quoted, optionally space-delimited), plus the no-space form
+/// where the redirect operator immediately follows a closing quote
+/// (`"x">"/tmp/evil"`). Anchored to a quote adjacent to the `>`/`>>` (not a
+/// bare operator) so numeric/string comparisons like `$1 > 100` or
+/// `a >= b` keep Allowing.
 fn awk_has_file_redirect(program: &str) -> bool {
-    if program.contains(">> \"") || program.contains(">>\"") {
+    if program.contains(">> \"")
+        || program.contains(">>\"")
+        || program.contains(" > \"")
+        || program.contains("\t> \"")
+    {
         return true;
     }
-    // Require a space before `> "` to avoid matching `->` or `=>`.
-    program.contains(" > \"") || program.contains("\t> \"")
+
+    let bytes = program.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        // Only check the first '>' of a possible ">>" run.
+        if b != b'>' || (i > 0 && bytes[i - 1] == b'>') {
+            continue;
+        }
+        let mut k = i;
+        while k > 0 && bytes[k - 1].is_ascii_whitespace() {
+            k -= 1;
+        }
+        if k > 0 && bytes[k - 1] == b'"' {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -185,6 +344,36 @@ mod tests {
         };
         let result = AWK_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    #[test]
+    fn awk_regex_alternation_is_not_pipe() {
+        assert!(!awk_has_pipe_to_command("/foo|bar/ {print}"));
+    }
+
+    #[test]
+    fn awk_regex_alternation_field_match_is_not_pipe() {
+        assert!(!awk_has_pipe_to_command("$1 ~ /a|b/ {print}"));
+    }
+
+    #[test]
+    fn awk_regex_alternation_in_gsub_is_not_pipe() {
+        assert!(!awk_has_pipe_to_command(r#"{gsub(/x|y/,"z")}"#));
+    }
+
+    #[test]
+    fn awk_string_literal_pipe_is_not_pipe_to_command() {
+        assert!(!awk_has_pipe_to_command(r#"BEGIN{print "a|b"}"#));
+    }
+
+    #[test]
+    fn awk_pipe_to_command_still_detected() {
+        assert!(awk_has_pipe_to_command(r#"{print $0 | "sort"}"#));
+    }
+
+    #[test]
+    fn awk_pipe_to_command_no_space_still_detected() {
+        assert!(awk_has_pipe_to_command(r#"{print $0|"sh"}"#));
     }
 
     #[test]

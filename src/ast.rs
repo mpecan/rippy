@@ -137,7 +137,9 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
     }
 }
 
-/// Check if a string contains shell expansion patterns (`$(`, `` ` ``, `${`, or `$` + identifier).
+/// Check if a string contains shell expansion patterns: `$(`, `` ` ``, `${`,
+/// `$` + identifier, or `$` + a positional/special parameter (`$1`-`$9`, `$@`,
+/// `$*`, `$#`, `$?`, `$$`, `$!`, `$-`).
 ///
 /// Used for heredoc content and other string-level expansion detection where
 /// structured AST nodes are not available.
@@ -155,7 +157,9 @@ pub fn has_shell_expansion_pattern(s: &str) -> bool {
                 || next == b'\''
                 || next == b'"'
                 || next.is_ascii_alphabetic()
-                || next == b'_')
+                || next == b'_'
+                || next.is_ascii_digit()
+                || matches!(next, b'@' | b'*' | b'#' | b'?' | b'$' | b'!' | b'-'))
         {
             return true;
         }
@@ -296,14 +300,23 @@ fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
 /// Environment variable names whose values can change how a following command
 /// loads or resolves code, letting a *literal* assignment turn an otherwise-safe
 /// command into arbitrary code execution (e.g. `LD_PRELOAD`, `BASH_ENV`,
-/// `GIT_SSH_COMMAND`). When a leading env prefix sets any of these,
-/// [`strip_env_prefix`] refuses to strip so the command is not masked by a
-/// string-layer allow rule and instead falls through to the analyzer.
+/// `GIT_SSH_COMMAND`). The analyzer's assignment-name gate Asks on any command
+/// carrying such a prefix, and [`strip_env_prefix`] refuses to strip it so a
+/// string-layer allow rule cannot mask it either.
+///
+/// The `GIT_CONFIG`/`BASH_FUNC_` prefix matches are deliberately broad — each
+/// covers a whole injection family in one check, mirroring the `LD_`/`DYLD_`
+/// style. See docs/security-invariants.md#dangerous-env-name for the rationale.
 #[must_use]
-fn is_dangerous_env_name(name: &str) -> bool {
+pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
     // Dynamic-linker families: Linux `LD_*` (LD_PRELOAD, LD_LIBRARY_PATH,
     // LD_AUDIT, ...) and macOS `DYLD_*` (DYLD_INSERT_LIBRARIES, ...).
     if name.starts_with("LD_") || name.starts_with("DYLD_") {
+        return true;
+    }
+    // GIT_CONFIG* = env-based git-config injection; BASH_FUNC_* = exported
+    // function injection. see docs/security-invariants.md#dangerous-env-name
+    if name.starts_with("GIT_CONFIG") || name.starts_with("BASH_FUNC_") {
         return true;
     }
     matches!(

@@ -17,6 +17,49 @@ analyzer's redirect or assignment-expansion guards via an env prefix. On
 unparseable input we fall back to the raw string and the real parse error still
 surfaces downstream.
 
+## dangerous-env-name
+
+Refusing to *strip* a code-influencing env prefix is not enough on its own: the
+un-stripped command still lands on the analyzer, and if the command itself is
+safe-listed (`cat`, `git fetch`, `bash -c :`, `perl`, `node`) the fast path would
+Allow it with the dangerous assignment intact (issue #157). So `analyze_command`
+enforces the gate directly — `Analyzer::assignment_is_dangerous` Asks on any
+simple command carrying a literal assignment whose name matches
+`ast::is_dangerous_env_name`, before the safe-command path or any handler runs.
+The `env` handler applies the same check to the `NAME=VALUE` args it sets, since
+delegating to the inner command alone would hide them.
+
+GNU `env -S "STRING"` / `--split-string=STRING` (also the `-vS` short cluster)
+reparses `STRING` as the whole command line. Because that payload arg contains
+`=`, it otherwise looks like a bare `env` invocation and is auto-approved,
+carrying both a dangerous env prefix (`env -S "LD_PRELOAD=x cat"`) and any
+dangerous inner command (`env -S "X=1 rm -rf /"`) past every check. The handler
+therefore extracts the split-string payload and `Recurse`s into it so the
+dangerous-env gate and inner-command analysis both run. A short cluster whose
+leading flags are not known booleans (e.g. `-uS`, where `-u` consumes an
+argument) has an ambiguous option boundary and is treated as an empty payload so
+the handler Asks rather than misparse.
+
+`is_dangerous_env_name` covers the dynamic-linker families (`LD_*`, `DYLD_*`), a
+fixed list of interpreter/shell hooks (`BASH_ENV`, `PERL5OPT`, `NODE_OPTIONS`,
+`GIT_SSH_COMMAND`, ...), and two **prefix** families:
+
+- `GIT_CONFIG*` — env-based git-config injection (git >= 2.31):
+  `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n` /
+  `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` / `GIT_CONFIG_PARAMETERS` inject
+  `core.pager` / `alias.*` / `core.hooksPath` that git executes during
+  ordinarily-"safe" commands (the same vectors as #git-undeclared-repo, reachable
+  purely from the environment).
+- `BASH_FUNC_*` — exported-function injection (Shellshock family): a
+  `BASH_FUNC_foo%%` binding defines a function that shadows a command name in a
+  child bash.
+
+A prefix match is used (rather than an exact enumeration) because these families
+have per-index or per-name members (`GIT_CONFIG_KEY_0`, `BASH_FUNC_anything`); the
+broad match may Ask on an unrelated variable that literally starts with
+`GIT_CONFIG`, an accepted fail-closed trade-off. Ordinary build/CI prefixes
+(`FOO`, `NODE_ENV`, `CI`, `RUST_LOG`, ...) are not matched and stay Allow.
+
 ## append-assignment-shadow
 
 `push_literal_bindings` binds only literal `VAR=val` assignments. A `NAME+=VALUE`

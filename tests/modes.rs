@@ -99,17 +99,61 @@ fn codex_mode_dangerous_command() {
 
 // PostToolUse
 
+// hook_event_name is the explicit signal a real Claude Code PostToolUse
+// invocation sends; genuine post-hook calls must keep allowing without
+// re-analysis (#161). PostToolUse allows via exit 0 and carries the
+// PostToolUse event name, not a PreToolUse-only permissionDecision (#125).
 #[test]
 fn post_tool_use_returns_allow() {
-    let json =
-        r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_result":{"output":"file.txt"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"#,
+        r#""tool_result":{"output":"file.txt"},"hook_event_name":"PostToolUse"}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    // PostToolUse allows via exit 0; the output carries the PostToolUse event name,
-    // not a PreToolUse-only permissionDecision (#125).
     assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PostToolUse");
     assert!(v["hookSpecificOutput"].get("permissionDecision").is_none());
+}
+
+// #161: a tool_result key alone (no explicit hook_event_name) must not skip
+// analysis of a dangerous command.
+
+#[test]
+fn tool_result_without_event_name_does_not_bypass_dangerous_command() {
+    let json = concat!(
+        r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf ~/important"},"#,
+        r#""tool_result":{}}"#
+    );
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn tool_result_without_event_name_still_allows_safe_command() {
+    // Contrast pair: the fix must not turn a benign command into an ask just
+    // because it carries an incidental tool_result key.
+    let json = concat!(
+        r#"{"tool_name":"Bash","tool_input":{"command":"git status"},"#,
+        r#""tool_result":{}}"#
+    );
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
+fn cursor_tool_result_without_event_name_is_analyzed() {
+    let json = r#"{"tool_name":"bash","command":"rm -rf ~/important","tool_result":{}}"#;
+    let (stdout, code) = run_rippy(json, "cursor", &[]);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_ne!(v["permission"], "allow");
+    let _ = code;
 }
 
 // Auto-mode coexistence (#128)

@@ -231,3 +231,113 @@ decision = "ask"
 [[case]]
 command = "for f in *.txt; do less $f; done"
 decision = "ask"
+
+# ${VAR:-default} / ${VAR:+alt} and $"..." locale strings are RE-EXPANDED by bash
+# at runtime: an embedded $(...)/backtick/$var in the default, alternate, or locale
+# text actually runs. The resolver used to hand that source text back as an inert
+# Literal and re-analyze it as harmless, so a SIMPLE_SAFE reader was auto-Allowed
+# (issue #156). Now such text is Unresolvable -> Ask. Contrast pairs keep the
+# plain-text neighbors (no $/backtick) at Allow.
+[[case]]
+command = "cat ${U:-$(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "cat ${U-$(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "echo ${U:-`id`}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "FOO=1 cat ${FOO:+$(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "cat ${U:-${V:-$(id)}}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = 'echo $"$(id)"'
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = 'cat $"$(whoami)"'
+decision = "ask"
+reason_contains = "shell expansion"
+
+# Accepted, intentional fail-closed over-ask: a $var default now Asks too, because
+# the has_shell_expansion_pattern gate cannot tell a benign $HOME from $(id). This
+# is Ask (one-time confirm), not Deny, and is correct-over-fast (issue #156).
+[[case]]
+command = "echo ${U:-$HOME}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+# Process substitution `<(...)` / `>(...)` embedded in default/alternate/locale text
+# is ALSO re-run by bash when it expands the word, but keys on `<(`/`>(` rather than
+# `$`/backtick so the has_shell_expansion_pattern gate alone missed it (issue #156
+# review). The resolver now rejects it too -> Ask, not the earlier fail-open Allow.
+# Direct `cat <(...)` already Asks (ProcessSubstitution arm); these pin the ${:-}
+# default-text path that previously slipped through as an inert Literal.
+[[case]]
+command = "cat ${U:-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "cat ${U-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "FOO=1 cat ${FOO:+<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "echo ${U:-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = "grep x ${U:-<(id)}"
+decision = "ask"
+reason_contains = "shell expansion"
+
+[[case]]
+command = 'echo $"<(id)"'
+decision = "ask"
+reason_contains = "shell expansion"
+
+# Safe contrasts: plain-text default/alternate and locale strings with no embedded
+# expansion stay inert Literals and must still Allow.
+# Values include a `/` so the generated Rust test string does not parse as a
+# format placeholder (clippy::literal_string_with_formatting_args); still a
+# plaintext default with no shell expansion, so it stays a Literal -> Allow.
+[[case]]
+command = "cat ${U:-/tmp/safe}"
+decision = "allow"
+
+[[case]]
+command = "ls ${DIR:-./sub}"
+decision = "allow"
+
+[[case]]
+command = "echo ${U:+--verbose}"
+decision = "allow"
+
+[[case]]
+command = "echo $'literal'"
+decision = "allow"
+
+[[case]]
+command = 'echo $"plain locale"'
+decision = "allow"

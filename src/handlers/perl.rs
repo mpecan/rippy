@@ -1,5 +1,5 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_value, is_sole_help_flag,
+    Classification, Handler, HandlerContext, first_positional, get_flag_values, is_sole_help_flag,
 };
 use crate::perl_safety::is_perl_source_safe;
 
@@ -17,8 +17,11 @@ impl Handler for PerlHandler {
             return Classification::Allow("perl version/help".into());
         }
 
-        // -e / -E inline code — analyze source for dangerous patterns
-        if let Some(source) = get_flag_value(ctx.args, &["-e", "-E"]) {
+        // -e / -E inline code — Perl concatenates every fragment with "\n" at
+        // runtime, so all occurrences must be analyzed together, not just the first.
+        let fragments = get_flag_values(ctx.args, &["-e", "-E"]);
+        if !fragments.is_empty() {
+            let source = fragments.join("\n");
             return if is_perl_source_safe(&source) {
                 Classification::Allow("perl -e (safe inline code)".into())
             } else {
@@ -67,6 +70,22 @@ mod tests {
     #[test]
     fn e_dangerous_system_asks() {
         let args = vec!["-e".into(), "system('rm -rf /')".into()];
+        assert!(matches!(
+            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
+            Classification::Ask(_)
+        ));
+    }
+
+    // Every -e fragment is concatenated for analysis, not just the first, so a
+    // dangerous call hidden in a later fragment must still Ask.
+    #[test]
+    fn second_e_fragment_dangerous_asks() {
+        let args = vec![
+            "-e".into(),
+            "1".into(),
+            "-e".into(),
+            "system(\"id\")".into(),
+        ];
         assert!(matches!(
             PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
             Classification::Ask(_)
