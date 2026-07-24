@@ -15,6 +15,13 @@ pub enum WordResolution {
     Literal(String),
     /// Brace expansion produced multiple words (changes argument count).
     Multiple(Vec<String>),
+    /// The word references a variable that is known to be *set* but whose
+    /// value is not statically known (a for/select loop variable or a shell
+    /// status/special var such as `$?`). We deliberately do NOT fabricate a
+    /// value for it: substituting a placeholder and re-analyzing could hide an
+    /// injected dangerous flag and flip a handler command from Ask to Allow.
+    /// Callers gate on this outcome instead (see [`ResolvedArgs`]).
+    DynamicKnown,
     /// At least one part is unresolvable.
     Unresolvable {
         /// Human-readable explanation of why resolution failed.
@@ -22,15 +29,53 @@ pub enum WordResolution {
     },
 }
 
+/// The static resolution state of a variable name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VarState {
+    /// The variable is unset.
+    Unset,
+    /// The variable is set to a statically-known literal value.
+    Value(String),
+    /// The variable is known to be set, but its value is not statically known
+    /// (loop-iteration variable, shell status/special variable, ...).
+    DynamicSet,
+}
+
+/// A variable binding local to the command currently being analyzed.
+///
+/// Bindings are collected on the analyzer's `locals` stack and consulted by
+/// [`ScopedLookup`] with a strict lexical-scope (checkpoint/truncate)
+/// discipline, so they never satisfy a `$VAR` outside the scope that bound them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalBinding {
+    /// Value fully known statically (literal `VAR=val` assignment / prefix).
+    /// Substitutes its real value exactly like an env var and is re-analyzed —
+    /// no injection surface beyond today's env path.
+    Literal(String),
+    /// Known to be set, value unknown (for/select loop variable). Resolves to
+    /// [`WordResolution::DynamicKnown`], never a fabricated string.
+    Dynamic,
+}
+
 /// Outcome of resolving a full argument list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedArgs {
-    /// Resolved argument list, or `None` if any word was unresolvable.
+    /// Resolved argument list, or `None` if any word was unresolvable
+    /// or a `DynamicKnown` value landed in argument position.
     pub args: Option<Vec<String>>,
     /// True if the first word (command position) contains a parameter expansion.
     /// Forces Ask even when resolution succeeds — `$cmd args` is always dangerous.
     pub command_position_dynamic: bool,
-    /// Reason from the first unresolvable word (for Ask diagnostics).
+    /// True if a *non-first* word resolved to [`WordResolution::DynamicKnown`]
+    /// — a set-but-unknown value in argument position. The command may be
+    /// allowed only if `failure_reason` is `None` (no other word was
+    /// unresolvable) *and* its literal name is dynamic-arg-safe (a pure reader,
+    /// safe regardless of argument values); every other command stays Ask.
+    pub arg_position_dynamic: bool,
+    /// Reason from the first unresolvable word (for Ask diagnostics). Set
+    /// independently of `arg_position_dynamic`: a word list may contain both a
+    /// dynamic-known argument and a later unresolvable substitution, and the
+    /// latter must still dominate.
     pub failure_reason: Option<String>,
 }
 
@@ -39,6 +84,97 @@ pub struct ResolvedArgs {
 pub trait VarLookup: Send + Sync {
     /// Returns `Some(value)` if the variable is set, `None` if unset.
     fn lookup(&self, name: &str) -> Option<String>;
+
+    /// Returns the static resolution [`VarState`] of a variable name.
+    ///
+    /// The default implementation maps `lookup` onto `Value`/`Unset`, so
+    /// existing implementors (`EnvLookup`, test mocks) work unchanged.
+    /// [`ScopedLookup`] overrides this to surface local and status-var
+    /// bindings.
+    fn state(&self, name: &str) -> VarState {
+        self.lookup(name).map_or(VarState::Unset, VarState::Value)
+    }
+}
+
+/// Returns `true` if `name` is a shell status/special variable.
+///
+/// Such variables are always considered *set* with a dynamic value: `$?`, `$$`,
+/// `$#`, `$!`, `$-`, `$*`, `$@`, numbered positional parameters, and named
+/// specials such as `PIPESTATUS`, `RANDOM`, `SECONDS`, ... The base name is
+/// matched *before* any `[` array subscript, so `${PIPESTATUS[0]}` is
+/// recognized too.
+#[must_use]
+pub fn is_status_var(name: &str) -> bool {
+    let base = name.split('[').next().unwrap_or(name);
+    if base.is_empty() {
+        return false;
+    }
+    if base.bytes().all(|b| b.is_ascii_digit()) {
+        return true; // positional parameters ($0, $1, $2, ...)
+    }
+    matches!(
+        base,
+        "?" | "$"
+            | "#"
+            | "!"
+            | "-"
+            | "*"
+            | "@"
+            | "PIPESTATUS"
+            | "RANDOM"
+            | "SECONDS"
+            | "LINENO"
+            | "BASHPID"
+            | "PPID"
+            | "UID"
+            | "EUID"
+    )
+}
+
+/// A [`VarLookup`] that overlays command-local bindings and shell status
+/// variables on top of an inner lookup (usually the process environment).
+///
+/// `state` consults `locals` (most-recent binding wins) and status-var names
+/// first, then falls back to `inner`. Literal locals surface their value;
+/// dynamic locals and status vars surface [`VarState::DynamicSet`].
+pub struct ScopedLookup<'a> {
+    locals: &'a [(String, LocalBinding)],
+    inner: &'a dyn VarLookup,
+}
+
+impl<'a> ScopedLookup<'a> {
+    /// Wrap `inner` with the given command-local bindings.
+    #[must_use]
+    pub const fn new(locals: &'a [(String, LocalBinding)], inner: &'a dyn VarLookup) -> Self {
+        Self { locals, inner }
+    }
+
+    fn local(&self, name: &str) -> Option<&LocalBinding> {
+        self.locals
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b)
+    }
+}
+
+impl VarLookup for ScopedLookup<'_> {
+    fn lookup(&self, name: &str) -> Option<String> {
+        match self.local(name) {
+            Some(LocalBinding::Literal(v)) => Some(v.clone()),
+            Some(LocalBinding::Dynamic) => None,
+            None => self.inner.lookup(name),
+        }
+    }
+
+    fn state(&self, name: &str) -> VarState {
+        match self.local(name) {
+            Some(LocalBinding::Literal(v)) => VarState::Value(v.clone()),
+            Some(LocalBinding::Dynamic) => VarState::DynamicSet,
+            None if is_status_var(name) => VarState::DynamicSet,
+            None => self.inner.state(name),
+        }
+    }
 }
 
 /// Production env-based lookup. Reads `std::env::var` for any variable name.
@@ -131,12 +267,20 @@ fn resolve_word_node(value: &str, parts: &[Node], vars: &dyn VarLookup) -> WordR
         return WordResolution::Literal(strip_outer_quotes(value));
     }
     let mut resolved_parts: Vec<WordResolution> = Vec::with_capacity(parts.len());
+    let mut dynamic = false;
     for part in parts {
-        let r = resolve_word(part, vars);
-        if let WordResolution::Unresolvable { reason } = r {
-            return WordResolution::Unresolvable { reason };
+        match resolve_word(part, vars) {
+            // Unresolvable is the most conservative outcome — it always forces
+            // Ask — so it wins over a sibling DynamicKnown part.
+            WordResolution::Unresolvable { reason } => {
+                return WordResolution::Unresolvable { reason };
+            }
+            WordResolution::DynamicKnown => dynamic = true,
+            r => resolved_parts.push(r),
         }
-        resolved_parts.push(r);
+    }
+    if dynamic {
+        return WordResolution::DynamicKnown;
     }
     combine_parts(&resolved_parts)
 }
@@ -175,7 +319,9 @@ fn combine_parts(parts: &[WordResolution]) -> WordResolution {
                 }
                 variants = next;
             }
-            WordResolution::Unresolvable { .. } => unreachable!("filtered above"),
+            WordResolution::Unresolvable { .. } | WordResolution::DynamicKnown => {
+                unreachable!("filtered above")
+            }
         }
     }
     if variants.len() == 1 {
@@ -191,20 +337,28 @@ fn resolve_param_expansion(
     arg: Option<&str>,
     vars: &dyn VarLookup,
 ) -> WordResolution {
-    let value = vars.lookup(param);
-    match (op, arg, value) {
-        // Plain ${VAR} or $VAR with set value, OR ${VAR:-default} / ${VAR-default} with set value.
-        // (Default operators return the variable's value when set; otherwise the default.)
-        (None | Some(":-" | "-"), _, Some(v)) => WordResolution::Literal(v),
+    let state = vars.state(param);
+    match (op, arg, &state) {
+        // Plain ${VAR}/$VAR or ${VAR:-def}/${VAR-def} with a known set value:
+        // default operators return the variable's value when set.
+        (None | Some(":-" | "-"), _, VarState::Value(v)) => WordResolution::Literal(v.clone()),
+        // Same, but the value is dynamic (loop var / status var) → DynamicKnown.
+        (None | Some(":-" | "-"), _, VarState::DynamicSet) => WordResolution::DynamicKnown,
         // Plain ${VAR} or $VAR with unset value → unresolvable.
-        (None, _, None) => WordResolution::Unresolvable {
+        (None, _, VarState::Unset) => WordResolution::Unresolvable {
             reason: format!("${param} is not set"),
         },
         // ${VAR:-default} / ${VAR-default} with unset value → use the literal default.
-        (Some(":-" | "-"), Some(default), None) => WordResolution::Literal(default.to_string()),
-        // ${VAR:+value} → value if set, empty if unset.
-        (Some(":+"), Some(value), Some(_)) => WordResolution::Literal(value.to_string()),
-        (Some(":+"), _, None) => WordResolution::Literal(String::new()),
+        (Some(":-" | "-"), Some(default), VarState::Unset) => {
+            WordResolution::Literal(default.to_string())
+        }
+        // ${VAR:+value} → the (literal) alternate when set (value or dynamic),
+        // empty when unset. The alternate comes from source text, not the var
+        // value, so a DynamicSet variable still yields a known literal.
+        (Some(":+"), Some(value), VarState::Value(_) | VarState::DynamicSet) => {
+            WordResolution::Literal(value.to_string())
+        }
+        (Some(":+"), _, VarState::Unset) => WordResolution::Literal(String::new()),
         // Unsupported operator → unresolvable.
         (Some(op), _, _) => WordResolution::Unresolvable {
             reason: format!("${{{param}{op}...}} operator not supported"),
@@ -387,23 +541,38 @@ pub fn resolve_command_args(words: &[Node], vars: &dyn VarLookup) -> ResolvedArg
     let command_position_dynamic = words.first().is_some_and(word_has_param_expansion);
     let mut resolved: Vec<String> = Vec::with_capacity(words.len());
     let mut failure_reason: Option<String> = None;
+    let mut arg_position_dynamic = false;
     let mut all_ok = true;
-    for word in words {
+    for (i, word) in words.iter().enumerate() {
         match resolve_word(word, vars) {
             WordResolution::Literal(s) => resolved.push(s),
             WordResolution::Multiple(items) => resolved.extend(items),
+            // A set-but-unknown value. In command position it is already flagged
+            // via `command_position_dynamic`; in argument position we never
+            // fabricate a value — the caller gates on `arg_position_dynamic`.
+            // We do NOT stop scanning: a later word may be `Unresolvable` (an
+            // un-executed command/process substitution), and that must still be
+            // recorded so it dominates the dynamic-arg relaxation — otherwise a
+            // `$?`/loop-var argument sitting before `$(...)` would let a
+            // SIMPLE_SAFE command auto-allow while the substitution still runs.
+            WordResolution::DynamicKnown => {
+                if i > 0 {
+                    arg_position_dynamic = true;
+                }
+                all_ok = false;
+            }
             WordResolution::Unresolvable { reason } => {
                 if failure_reason.is_none() {
                     failure_reason = Some(reason);
                 }
                 all_ok = false;
-                break;
             }
         }
     }
     ResolvedArgs {
         args: if all_ok { Some(resolved) } else { None },
         command_position_dynamic,
+        arg_position_dynamic,
         failure_reason,
     }
 }
