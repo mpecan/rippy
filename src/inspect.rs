@@ -267,10 +267,28 @@ pub(crate) fn collect_trace_data(
     let cc_rules = cc_permissions::load_cc_rules(cwd);
     let mut steps = Vec::new();
 
-    if let Some(out) = trace_cc_step(command, &cc_rules, &mut steps) {
+    // Mirror the analyzer: strip a leading `NAME=VALUE` env prefix so the
+    // string-matching CC/config steps see the real command. Parse resiliently.
+    let match_str = BashParser::new()
+        .ok()
+        .and_then(|mut p| p.parse(command).ok())
+        .and_then(|n| crate::ast::strip_env_prefix(command, &n));
+    let match_str = match_str.as_deref().unwrap_or(command);
+
+    // Transparency: disclose that the leading env prefix was normalized away, so
+    // a reader can see why `VAR=x echo evil` matched an `echo evil` rule.
+    if match_str != command {
+        steps.push(TraceStep {
+            stage: "Normalize env prefix".to_string(),
+            matched: true,
+            detail: format!("matching against `{match_str}`"),
+        });
+    }
+
+    if let Some(out) = trace_cc_step(command, match_str, &cc_rules, &mut steps) {
         return Ok(out);
     }
-    if let Some(out) = trace_config_step(command, &config, &mut steps) {
+    if let Some(out) = trace_config_step(command, match_str, &config, &mut steps) {
         return Ok(out);
     }
     trace_parse_and_classify(command, config, cwd, &mut steps)
@@ -278,10 +296,11 @@ pub(crate) fn collect_trace_data(
 
 fn trace_cc_step(
     command: &str,
+    match_str: &str,
     cc_rules: &cc_permissions::CcRules,
     steps: &mut Vec<TraceStep>,
 ) -> Option<TraceOutput> {
-    let result = cc_rules.check(command);
+    let result = cc_rules.check(match_str);
     steps.push(TraceStep {
         stage: "CC permissions".to_string(),
         matched: result.is_some(),
@@ -301,10 +320,11 @@ fn trace_cc_step(
 
 fn trace_config_step(
     command: &str,
+    match_str: &str,
     config: &Config,
     steps: &mut Vec<TraceStep>,
 ) -> Option<TraceOutput> {
-    let result = config.match_command(command, None);
+    let result = config.match_command(match_str, None);
     steps.push(TraceStep {
         stage: "Config rules".to_string(),
         matched: result.is_some(),
@@ -614,6 +634,58 @@ mod tests {
         let output = collect_trace_data("echo evil", dir.path(), Some(&config_path)).unwrap();
         assert_eq!(output.decision, "deny");
         assert_eq!(output.reason, "no evil");
+        assert!(
+            output
+                .steps
+                .iter()
+                .any(|s| s.stage == "Config rules" && s.matched)
+        );
+    }
+
+    #[test]
+    fn trace_env_prefix_matches_config_rule() {
+        // #133: an env-prefixed command should trace against the stripped form
+        // and match a bare-command rule, disclosing the normalization step.
+        let dir = tempfile::TempDir::new().unwrap();
+        let config_path = dir.path().join("test.toml");
+        std::fs::write(
+            &config_path,
+            "[[rules]]\naction = \"deny\"\npattern = \"echo evil\"\nmessage = \"no evil\"\n",
+        )
+        .unwrap();
+
+        let output = collect_trace_data("VAR=x echo evil", dir.path(), Some(&config_path)).unwrap();
+        assert_eq!(output.decision, "deny");
+        assert_eq!(output.reason, "no evil");
+        assert!(
+            output
+                .steps
+                .iter()
+                .any(|s| s.stage == "Config rules" && s.matched)
+        );
+        // Transparency: the normalization is disclosed.
+        assert!(
+            output
+                .steps
+                .iter()
+                .any(|s| s.stage == "Normalize env prefix" && s.matched)
+        );
+    }
+
+    #[test]
+    fn trace_env_prefix_pipeline_matches_config_rule() {
+        // #133: env prefix on the first command of a pipeline strips correctly.
+        let dir = tempfile::TempDir::new().unwrap();
+        let config_path = dir.path().join("test.toml");
+        std::fs::write(
+            &config_path,
+            "[[rules]]\naction = \"allow\"\npattern = \"echo hi | cat\"\n",
+        )
+        .unwrap();
+
+        let output =
+            collect_trace_data("VAR=x echo hi | cat", dir.path(), Some(&config_path)).unwrap();
+        assert_eq!(output.decision, "allow");
         assert!(
             output
                 .steps

@@ -135,27 +135,46 @@ impl Analyzer {
     ///
     /// Returns `RippyError::Parse` if the command cannot be parsed.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
-        if let Some(decision) = self.cc_rules.check(command) {
+        // Normalize a leading `NAME=VALUE` env prefix so the string-matching
+        // config/CC layers see the real command (e.g. `cargo test`) instead of
+        // the assignment token. Parse once and reuse the result below. On
+        // unparseable input we fall back to the raw string and the real parse
+        // error still surfaces at the `?` after the string checks.
+        // `strip_env_prefix` keeps the rest of the command verbatim (redirects,
+        // pipes, `&&` chains), refuses to strip when a value contains an
+        // expansion, and refuses to strip code-influencing vars — so no ALLOW
+        // rule can bypass the analyzer's redirect or assignment-expansion guards.
+        let parsed = self.parser.parse(command);
+        let stripped = parsed
+            .as_ref()
+            .ok()
+            .and_then(|nodes| ast::strip_env_prefix(command, nodes));
+        let match_str = stripped.as_deref().unwrap_or(command);
+
+        if let Some(decision) = self.cc_rules.check(match_str) {
             if self.verbose {
                 eprintln!(
-                    "[rippy] CC permission rule matched: {command} -> {}",
+                    "[rippy] CC permission rule matched: {match_str} -> {}",
                     decision.as_str()
                 );
             }
-            return Ok(cc_decision_to_verdict(decision, command));
+            return Ok(cc_decision_to_verdict(decision, match_str));
         }
 
-        if let Some(verdict) = self.config.match_command(command, Some(&self.match_ctx())) {
+        if let Some(verdict) = self
+            .config
+            .match_command(match_str, Some(&self.match_ctx()))
+        {
             if self.verbose {
                 eprintln!(
-                    "[rippy] config rule matched: {command} -> {}",
+                    "[rippy] config rule matched: {match_str} -> {}",
                     verdict.decision.as_str()
                 );
             }
             return Ok(verdict);
         }
 
-        let nodes = self.parser.parse(command)?;
+        let nodes = parsed?;
         let cwd = self.working_directory.clone();
         self.node_budget = MAX_NODES;
         Ok(self.analyze_nodes(&nodes, &cwd, 0))
@@ -181,6 +200,11 @@ impl Analyzer {
         }
         self.node_budget -= 1;
         match &node.kind {
+            NodeKind::Command { assignments, .. }
+                if Self::assignment_has_expansion(assignments) =>
+            {
+                Verdict::ask("assignment with expansion")
+            }
             NodeKind::Command {
                 words, redirects, ..
             } => self.analyze_command_node(words, redirects, cwd, depth),
@@ -221,8 +245,7 @@ impl Analyzer {
             NodeKind::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
             NodeKind::ConditionalExpr { body, .. } => self.analyze_node(body, cwd, depth + 1),
             NodeKind::ArithmeticCommand { redirects, .. } => {
-                let redirect_verdicts = self.analyze_redirects(redirects, cwd, depth);
-                Verdict::combine(&redirect_verdicts)
+                Verdict::combine(&self.analyze_redirects(redirects, cwd, depth))
             }
             _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
             _ => Verdict::ask("unrecognized shell construct"),
@@ -364,6 +387,17 @@ impl Analyzer {
             .collect();
         verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
         Verdict::combine(&verdicts)
+    }
+
+    /// Returns `true` if any `NAME=VALUE` assignment on a simple command has a
+    /// shell expansion in its value (e.g. a command substitution or backticks).
+    ///
+    /// Assignment values are not otherwise inspected by the analyzer, so this
+    /// guard — applied to every simple command, including those nested in
+    /// pipelines and lists — forces such commands to Ask. Literal assignments
+    /// (`FOO=bar ls`) contain no expansion and pass through unaffected.
+    fn assignment_has_expansion(assignments: &[Node]) -> bool {
+        assignments.iter().any(ast::has_expansions)
     }
 
     fn analyze_command_node(

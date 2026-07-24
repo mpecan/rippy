@@ -477,8 +477,9 @@ fn heredoc_with_unmatched_paren_in_cmdsub_asks() {
     // the cmdsub Ask floor applies.
     //
     // Shape notes:
-    // - Wrapped in `echo "$(...)"` not `x=$(...)` — an assignment short-
-    //   circuits to Allow with "empty command".
+    // - Wrapped in `echo "$(...)"` not `x=$(...)` so the cmdsub *walker* runs
+    //   on the substitution (an assignment routes through the separate
+    //   assignment-expansion guard, which would Ask for a different reason).
     // - Unquoted heredoc delimiter (`<<EOF`, not `<<'EOF'`) so the static
     //   resolver doesn't treat this as a safe data-passing idiom and allow
     //   it. Unquoted + an inner `$(whoami)` forces Ask.
@@ -546,8 +547,9 @@ fn case_pattern_paren_in_cmdsub_asks() {
     // bug — the `(foo)` and `(*)` patterns inside `$(...)` could confuse the
     // depth counter. Post-upgrade this parses cleanly and the dangerous
     // `rm -rf /` branch is correctly seen by the analyzer.
-    // Wrapped in `echo "$(...)"` so the cmdsub walker runs (vs. an assignment
-    // which short-circuits to Allow — see comment on heredoc_with_unmatched_…).
+    // Wrapped in `echo "$(...)"` so the cmdsub walker runs (vs. an assignment,
+    // which routes through the assignment-expansion guard — see comment on
+    // heredoc_with_unmatched_…).
     assert_asks("echo \"$(case $y in (foo) echo safe;; (*) rm -rf /;; esac)\"");
 }
 
