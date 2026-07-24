@@ -63,13 +63,24 @@ impl Handler for IpHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // ip <object> <action> — check if action is a mutation
-        let positionals: Vec<&str> = ctx
-            .args
-            .iter()
-            .filter(|a| !a.starts_with('-'))
-            .map(String::as_str)
-            .collect();
+        // ip <object> <action> — check if action is a mutation. `-f`/`-family`
+        // takes a value, so skip it and its value too or the object/action
+        // indexes shift and a mutation can hide behind them.
+        let mut positionals: Vec<&str> = Vec::new();
+        let mut skip_next = false;
+        for arg in ctx.args {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+            if arg == "-f" || arg == "-family" {
+                skip_next = true;
+                continue;
+            }
+            if !arg.starts_with('-') {
+                positionals.push(arg);
+            }
+        }
 
         let action = positionals.get(1).copied().unwrap_or_default();
         if IP_MUTATION_ACTIONS.contains(&action) {

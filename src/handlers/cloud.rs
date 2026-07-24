@@ -1,4 +1,33 @@
-use super::{Classification, Handler, HandlerContext, is_sole_help_flag, positional_args};
+use super::{
+    Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, positional_args,
+};
+
+/// Verbs across gcloud/az resource trees that mutate state, checked against
+/// the command-path (positional tokens before the first flag). Any match in
+/// the path means the command mutates regardless of what the last token is.
+const MUTATING_VERBS: &[&str] = &[
+    "create", "delete", "update", "set", "add", "remove", "patch", "replace", "deploy", "restart",
+    "start", "stop", "reset", "resize", "enable", "disable", "attach", "detach", "import",
+    "promote", "rollback", "clear", "purge", "drain", "scale", "migrate", "move", "clone",
+    "restore", "rotate", "revoke", "grant", "prune",
+];
+
+fn is_mutating_verb(tok: &str) -> bool {
+    MUTATING_VERBS.contains(&tok)
+        || tok.starts_with("create-")
+        || tok.starts_with("delete-")
+        || tok.starts_with("set-")
+}
+
+/// Positional tokens before the first flag — the actual command path,
+/// immune to flag values (`--name list`) or trailing `--format json` being
+/// mistaken for part of the path.
+fn command_path(args: &[String]) -> Vec<&str> {
+    args.iter()
+        .map(String::as_str)
+        .take_while(|a| !a.starts_with('-'))
+        .collect()
+}
 
 // kubectl
 
@@ -16,7 +45,6 @@ const KUBECTL_SAFE: &[&str] = &[
     "version",
     "api-resources",
     "api-versions",
-    "config",
     "auth",
     "wait",
     "diff",
@@ -42,11 +70,33 @@ impl Handler for KubectlHandler {
             return classify_kubectl_exec(ctx);
         }
 
+        if sub == "config" {
+            return classify_kubectl_config(ctx);
+        }
+
         if KUBECTL_SAFE.contains(&sub) {
             Classification::Allow(desc)
         } else {
             Classification::Ask(desc)
         }
+    }
+}
+
+const KUBECTL_CONFIG_SAFE: &[&str] = &[
+    "view",
+    "current-context",
+    "get-contexts",
+    "get-clusters",
+    "get-users",
+    "get-context",
+];
+
+fn classify_kubectl_config(ctx: &HandlerContext) -> Classification {
+    let child = ctx.arg(1);
+    if KUBECTL_CONFIG_SAFE.contains(&child) {
+        Classification::Allow(format!("kubectl config {child}"))
+    } else {
+        Classification::Ask(format!("kubectl config {child}"))
     }
 }
 
@@ -63,6 +113,15 @@ fn classify_kubectl_exec(ctx: &HandlerContext) -> Classification {
         }
     }
     Classification::Ask("kubectl exec".into())
+}
+
+/// Whether an `--endpoint-url` value points at localhost (localstack/minio
+/// style local testing). Anything else redirects a signed AWS request off
+/// AWS's servers — a viable SSRF/credential-exfil vector.
+fn is_local_endpoint(url: &str) -> bool {
+    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let host = after_scheme.split(['/', ':']).next().unwrap_or_default();
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 // aws
@@ -113,9 +172,21 @@ impl Handler for AwsHandler {
             return Classification::Allow("aws help/version".into());
         }
 
+        if let Some(endpoint) = get_flag_value(ctx.args, &["--endpoint-url"])
+            && !is_local_endpoint(&endpoint)
+        {
+            return Classification::Ask(format!("aws --endpoint-url {endpoint}"));
+        }
+
         let positionals = positional_args(ctx.args);
         let service = positionals.first().copied().unwrap_or_default();
         let action = positionals.get(1).copied().unwrap_or_default();
+
+        // get-login-password prints a registry credential; the `get-` prefix
+        // would otherwise mark it safe below.
+        if action == "get-login-password" {
+            return Classification::Ask(format!("aws {service} {action}"));
+        }
 
         if service == "configure" {
             return if matches!(action, "list" | "list-profiles" | "get" | "") {
@@ -189,16 +260,21 @@ impl Handler for GcloudHandler {
             };
         }
 
-        // Skip alpha/beta prefixes
-        let args: Vec<&str> = ctx
+        // Skip alpha/beta prefixes, then take the command-path (positionals
+        // before the first flag) so flag values can't masquerade as the verb.
+        let skipped: Vec<String> = ctx
             .args
             .iter()
-            .map(String::as_str)
-            .skip_while(|a| matches!(*a, "alpha" | "beta"))
+            .skip_while(|a| matches!(a.as_str(), "alpha" | "beta"))
+            .cloned()
             .collect();
+        let path = command_path(&skipped);
 
-        let action = args.last().copied().unwrap_or_default();
+        if path.iter().any(|tok| is_mutating_verb(tok)) {
+            return Classification::Ask(format!("gcloud {}", ctx.args.join(" ")));
+        }
 
+        let action = path.last().copied().unwrap_or_default();
         if GCLOUD_SAFE_KEYWORDS.contains(&action) {
             Classification::Allow(format!("gcloud ... {action}"))
         } else {
@@ -235,8 +311,13 @@ impl Handler for AzHandler {
             return Classification::Allow("az help/version".into());
         }
 
-        let positionals = positional_args(ctx.args);
-        let action = positionals.last().copied().unwrap_or_default();
+        let path = command_path(ctx.args);
+
+        if path.iter().any(|tok| is_mutating_verb(tok)) {
+            return Classification::Ask(format!("az {}", ctx.args.join(" ")));
+        }
+
+        let action = path.last().copied().unwrap_or_default();
 
         if AZ_SAFE_KEYWORDS.contains(&action)
             || action.starts_with("list-")

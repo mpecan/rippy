@@ -5,8 +5,17 @@ pub static DOCKER_HANDLER: DockerHandler = DockerHandler;
 pub struct DockerHandler;
 
 const SAFE: &[&str] = &[
-    "version", "help", "info", "ps", "images", "image", "inspect", "logs", "stats", "top", "port",
-    "diff", "history", "search", "events", "system", "network", "volume", "config", "context",
+    "version", "help", "info", "ps", "images", "inspect", "logs", "stats", "top", "port", "diff",
+    "history", "search", "events",
+];
+
+/// Management nouns whose action verb, not the noun, determines safety
+/// (`docker image rm` mutates; `docker image ls` reads).
+const GROUPED_NOUNS: &[&str] = &["image", "system", "network", "volume", "config", "context"];
+
+/// Read-only actions across the grouped management nouns.
+const GROUP_SAFE_ACTIONS: &[&str] = &[
+    "ls", "list", "inspect", "df", "history", "events", "info", "show",
 ];
 
 // All non-safe commands default to Ask, so no explicit ASK list needed.
@@ -37,11 +46,25 @@ impl Handler for DockerHandler {
             return classify_export_save(ctx, sub);
         }
 
+        if GROUPED_NOUNS.contains(&sub) {
+            return classify_grouped_noun(ctx, sub);
+        }
+
         if SAFE.contains(&sub) {
             Classification::Allow(desc)
         } else {
             Classification::Ask(desc)
         }
+    }
+}
+
+fn classify_grouped_noun(ctx: &HandlerContext, noun: &str) -> Classification {
+    let action = ctx.args.get(1).map_or("", String::as_str);
+    let desc = format!("{} {noun} {action}", ctx.command_name);
+    if GROUP_SAFE_ACTIONS.contains(&action) {
+        Classification::Allow(desc)
+    } else {
+        Classification::Ask(desc)
     }
 }
 
