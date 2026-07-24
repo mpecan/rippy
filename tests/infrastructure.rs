@@ -3,7 +3,7 @@
 mod common;
 use common::{run_rippy, run_rippy_with_stderr};
 
-// ---- MCP tests ----
+// MCP tests
 
 #[test]
 fn mcp_tool_asks_by_default() {
@@ -14,7 +14,7 @@ fn mcp_tool_asks_by_default() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Error handling ----
+// Error handling
 
 #[test]
 fn malformed_json_returns_error() {
@@ -24,7 +24,7 @@ fn malformed_json_returns_error() {
     assert!(v["error"].as_str().is_some());
 }
 
-// ---- Verbose mode tests ----
+// Verbose mode tests
 
 #[test]
 fn verbose_traces_to_stderr() {
@@ -55,7 +55,7 @@ fn verbose_handler_trace() {
     );
 }
 
-// ---- Resource limit tests (Issue #3) ----
+// Resource limit tests (Issue #3)
 
 #[test]
 fn oversized_input_returns_error() {
@@ -70,11 +70,10 @@ fn oversized_input_returns_error() {
     assert!(v["error"].as_str().unwrap().contains("limit"));
 }
 
-// ---- Fail-closed on unparseable command (Issue #150) ----
-//
-// A valid payload carrying a command that rable cannot parse must NOT exit 1
-// (non-blocking for Claude -> command runs un-gated). The verdict must be a
-// fail-closed Ask on a blocking exit code for every mode.
+// Fail-closed on unparseable command (Issue #150): a valid payload carrying a
+// command rable cannot parse must NOT exit 1 (non-blocking for Claude -> the
+// command runs un-gated). The verdict must be a fail-closed Ask on a blocking
+// exit code for every mode.
 
 const UNPARSEABLE_PAYLOAD: &str =
     r#"{"tool_name":"Bash","tool_input":{"command":"echo $( ( unbalanced"}}"#;
@@ -107,7 +106,7 @@ fn cursor_unparseable_command_asks_not_fail_open() {
     assert_eq!(v["permission"], "ask");
 }
 
-// ---- Logging integration test (Issue #2) ----
+// Logging integration test (Issue #2)
 
 #[test]
 fn log_file_receives_entry() {

@@ -113,20 +113,8 @@ fn classify_compose(ctx: &HandlerContext) -> Classification {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn docker_exec_recurses_remote() {
@@ -136,7 +124,7 @@ mod tests {
             "ls".into(),
             "-la".into(),
         ];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
         assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "ls -la"));
     }
 
@@ -150,31 +138,14 @@ mod tests {
             "mycontainer".into(),
             "bash".into(),
         ];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
         assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "bash"));
     }
 
-    #[test]
-    fn docker_compose_safe() {
-        let args: Vec<String> = vec!["compose".into(), "ps".into()];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn docker_run_asks() {
-        let args: Vec<String> = vec!["run".into(), "alpine".into()];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn docker_save_stdout_allows() {
-        let args: Vec<String> = vec!["save".into(), "myimage".into()];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
+    // Pure subcommand->decision cases (compose ps/up, run, save/export to stdout,
+    // safe subcommands) are covered by tests/data/catalog/handlers_containers.toml.
+    // The tests below assert non-decision Classification variants (RecurseRemote,
+    // WithRedirects) that a command string cannot express.
     #[test]
     fn docker_save_output_file() {
         let args: Vec<String> = vec![
@@ -183,14 +154,14 @@ mod tests {
             "/tmp/image.tar".into(),
             "myimage".into(),
         ];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
         assert!(matches!(result, Classification::WithRedirects(..)));
     }
 
     #[test]
     fn docker_export_stdout_allows() {
         let args: Vec<String> = vec!["export".into(), "container".into()];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -202,19 +173,7 @@ mod tests {
             "/tmp/container.tar".into(),
             "container".into(),
         ];
-        let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
+        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
         assert!(matches!(result, Classification::WithRedirects(..)));
-    }
-
-    #[test]
-    fn docker_safe_subcommands() {
-        for sub in &["ps", "images", "logs", "inspect", "version", "info"] {
-            let args: Vec<String> = vec![(*sub).into()];
-            let result = DOCKER_HANDLER.classify(&ctx(&args, "docker"));
-            assert!(
-                matches!(result, Classification::Allow(_)),
-                "docker {sub} should be allowed"
-            );
-        }
     }
 }

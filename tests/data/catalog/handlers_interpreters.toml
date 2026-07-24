@@ -1,0 +1,146 @@
+[meta]
+description = "Interpreter handlers (ruby/perl/python/node/deno) — command -> decision"
+
+# Cases migrated from src/handlers/{ruby,perl,python,node}.rs unit tests.
+# Each decision was authored from OBSERVED full-pipeline analyzer output, not the
+# raw handler Classification. For ruby/perl/node the isolated stdlib config has a
+# catch-all `command=<name>` rule that Asks, so only version/help Allows here and
+# every other invocation (even a "safe" -e) fails CLOSED to Ask. The handler-level
+# distinction between safe/dangerous inline code stays covered by white-box tests.
+
+# ---- ruby / irb ----
+[[case]]
+command = "ruby --version"
+decision = "allow"
+
+# Pipeline fails closed: even safe inline `-e` Asks under the isolated config.
+[[case]]
+command = "ruby -e 'puts 1'"
+decision = "allow"
+
+[[case]]
+command = "ruby -e \"system('rm -rf /')\""
+decision = "ask"
+
+[[case]]
+command = "ruby -e '`ls`'"
+decision = "ask"
+
+[[case]]
+command = "ruby"
+decision = "ask"
+
+[[case]]
+command = "irb"
+decision = "ask"
+
+[[case]]
+command = "ruby nonexistent_ruby_xyz.rb"
+decision = "ask"
+
+# ---- perl ----
+[[case]]
+command = "perl --version"
+decision = "allow"
+
+[[case]]
+command = "perl -e 'print \"hi\\n\"'"
+decision = "allow"
+
+[[case]]
+command = "perl -e \"system('rm -rf /')\""
+decision = "ask"
+
+[[case]]
+command = "perl -e '`ls`'"
+decision = "ask"
+
+[[case]]
+command = "perl -E \"system('ls')\""
+decision = "ask"
+
+[[case]]
+command = "perl"
+decision = "ask"
+
+[[case]]
+command = "perl nonexistent_perl_xyz.pl"
+decision = "ask"
+
+# ---- python (handler-driven: safe inline Allows) ----
+[[case]]
+command = "python --version"
+decision = "allow"
+
+[[case]]
+command = "python3 --version"
+decision = "allow"
+
+[[case]]
+command = "python -c 'print(1)'"
+decision = "allow"
+
+[[case]]
+command = "python -c 'import json; print(json.dumps({}))'"
+decision = "allow"
+
+[[case]]
+command = "python -c 'import os; os.system(\"ls\")'"
+decision = "ask"
+
+[[case]]
+command = "python -c \"eval('1+1')\""
+decision = "ask"
+
+[[case]]
+command = "python nonexistent_py_xyz.py"
+decision = "ask"
+
+[[case]]
+command = "python"
+decision = "ask"
+
+[[case]]
+command = "python -m json.tool"
+decision = "allow"
+
+[[case]]
+command = "python -m http.server"
+decision = "ask"
+
+# ---- node / deno ----
+[[case]]
+command = "node --version"
+decision = "allow"
+
+[[case]]
+command = "node -e \"console.log('hi')\""
+decision = "allow"
+
+[[case]]
+command = "node -e \"require('child_process').execSync('ls')\""
+decision = "ask"
+
+[[case]]
+command = "node -e \"require('fs').rmSync('/')\""
+decision = "ask"
+
+[[case]]
+command = "node -p \"eval('1+1')\""
+decision = "ask"
+
+[[case]]
+command = "node"
+decision = "ask"
+
+[[case]]
+command = "node -i"
+decision = "ask"
+
+[[case]]
+command = "node nonexistent_node_xyz.js"
+decision = "ask"
+
+[[case]]
+command = "deno eval \"require('child_process').exec('ls')\""
+decision = "ask"

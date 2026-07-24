@@ -39,11 +39,8 @@ fn extract_words(source: &str) -> Vec<Node> {
 }
 
 fn first_arg_node(source: &str) -> Node {
-    // Returns the second word (first argument after command name).
     extract_words(source).into_iter().nth(1).unwrap()
 }
-
-// ---- Literal node resolution ----
 
 #[test]
 fn resolve_word_literal() {
@@ -74,8 +71,6 @@ fn resolve_locale_string() {
         WordResolution::Literal("hello".to_string())
     );
 }
-
-// ---- Parameter expansion ----
 
 #[test]
 fn resolve_simple_var_set() {
@@ -179,8 +174,6 @@ fn param_length_unresolvable() {
     ));
 }
 
-// ---- Arithmetic expansion ----
-
 #[test]
 fn resolve_arithmetic_simple() {
     let node = first_arg_node("echo $((1+2))");
@@ -231,8 +224,6 @@ fn resolve_arithmetic_with_var_unresolvable() {
     ));
 }
 
-// ---- Brace expansion ----
-
 #[test]
 fn resolve_brace_comma() {
     let node = first_arg_node("ls {a,b,c}");
@@ -275,9 +266,6 @@ fn resolve_brace_with_prefix_and_suffix() {
 
 #[test]
 fn resolve_two_adjacent_brace_expansions() {
-    // Two `Multiple` parts in the same word — exercises the cartesian
-    // branch of `combine_parts` where `variants.len() > 1` AND a new
-    // `Multiple` part is folded in.
     let node = first_arg_node("ls {a,b}{c,d}");
     let lookup = MockLookup::new();
     assert_eq!(
@@ -288,8 +276,6 @@ fn resolve_two_adjacent_brace_expansions() {
 
 #[test]
 fn resolve_three_adjacent_brace_expansions() {
-    // Three brace expansions: 2*2*2 = 8 variants. Exercises chained
-    // cartesian products under the brace-cap limit.
     let node = first_arg_node("ls {a,b}{c,d}{e,f}");
     let lookup = MockLookup::new();
     let result = resolve_word(&node, &lookup);
@@ -301,8 +287,6 @@ fn resolve_three_adjacent_brace_expansions() {
     assert!(items.contains(&"bdf".to_string()));
 }
 
-// ---- Command substitution: unresolvable ----
-
 #[test]
 fn command_substitution_unresolvable() {
     let node = first_arg_node("echo $(whoami)");
@@ -312,8 +296,6 @@ fn command_substitution_unresolvable() {
         WordResolution::Unresolvable { .. }
     ));
 }
-
-// ---- resolve_command_args ----
 
 #[test]
 fn resolve_full_command_all_literal() {
@@ -365,8 +347,6 @@ fn brace_expansion_expands_args() {
     );
 }
 
-// ---- Shell joining ----
-
 #[test]
 fn shell_join_safe_args() {
     assert_eq!(shell_join_arg("hello"), "hello");
@@ -399,8 +379,6 @@ fn shell_join_args_list() {
     assert_eq!(shell_join(&args), "echo 'hello world' ok");
 }
 
-// ---- strip_outer_quotes ----
-
 #[test]
 fn strip_outer_quotes_double() {
     assert_eq!(strip_outer_quotes("\"hello\""), "hello");
@@ -418,14 +396,12 @@ fn strip_outer_quotes_unquoted_unchanged() {
 
 #[test]
 fn strip_outer_quotes_mismatched_unchanged() {
-    // Mismatched quote chars: only strips when both ends are the same.
     assert_eq!(strip_outer_quotes("'hello\""), "'hello\"");
     assert_eq!(strip_outer_quotes("\"hello'"), "\"hello'");
 }
 
 #[test]
 fn strip_outer_quotes_only_left_unchanged() {
-    // A single quote at one end is not a pair — leave it alone.
     assert_eq!(strip_outer_quotes("'hello"), "'hello");
     assert_eq!(strip_outer_quotes("hello'"), "hello'");
 }
@@ -437,23 +413,18 @@ fn strip_outer_quotes_empty_string() {
 
 #[test]
 fn strip_outer_quotes_single_char_unchanged() {
-    // A single character can't be a quoted pair (need at least 2).
     assert_eq!(strip_outer_quotes("'"), "'");
     assert_eq!(strip_outer_quotes("\""), "\"");
 }
 
 #[test]
 fn strip_outer_quotes_just_quote_pair() {
-    // Empty quoted string: both quotes get stripped → empty string.
     assert_eq!(strip_outer_quotes("''"), "");
     assert_eq!(strip_outer_quotes("\"\""), "");
 }
 
-// ---- EnvLookup ----
-
 #[test]
 fn env_lookup_returns_set_var() {
-    // PATH is virtually always set; use it as a smoke test.
     let lookup = EnvLookup;
     assert!(lookup.lookup("PATH").is_some());
 }
@@ -468,8 +439,6 @@ fn env_lookup_returns_none_for_unset() {
     );
 }
 
-// ---- Scoped lookup: local + status-var bindings (issue #132) ----
-
 fn scoped_words<'a>(
     source: &str,
     locals: &'a [(String, LocalBinding)],
@@ -480,8 +449,6 @@ fn scoped_words<'a>(
 
 #[test]
 fn resolve_status_var_is_set() {
-    // `$?` / `$PIPESTATUS` are known-set with a dynamic value → DynamicKnown,
-    // never Unresolvable "not set".
     let inner = MockLookup::new();
     let locals: Vec<(String, LocalBinding)> = Vec::new();
     let scoped = ScopedLookup::new(&locals, &inner);
@@ -530,7 +497,6 @@ fn resolve_dynamic_local_is_dynamic_known() {
 
 #[test]
 fn resolve_scoped_falls_back_to_env() {
-    // An unbound name still consults the inner lookup.
     let inner = MockLookup::new().with("HOME", "/home/me");
     let locals: Vec<(String, LocalBinding)> = Vec::new();
     let scoped = ScopedLookup::new(&locals, &inner);
@@ -558,15 +524,12 @@ fn resolve_dynamic_in_command_position_flags_command_dynamic() {
     let (words, scoped) = scoped_words("$c arg", &locals, &inner);
     let result = resolve_command_args(&words, &scoped);
     assert!(result.command_position_dynamic);
-    // A command-position dynamic is not an argument-position dynamic.
     assert!(!result.arg_position_dynamic);
     assert!(result.args.is_none());
 }
 
 #[test]
 fn resolve_combine_propagates_dynamic_known() {
-    // `pre$dyn` — a literal prefix concatenated with a dynamic value stays
-    // DynamicKnown (never a fabricated literal).
     let inner = MockLookup::new();
     let locals = vec![("dyn".to_string(), LocalBinding::Dynamic)];
     let scoped = ScopedLookup::new(&locals, &inner);
@@ -578,8 +541,6 @@ fn resolve_combine_propagates_dynamic_known() {
 
 #[test]
 fn resolve_default_op_on_dynamic_local_is_dynamic_known() {
-    // `${f:-def}` where `f` is set-but-unknown (loop var): the default operator
-    // returns the (dynamic) value, so the result is DynamicKnown, not the default.
     let inner = MockLookup::new();
     let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
     let scoped = ScopedLookup::new(&locals, &inner);
@@ -595,9 +556,6 @@ fn resolve_default_op_on_dynamic_local_is_dynamic_known() {
 
 #[test]
 fn resolve_alt_op_on_dynamic_local_is_literal_alternate() {
-    // `${f:+yes}` where `f` is set-but-unknown: the alternate comes from source
-    // text, not the variable value, so a set (even dynamic) var yields the
-    // literal alternate.
     let inner = MockLookup::new();
     let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
     let scoped = ScopedLookup::new(&locals, &inner);
@@ -609,9 +567,6 @@ fn resolve_alt_op_on_dynamic_local_is_literal_alternate() {
 
 #[test]
 fn resolve_command_args_unresolvable_wins_over_later_dynamic() {
-    // A DynamicKnown arg BEFORE an unresolvable substitution must not stop the
-    // scan: the unresolvable word still records a failure_reason so the caller
-    // does not take the relaxed dynamic-arg allow path (issue #132 review).
     let inner = MockLookup::new();
     let locals = vec![("f".to_string(), LocalBinding::Dynamic)];
     let (words, scoped) = scoped_words("cat $f $(rm -rf /)", &locals, &inner);
@@ -623,8 +578,6 @@ fn resolve_command_args_unresolvable_wins_over_later_dynamic() {
 
 #[test]
 fn resolve_unresolvable_wins_over_dynamic_in_word() {
-    // A word mixing a dynamic part with an unresolvable part resolves to the
-    // more conservative Unresolvable (forces Ask for even simple-safe commands).
     let inner = MockLookup::new();
     let locals = vec![("dyn".to_string(), LocalBinding::Dynamic)];
     let scoped = ScopedLookup::new(&locals, &inner);

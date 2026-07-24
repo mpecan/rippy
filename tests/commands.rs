@@ -3,7 +3,7 @@
 mod common;
 use common::{run_rippy, run_rippy_in_dir};
 
-// ---- Complex commands ----
+// Complex commands
 
 #[test]
 fn bash_c_recurses() {
@@ -52,7 +52,7 @@ fn redirect_outside_safe_dirs_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Heredoc tests ----
+// Heredoc tests
 
 #[test]
 fn heredoc_safe_allows() {
@@ -63,7 +63,7 @@ fn heredoc_safe_allows() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
-// ---- rippy allow/deny/ask subcommand tests ----
+// rippy allow/deny/ask subcommand tests
 
 #[test]
 fn allow_command_creates_toml_rule() {
@@ -204,7 +204,7 @@ fn suggest_from_db_json() {
     assert!(actions.contains(&"deny"));
 }
 
-// ---- Structured command matching tests ----
+// Structured command matching tests
 
 #[test]
 fn structured_rule_denies_force_push() {
@@ -285,14 +285,13 @@ message = "No force push"
     assert_eq!(code2, 2);
 }
 
-// ---- Static expansion resolution integration tests ----
+// Static expansion resolution integration tests
 
 use serial_test::serial;
 
 #[test]
 #[serial(env)]
 fn param_expansion_in_echo_resolves_to_allow() {
-    // The integration binary uses real `EnvLookup`. Set HOME to a known value.
     // SAFETY: serial_test guarantees no concurrent env mutation.
     unsafe {
         std::env::set_var("HOME", "/tmp/test-home");
@@ -386,7 +385,7 @@ fn plain_echo_still_allows() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
 
-// ---- `rippy inspect` must agree with the hook path (Refs #137) ----
+// `rippy inspect` must agree with the hook path (Refs #137)
 
 /// Run the hook path under an isolated HOME + cwd, returning its decision.
 fn hook_decision(dir: &std::path::Path, command: &str) -> String {

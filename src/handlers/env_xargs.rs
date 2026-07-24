@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
 
-// ---- env ----
+// env
 
 pub static ENV_HANDLER: EnvHandler = EnvHandler;
 
@@ -29,7 +29,7 @@ impl Handler for EnvHandler {
     }
 }
 
-// ---- xargs ----
+// xargs
 
 pub static XARGS_HANDLER: XargsHandler = XargsHandler;
 
@@ -92,32 +92,20 @@ fn find_xargs_inner_command(args: &[String]) -> usize {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn xargs_simple_inner_command() {
         let args: Vec<String> = vec!["rm".into()];
-        let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
+        let result = XARGS_HANDLER.classify(&HandlerContext::test("xargs", &args));
         assert!(matches!(result, Classification::Recurse(cmd) if cmd == "rm"));
     }
 
     #[test]
     fn xargs_skips_value_flags() {
         let args: Vec<String> = vec!["-n".into(), "5".into(), "grep".into(), "pattern".into()];
-        let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
+        let result = XARGS_HANDLER.classify(&HandlerContext::test("xargs", &args));
         assert!(
             matches!(result, Classification::Recurse(cmd) if cmd == "grep pattern"),
             "expected 'grep pattern'"
@@ -127,7 +115,7 @@ mod tests {
     #[test]
     fn xargs_skips_attached_value_flags() {
         let args: Vec<String> = vec!["-n5".into(), "grep".into(), "pattern".into()];
-        let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
+        let result = XARGS_HANDLER.classify(&HandlerContext::test("xargs", &args));
         assert!(matches!(result, Classification::Recurse(cmd) if cmd == "grep pattern"));
     }
 
@@ -140,42 +128,42 @@ mod tests {
             "1".into(),
             "echo".into(),
         ];
-        let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
+        let result = XARGS_HANDLER.classify(&HandlerContext::test("xargs", &args));
         assert!(matches!(result, Classification::Recurse(cmd) if cmd == "echo"));
     }
 
     #[test]
     fn xargs_interactive_asks() {
         let args: Vec<String> = vec!["-p".into(), "rm".into()];
-        let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
+        let result = XARGS_HANDLER.classify(&HandlerContext::test("xargs", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn xargs_no_inner_command() {
         let args: Vec<String> = vec!["-0".into(), "-n".into(), "5".into()];
-        let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
+        let result = XARGS_HANDLER.classify(&HandlerContext::test("xargs", &args));
         assert!(matches!(result, Classification::Ask(reason) if reason.contains("no command")));
     }
 
     #[test]
     fn xargs_replace_flag() {
         let args: Vec<String> = vec!["-I".into(), "{}".into(), "echo".into(), "{}".into()];
-        let result = XARGS_HANDLER.classify(&ctx(&args, "xargs"));
+        let result = XARGS_HANDLER.classify(&HandlerContext::test("xargs", &args));
         assert!(matches!(result, Classification::Recurse(cmd) if cmd.starts_with("echo")));
     }
 
     #[test]
     fn env_bare_allows() {
         let args: Vec<String> = vec![];
-        let result = ENV_HANDLER.classify(&ctx(&args, "env"));
+        let result = ENV_HANDLER.classify(&HandlerContext::test("env", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn env_with_command_recurses() {
         let args: Vec<String> = vec!["FOO=bar".into(), "git".into(), "status".into()];
-        let result = ENV_HANDLER.classify(&ctx(&args, "env"));
+        let result = ENV_HANDLER.classify(&HandlerContext::test("env", &args));
         assert!(matches!(result, Classification::Recurse(_)));
     }
 }

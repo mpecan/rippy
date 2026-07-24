@@ -305,7 +305,8 @@ fn combine_parts(parts: &[WordResolution]) -> WordResolution {
                 if projected > MAX_BRACE_EXPANSION {
                     return WordResolution::Unresolvable {
                         reason: format!(
-                            "brace expansion would produce {projected} items (cap: {MAX_BRACE_EXPANSION})"
+                            "brace expansion would produce {projected} items \
+                             (cap: {MAX_BRACE_EXPANSION})"
                         ),
                     };
                 }
@@ -339,27 +340,20 @@ fn resolve_param_expansion(
 ) -> WordResolution {
     let state = vars.state(param);
     match (op, arg, &state) {
-        // Plain ${VAR}/$VAR or ${VAR:-def}/${VAR-def} with a known set value:
-        // default operators return the variable's value when set.
+        // ${VAR}/${VAR:-def} on a set value returns that value.
         (None | Some(":-" | "-"), _, VarState::Value(v)) => WordResolution::Literal(v.clone()),
-        // Same, but the value is dynamic (loop var / status var) → DynamicKnown.
         (None | Some(":-" | "-"), _, VarState::DynamicSet) => WordResolution::DynamicKnown,
-        // Plain ${VAR} or $VAR with unset value → unresolvable.
         (None, _, VarState::Unset) => WordResolution::Unresolvable {
             reason: format!("${param} is not set"),
         },
-        // ${VAR:-default} / ${VAR-default} with unset value → use the literal default.
         (Some(":-" | "-"), Some(default), VarState::Unset) => {
             WordResolution::Literal(default.to_string())
         }
-        // ${VAR:+value} → the (literal) alternate when set (value or dynamic),
-        // empty when unset. The alternate comes from source text, not the var
-        // value, so a DynamicSet variable still yields a known literal.
+        // `:+` alternate comes from source text, so DynamicSet still yields it.
         (Some(":+"), Some(value), VarState::Value(_) | VarState::DynamicSet) => {
             WordResolution::Literal(value.to_string())
         }
         (Some(":+"), _, VarState::Unset) => WordResolution::Literal(String::new()),
-        // Unsupported operator → unresolvable.
         (Some(op), _, _) => WordResolution::Unresolvable {
             reason: format!("${{{param}{op}...}} operator not supported"),
         },
@@ -508,8 +502,7 @@ fn numeric_range(start: i64, end: i64) -> Option<Vec<String>> {
 }
 
 fn char_range(start: char, end: char) -> Vec<String> {
-    // Character ranges are bounded by the ASCII range (max 128 items),
-    // well under MAX_BRACE_EXPANSION, so no extra check needed.
+    // ASCII-bounded (max 128 items), well under MAX_BRACE_EXPANSION.
     let s = start as u8;
     let e = end as u8;
     if s <= e {
@@ -547,14 +540,8 @@ pub fn resolve_command_args(words: &[Node], vars: &dyn VarLookup) -> ResolvedArg
         match resolve_word(word, vars) {
             WordResolution::Literal(s) => resolved.push(s),
             WordResolution::Multiple(items) => resolved.extend(items),
-            // A set-but-unknown value. In command position it is already flagged
-            // via `command_position_dynamic`; in argument position we never
-            // fabricate a value — the caller gates on `arg_position_dynamic`.
-            // We do NOT stop scanning: a later word may be `Unresolvable` (an
-            // un-executed command/process substitution), and that must still be
-            // recorded so it dominates the dynamic-arg relaxation — otherwise a
-            // `$?`/loop-var argument sitting before `$(...)` would let a
-            // SIMPLE_SAFE command auto-allow while the substitution still runs.
+            // Set-but-unknown: flag arg-position, never fabricate, and keep
+            // scanning. see docs/security-invariants.md#dynamic-arg
             WordResolution::DynamicKnown => {
                 if i > 0 {
                     arg_position_dynamic = true;

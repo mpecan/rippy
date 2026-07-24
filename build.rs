@@ -122,7 +122,8 @@ fn emit_cases(
         let _ = writeln!(output, "    let mut a = isolated_analyzer();");
         let _ = writeln!(
             output,
-            "    run_case(&mut a, &Case {{ file: {:?}, idx: {i}, command: {:?}, decision: {:?}, reason_contains: {:?} }});",
+            "    run_case(&mut a, &Case {{ file: {:?}, idx: {i}, command: {:?}, \
+             decision: {:?}, reason_contains: {:?} }});",
             file_stem, case.command, case.decision, case.reason_contains,
         );
         let _ = writeln!(output, "}}");

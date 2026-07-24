@@ -4,7 +4,7 @@ use super::{
 };
 use crate::sql::classify_sql;
 
-// ---- psql ----
+// psql
 
 pub static PSQL_HANDLER: PsqlHandler = PsqlHandler;
 
@@ -37,7 +37,7 @@ impl Handler for PsqlHandler {
     }
 }
 
-// ---- mysql ----
+// mysql
 
 pub static MYSQL_HANDLER: MysqlHandler = MysqlHandler;
 
@@ -59,7 +59,7 @@ impl Handler for MysqlHandler {
     }
 }
 
-// ---- sqlite3 ----
+// sqlite3
 
 pub static SQLITE3_HANDLER: Sqlite3Handler = Sqlite3Handler;
 
@@ -97,75 +97,20 @@ fn classify_sql_command(tool: &str, sql: &str) -> Classification {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    #[test]
-    fn psql_readonly_sql_allows() {
-        let args: Vec<String> = vec!["-c".into(), "SELECT * FROM users".into()];
-        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn psql_write_sql_asks() {
-        let args: Vec<String> = vec!["-c".into(), "DELETE FROM users".into()];
-        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn psql_list_allows() {
-        let args: Vec<String> = vec!["-l".into()];
-        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn mysql_select_allows() {
-        let args: Vec<String> = vec!["-e".into(), "SELECT 1".into()];
-        let result = MYSQL_HANDLER.classify(&ctx(&args, "mysql"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn mysql_insert_asks() {
-        let args: Vec<String> = vec!["-e".into(), "INSERT INTO users VALUES (1)".into()];
-        let result = MYSQL_HANDLER.classify(&ctx(&args, "mysql"));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn sqlite3_readonly_allows() {
-        let args: Vec<String> = vec!["-readonly".into(), "test.db".into()];
-        let result = SQLITE3_HANDLER.classify(&ctx(&args, "sqlite3"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
+    // Inline-SQL command->decision cases (psql -c, psql -l, mysql -e, sqlite3
+    // -readonly) are covered by tests/data/catalog/handlers_text_system.toml. The
+    // `-f` tests below classify SQL read from a real file via read_file.
     #[test]
     fn psql_f_readonly_allows() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("query.sql"), "SELECT * FROM users;").unwrap();
         let args: Vec<String> = vec!["-f".into(), "query.sql".into()];
         let ctx = HandlerContext {
-            command_name: "psql",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("psql", &args)
         };
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Allow(_)));
@@ -177,12 +122,8 @@ mod tests {
         std::fs::write(dir.path().join("migrate.sql"), "DROP TABLE users;").unwrap();
         let args: Vec<String> = vec!["-f".into(), "migrate.sql".into()];
         let ctx = HandlerContext {
-            command_name: "psql",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("psql", &args)
         };
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
@@ -193,12 +134,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let args: Vec<String> = vec!["-f".into(), "missing.sql".into()];
         let ctx = HandlerContext {
-            command_name: "psql",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("psql", &args)
         };
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));

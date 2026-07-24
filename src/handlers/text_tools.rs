@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
 
-// ---- sed ----
+// sed
 
 pub static SED_HANDLER: SedHandler = SedHandler;
 
@@ -31,16 +31,13 @@ fn check_sed_expression(args: &[String]) -> Option<String> {
         if arg.starts_with('-') {
             continue;
         }
-        // `e` command — executes shell command
+        // `e` command executes a shell command.
         if arg == "e" || arg.starts_with("e ") || arg.contains(";e ") || arg.contains(";e\n") {
             return Some("sed e (shell execution)".into());
         }
-        // `w` flag on s command — s/pat/repl/[flags]w file
-        // The `w` must appear in the flags section after the 3rd delimiter
         if sed_has_write_flag(arg) {
             return Some("sed w (writes to file)".into());
         }
-        // Standalone `w` command (e.g., `w output.txt`)
         if arg == "w" || arg.starts_with("w ") {
             return Some("sed w (writes to file)".into());
         }
@@ -82,8 +79,6 @@ fn sed_has_write_flag(expr: &str) -> bool {
     false
 }
 
-// ---- awk ----
-
 pub static AWK_HANDLER: AwkHandler = AwkHandler;
 
 pub struct AwkHandler;
@@ -94,7 +89,6 @@ impl Handler for AwkHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // -f script file — try to read and analyze
         if let Some(path) = get_flag_value(ctx.args, &["-f"]) {
             if let Some(program) = ctx.read_file(&path) {
                 return check_awk_source(&program, ctx.command_name);
@@ -102,7 +96,6 @@ impl Handler for AwkHandler {
             return Classification::Ask(format!("{} -f (script file)", ctx.command_name));
         }
 
-        // Scan the awk program for dangerous patterns
         if let Some(reason) = check_awk_program(ctx.args, ctx.command_name) {
             return Classification::Ask(reason);
         }
@@ -134,12 +127,9 @@ fn check_awk_program(args: &[String], cmd_name: &str) -> Option<String> {
         if arg.contains("system(") {
             return Some(format!("{cmd_name} system() (shell execution)"));
         }
-        // Pipe to command: `| "cmd"` — require space before `|` or `|` after
-        // a statement keyword to avoid matching `|"` inside string literals
         if awk_has_pipe_to_command(arg) {
             return Some(format!("{cmd_name} pipe to command"));
         }
-        // File redirects: `> "file"` or `>> "file"`
         if awk_has_file_redirect(arg) {
             return Some(format!("{cmd_name} file redirect"));
         }
@@ -155,147 +145,30 @@ fn awk_has_pipe_to_command(program: &str) -> bool {
 
 /// Detect awk file redirect patterns: `print ... > "file"` or `>> "file"`.
 fn awk_has_file_redirect(program: &str) -> bool {
-    // `>> "` is always a redirect in awk
     if program.contains(">> \"") || program.contains(">>\"") {
         return true;
     }
-    // `> "` preceded by a space (to avoid matching `->` or `=>` patterns)
+    // Require a space before `> "` to avoid matching `->` or `=>`.
     program.contains(" > \"") || program.contains("\t> \"")
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    // sed tests
-    #[test]
-    fn sed_simple_filter_allows() {
-        let args: Vec<String> = vec!["s/x/y/".into(), "file.txt".into()];
-        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn sed_inplace_asks() {
-        let args: Vec<String> = vec!["-i".into(), "s/x/y/".into(), "file.txt".into()];
-        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn sed_w_command_asks() {
-        let args: Vec<String> = vec!["s/x/y/w output.txt".into(), "file.txt".into()];
-        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("writes to file")));
-    }
-
-    #[test]
-    fn sed_e_command_asks() {
-        let args: Vec<String> = vec!["e date".into()];
-        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("shell execution")));
-    }
-
-    #[test]
-    fn sed_standalone_w_asks() {
-        let args: Vec<String> = vec!["w output.txt".into()];
-        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("writes to file")));
-    }
-
-    // awk tests
-    #[test]
-    fn awk_simple_filter_allows() {
-        let args: Vec<String> = vec!["{print}".into(), "file.txt".into()];
-        let result = AWK_HANDLER.classify(&ctx(&args, "awk"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn awk_f_flag_asks() {
-        let args: Vec<String> = vec!["-f".into(), "script.awk".into()];
-        let result = AWK_HANDLER.classify(&ctx(&args, "awk"));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn awk_system_call_asks() {
-        let args: Vec<String> = vec![r#"{system("rm -rf /")}"#.into(), "file.txt".into()];
-        let result = AWK_HANDLER.classify(&ctx(&args, "awk"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("system()")));
-    }
-
-    #[test]
-    fn awk_pipe_to_command_asks() {
-        let args: Vec<String> = vec![r#"{print | "sort"}"#.into(), "file.txt".into()];
-        let result = AWK_HANDLER.classify(&ctx(&args, "awk"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("pipe")));
-    }
-
-    #[test]
-    fn awk_file_redirect_asks() {
-        let args: Vec<String> = vec![r#"{print > "output.txt"}"#.into(), "file.txt".into()];
-        let result = AWK_HANDLER.classify(&ctx(&args, "awk"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("file redirect")));
-    }
-
-    #[test]
-    fn awk_append_redirect_asks() {
-        let args: Vec<String> = vec![r#"{print >> "log.txt"}"#.into(), "file.txt".into()];
-        let result = AWK_HANDLER.classify(&ctx(&args, "awk"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("file redirect")));
-    }
-
-    #[test]
-    fn gawk_system_call_asks() {
-        let args: Vec<String> = vec![r#"{system("echo hi")}"#.into()];
-        let result = AWK_HANDLER.classify(&ctx(&args, "gawk"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("system()")));
-    }
-
-    // False positive prevention tests
-    #[test]
-    fn sed_w_in_replacement_allows() {
-        // `w` in the replacement text is NOT a write flag
-        let args: Vec<String> = vec!["s/foo/w bar/".into(), "file.txt".into()];
-        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn sed_w_flag_with_g_asks() {
-        // s/foo/bar/gw output.txt — w is in the flags section
-        let args: Vec<String> = vec!["s/foo/bar/gw output.txt".into(), "file.txt".into()];
-        let result = SED_HANDLER.classify(&ctx(&args, "sed"));
-        assert!(matches!(result, Classification::Ask(r) if r.contains("writes to file")));
-    }
-
+    // Inline sed/awk command->decision cases are covered by
+    // tests/data/catalog/handlers_text_system.toml. The awk `-f` tests below
+    // exercise read_file on real script content, which the catalog cannot inject.
     #[test]
     fn awk_f_safe_file_allows() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("safe.awk"), "{print $1}").unwrap();
         let args: Vec<String> = vec!["-f".into(), "safe.awk".into(), "data.txt".into()];
         let ctx = HandlerContext {
-            command_name: "awk",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("awk", &args)
         };
         let result = AWK_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Allow(_)));
@@ -307,12 +180,8 @@ mod tests {
         std::fs::write(dir.path().join("evil.awk"), r#"{system("rm -rf /")}"#).unwrap();
         let args: Vec<String> = vec!["-f".into(), "evil.awk".into()];
         let ctx = HandlerContext {
-            command_name: "awk",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("awk", &args)
         };
         let result = AWK_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
@@ -323,12 +192,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let args: Vec<String> = vec!["-f".into(), "missing.awk".into()];
         let ctx = HandlerContext {
-            command_name: "awk",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("awk", &args)
         };
         let result = AWK_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));

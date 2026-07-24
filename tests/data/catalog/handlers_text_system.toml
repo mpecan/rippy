@@ -1,0 +1,315 @@
+[meta]
+description = "Text / system / net handlers — command -> decision"
+
+# Migrated from sed/awk (text_tools.rs), find.rs, system.rs (fd/dmesg/ip/ifconfig),
+# unix_utils.rs (tar/wget/mktemp/open/yq), env_xargs.rs, curl.rs, gh.rs, and
+# database.rs unit tests. Real-file read_file variants and redirect (WithRedirects)
+# variants stay white-box; only pure command->decision cases live here.
+
+# ---- sed ----
+[[case]]
+command = "sed 's/x/y/' file.txt"
+decision = "allow"
+
+[[case]]
+command = "sed -i 's/x/y/' file.txt"
+decision = "ask"
+
+[[case]]
+command = "sed 's/x/y/w output.txt' file.txt"
+decision = "ask"
+reason_contains = "writes to file"
+
+[[case]]
+command = "sed 'e date'"
+decision = "ask"
+reason_contains = "shell execution"
+
+[[case]]
+command = "sed 'w output.txt'"
+decision = "ask"
+reason_contains = "writes to file"
+
+# `w` in the replacement text is NOT a write flag (false-positive guard).
+[[case]]
+command = "sed 's/foo/w bar/' file.txt"
+decision = "allow"
+
+[[case]]
+command = "sed 's/foo/bar/gw output.txt' file.txt"
+decision = "ask"
+reason_contains = "writes to file"
+
+# ---- awk / gawk ----
+[[case]]
+command = "awk '{print}' file.txt"
+decision = "allow"
+
+[[case]]
+command = "awk -f nonexistent_xyz.awk"
+decision = "ask"
+
+[[case]]
+command = "awk '{system(\"rm -rf /\")}' file.txt"
+decision = "ask"
+reason_contains = "system()"
+
+[[case]]
+command = "awk '{print | \"sort\"}' file.txt"
+decision = "ask"
+reason_contains = "pipe"
+
+[[case]]
+command = "awk '{print > \"output.txt\"}' file.txt"
+decision = "ask"
+reason_contains = "file redirect"
+
+[[case]]
+command = "awk '{print >> \"log.txt\"}' file.txt"
+decision = "ask"
+reason_contains = "file redirect"
+
+[[case]]
+command = "gawk '{system(\"echo hi\")}'"
+decision = "ask"
+reason_contains = "system()"
+
+# ---- find ----
+[[case]]
+command = "find . -name '*.tmp' -delete"
+decision = "ask"
+reason_contains = "delete"
+
+[[case]]
+command = "find . -ok rm {} ;"
+decision = "ask"
+reason_contains = "ok"
+
+# -exec recurses; a safe inner command resolves normally.
+[[case]]
+command = "find . -name '*.rs' -exec wc -l {} ;"
+decision = "allow"
+
+# ---- fd ----
+[[case]]
+command = "fd -e rs"
+decision = "allow"
+
+# -x recurses; a mutating inner command surfaces as Ask.
+[[case]]
+command = "fd -x rm"
+decision = "ask"
+
+[[case]]
+command = "fd --exec-batch grep pattern"
+decision = "allow"
+
+# ---- dmesg ----
+[[case]]
+command = "dmesg"
+decision = "allow"
+
+[[case]]
+command = "dmesg -c"
+decision = "ask"
+
+[[case]]
+command = "dmesg --clear"
+decision = "ask"
+
+[[case]]
+command = "dmesg -C"
+decision = "ask"
+
+# ---- ip / ifconfig ----
+[[case]]
+command = "ip"
+decision = "allow"
+
+[[case]]
+command = "ip addr show"
+decision = "allow"
+
+[[case]]
+command = "ip addr add 10.0.0.1/24"
+decision = "ask"
+
+[[case]]
+command = "ip route flush"
+decision = "ask"
+
+[[case]]
+command = "ip link show"
+decision = "allow"
+
+[[case]]
+command = "ifconfig"
+decision = "allow"
+
+[[case]]
+command = "ifconfig eth0"
+decision = "allow"
+
+[[case]]
+command = "ifconfig eth0 down"
+decision = "ask"
+
+[[case]]
+command = "ifconfig eth0 10.0.0.1 netmask 255.255.255.0"
+decision = "ask"
+
+# ---- tar / wget / mktemp / open / yq ----
+[[case]]
+command = "tar -t archive.tar"
+decision = "allow"
+
+[[case]]
+command = "tar -x archive.tar"
+decision = "ask"
+
+[[case]]
+command = "wget --spider https://x"
+decision = "allow"
+
+[[case]]
+command = "wget https://x"
+decision = "ask"
+
+[[case]]
+command = "mktemp -u"
+decision = "allow"
+
+[[case]]
+command = "mktemp"
+decision = "ask"
+
+[[case]]
+command = "open -R file"
+decision = "allow"
+
+[[case]]
+command = "open file"
+decision = "ask"
+
+[[case]]
+command = "yq '.foo' f.yaml"
+decision = "allow"
+
+[[case]]
+command = "yq -i '.foo' f.yaml"
+decision = "ask"
+
+# ---- env / xargs (recurse) ----
+[[case]]
+command = "env"
+decision = "allow"
+
+[[case]]
+command = "env FOO=bar git status"
+decision = "allow"
+
+[[case]]
+command = "xargs -p rm"
+decision = "ask"
+
+[[case]]
+command = "xargs -0 -n 5"
+decision = "ask"
+
+[[case]]
+command = "xargs -n 5 grep pattern"
+decision = "allow"
+
+# ---- curl ----
+[[case]]
+command = "curl -d foo=bar https://example.com"
+decision = "ask"
+reason_contains = "data"
+
+[[case]]
+command = "curl -X POST https://example.com"
+decision = "ask"
+
+[[case]]
+command = "curl --help"
+decision = "allow"
+
+# ---- gh ----
+[[case]]
+command = "gh pr view 123"
+decision = "allow"
+
+[[case]]
+command = "gh pr create"
+decision = "ask"
+
+[[case]]
+command = "gh pr list"
+decision = "allow"
+
+[[case]]
+command = "gh pr merge 123"
+decision = "ask"
+
+[[case]]
+command = "gh issue create"
+decision = "ask"
+
+[[case]]
+command = "gh --help"
+decision = "allow"
+
+[[case]]
+command = "gh issue view 42"
+decision = "allow"
+
+[[case]]
+command = "gh api repos/owner/repo"
+decision = "allow"
+
+[[case]]
+command = "gh api -X POST repos/owner/repo/issues"
+decision = "ask"
+
+[[case]]
+command = "gh api --method DELETE repos/owner/repo"
+decision = "ask"
+
+[[case]]
+command = "gh api graphql -f query=mutation"
+decision = "ask"
+reason_contains = "mutation"
+
+# `gh api --input <missing>` cannot verify contents, so it fails closed to Ask.
+[[case]]
+command = "gh api --input query.graphql"
+decision = "ask"
+
+[[case]]
+command = "gh status"
+decision = "allow"
+
+# ---- database (inline SQL) ----
+[[case]]
+command = "psql -c 'SELECT * FROM users'"
+decision = "allow"
+
+[[case]]
+command = "psql -c 'DELETE FROM users'"
+decision = "ask"
+
+[[case]]
+command = "psql -l"
+decision = "allow"
+
+[[case]]
+command = "mysql -e 'SELECT 1'"
+decision = "allow"
+
+[[case]]
+command = "mysql -e 'INSERT INTO users VALUES (1)'"
+decision = "ask"
+
+[[case]]
+command = "sqlite3 -readonly test.db"
+decision = "allow"

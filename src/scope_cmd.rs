@@ -99,9 +99,7 @@ fn list(global: bool) -> Result<ExitCode, RippyError> {
     Ok(ExitCode::SUCCESS)
 }
 
-// ---------------------------------------------------------------------------
 // File operations (path-explicit for testability)
-// ---------------------------------------------------------------------------
 
 /// Read the `[scopes] safe` array from a config file. Returns an empty list if
 /// the file or section is absent.
@@ -325,7 +323,12 @@ mod tests {
     #[test]
     fn add_preserves_other_sections() {
         let (_d, path) = tmp();
-        std::fs::write(&path, "[settings]\ndefault = \"ask\"\n\n[[rules]]\naction = \"deny\"\npattern = \"rm -rf *\"\n").unwrap();
+        std::fs::write(
+            &path,
+            "[settings]\ndefault = \"ask\"\n\n[[rules]]\n\
+             action = \"deny\"\npattern = \"rm -rf *\"\n",
+        )
+        .unwrap();
         add_to_file(&path, "/opt/repos").unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         // Still valid TOML with the rule intact and the scope present.

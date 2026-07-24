@@ -79,9 +79,7 @@ pub(super) fn build_weakening_suffix(notes: &[String]) -> String {
     suffix
 }
 
-// ---------------------------------------------------------------------------
 // File loading
-// ---------------------------------------------------------------------------
 
 /// Load the first file that exists from a list of candidates.
 pub(super) fn load_first_existing(

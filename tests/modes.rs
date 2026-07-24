@@ -3,7 +3,7 @@
 mod common;
 use common::run_rippy;
 
-// ---- Claude mode tests ----
+// Claude mode tests
 
 #[test]
 fn claude_allow_safe_command() {
@@ -45,7 +45,7 @@ fn claude_git_push_asks() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Gemini mode tests ----
+// Gemini mode tests
 
 #[test]
 fn gemini_allow_safe() {
@@ -66,7 +66,7 @@ fn gemini_deny_dangerous() {
     assert_eq!(v["decision"], "deny");
 }
 
-// ---- Cursor mode tests ----
+// Cursor mode tests
 
 #[test]
 fn cursor_allow_safe() {
@@ -77,7 +77,7 @@ fn cursor_allow_safe() {
     assert_eq!(v["permission"], "allow");
 }
 
-// ---- Codex mode ----
+// Codex mode
 
 #[test]
 fn codex_mode_safe_command() {
@@ -97,7 +97,7 @@ fn codex_mode_dangerous_command() {
     assert_eq!(v["decision"], "deny");
 }
 
-// ---- PostToolUse ----
+// PostToolUse
 
 #[test]
 fn post_tool_use_returns_allow() {
@@ -112,12 +112,15 @@ fn post_tool_use_returns_allow() {
     assert!(v["hookSpecificOutput"].get("permissionDecision").is_none());
 }
 
-// ---- Auto-mode coexistence (#128) ----
+// Auto-mode coexistence (#128)
 
 #[test]
 fn claude_auto_mode_defers_uncertain_ask() {
     // `git push origin main` is an ask verdict; in an auto mode rippy defers.
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"},"permission_mode":"acceptEdits"}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"},"#,
+        r#""permission_mode":"acceptEdits"}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -145,7 +148,10 @@ fn claude_deny_holds_in_bypass_mode() {
         "[[rules]]\naction = \"deny\"\npattern = \"rm -rf *\"\nmessage = \"blocked\"\n",
     )
     .unwrap();
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"},"permission_mode":"bypassPermissions"}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"},"#,
+        r#""permission_mode":"bypassPermissions"}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &["--config", config_path.to_str().unwrap()]);
     assert_eq!(code, 2);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -157,14 +163,17 @@ fn claude_auto_mode_knob_off_forces_ask() {
     let dir = tempfile::tempdir().unwrap();
     let config_path = dir.path().join(".rippy.toml");
     std::fs::write(&config_path, "[settings]\nauto-mode = \"ask\"\n").unwrap();
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"},"permission_mode":"acceptEdits"}"#;
+    let json = concat!(
+        r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"},"#,
+        r#""permission_mode":"acceptEdits"}"#
+    );
     let (stdout, code) = run_rippy(json, "claude", &["--config", config_path.to_str().unwrap()]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
 
-// ---- Dippy backward compat ----
+// Dippy backward compat
 
 #[test]
 fn dippy_config_file_loaded() {
@@ -178,7 +187,7 @@ fn dippy_config_file_loaded() {
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny");
 }
 
-// ---- Empty command ----
+// Empty command
 
 #[test]
 fn empty_command_in_payload() {

@@ -112,31 +112,25 @@ pub fn suggest_patterns(command: &str) -> Vec<String> {
         return vec![tokens[0].to_string()];
     }
 
+    // Ordered most-specific to most-general; deduplicated below.
     let mut suggestions = Vec::new();
-
-    // 1. Exact command (normalized whitespace)
     suggestions.push(tokens.join(" "));
 
-    // 2. Wildcard last arg (if >2 tokens)
     if tokens.len() > 2 {
         let prefix: Vec<&str> = tokens[..tokens.len() - 1].to_vec();
         suggestions.push(format!("{} *", prefix.join(" ")));
     }
 
-    // 3. Wildcard after first two tokens (command + subcommand)
     if tokens.len() > 2 {
         suggestions.push(format!("{} {} *", tokens[0], tokens[1]));
     } else {
-        // 2 tokens: command + arg, wildcard the arg
         suggestions.push(format!("{} *", tokens[0]));
     }
 
-    // 4. Wildcard entire command (only if >2 tokens, otherwise redundant)
     if tokens.len() > 2 {
         suggestions.push(format!("{} *", tokens[0]));
     }
 
-    // Deduplicate while preserving order
     let mut seen = std::collections::HashSet::new();
     suggestions.retain(|s| seen.insert(s.clone()));
     suggestions

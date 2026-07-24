@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
 
-// ---- uv ----
+// uv
 
 pub static UV_HANDLER: UvHandler = UvHandler;
 
@@ -70,7 +70,7 @@ impl Handler for UvHandler {
     }
 }
 
-// ---- ruff ----
+// ruff
 
 pub static RUFF_HANDLER: RuffHandler = RuffHandler;
 
@@ -90,7 +90,7 @@ impl Handler for RuffHandler {
     }
 }
 
-// ---- black ----
+// black
 
 pub static BLACK_HANDLER: BlackHandler = BlackHandler;
 
@@ -112,39 +112,16 @@ impl Handler for BlackHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    #[test]
-    fn uv_sync_allows() {
-        let args: Vec<String> = vec!["sync".into()];
-        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
+    // uv sync / uv pip list / ruff / black command->decision cases are covered by
+    // tests/data/catalog/handlers_task_runners.toml. This test asserts the Recurse
+    // variant for `uv run`, which a command string cannot express.
     #[test]
     fn uv_run_recurses() {
         let args: Vec<String> = vec!["run".into(), "python".into()];
-        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
+        let result = UV_HANDLER.classify(&HandlerContext::test("uv", &args));
         assert!(matches!(result, Classification::Recurse(_)));
-    }
-
-    #[test]
-    fn uv_pip_list_allows() {
-        let args: Vec<String> = vec!["pip".into(), "list".into()];
-        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
-        assert!(matches!(result, Classification::Allow(_)));
     }
 }

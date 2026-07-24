@@ -343,7 +343,7 @@ fn log_full_false_not_emitted() {
     assert!(!config.log_full);
 }
 
-// ── Structured matching TOML tests ─────────────────────────────
+// Structured matching TOML tests
 
 const STRUCTURED_DENY_FORCE: &str = "\
 [[rules]]\naction = \"deny\"\ncommand = \"git\"\nsubcommand = \"push\"\n\

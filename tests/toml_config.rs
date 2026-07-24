@@ -4,7 +4,7 @@ mod common;
 use common::{run_rippy, run_rippy_in_dir, run_rippy_in_dir_with_args};
 use rippy_cli::config::{Config, ConfigFormat};
 
-// ---- TOML config integration tests ----
+// TOML config integration tests
 
 #[test]
 fn toml_config_allows_command() {
@@ -115,7 +115,7 @@ fn migrate_stdout_produces_valid_toml() {
     assert!(toml_str.contains("message = \"use trash\""));
 }
 
-// ---- Config weakening annotation tests ----
+// Config weakening annotation tests
 
 #[test]
 fn config_weakening_verdict_annotated() {
@@ -211,7 +211,7 @@ fn config_no_override_normal_reason() {
     );
 }
 
-// ---- Example TOML parsing tests ----
+// Example TOML parsing tests
 // Validates that all example config files parse through rippy's config loader
 // without errors. Catches schema drift if config format changes.
 

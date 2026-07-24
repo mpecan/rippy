@@ -1,6 +1,6 @@
 use super::{Classification, Handler, HandlerContext, is_sole_help_flag, positional_args};
 
-// ---- kubectl ----
+// kubectl
 
 pub static KUBECTL_HANDLER: KubectlHandler = KubectlHandler;
 
@@ -65,7 +65,7 @@ fn classify_kubectl_exec(ctx: &HandlerContext) -> Classification {
     Classification::Ask("kubectl exec".into())
 }
 
-// ---- aws ----
+// aws
 
 pub static AWS_HANDLER: AwsHandler = AwsHandler;
 
@@ -149,7 +149,7 @@ impl Handler for AwsHandler {
     }
 }
 
-// ---- gcloud ----
+// gcloud
 
 pub static GCLOUD_HANDLER: GcloudHandler = GcloudHandler;
 
@@ -207,7 +207,7 @@ impl Handler for GcloudHandler {
     }
 }
 
-// ---- az ----
+// az
 
 pub static AZ_HANDLER: AzHandler = AzHandler;
 
@@ -253,28 +253,12 @@ impl Handler for AzHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    #[test]
-    fn kubectl_get_allows() {
-        let args: Vec<String> = vec!["get".into(), "pods".into()];
-        let result = KUBECTL_HANDLER.classify(&ctx(&args, "kubectl"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
+    // Pure subcommand->decision cases (kubectl get/apply, aws describe/create) are
+    // covered by tests/data/catalog/handlers_containers.toml. The exec test below
+    // asserts the RecurseRemote variant, which a command string cannot express.
     #[test]
     fn kubectl_exec_recurses_remote() {
         let args: Vec<String> = vec![
@@ -284,28 +268,7 @@ mod tests {
             "cat".into(),
             "/etc/hosts".into(),
         ];
-        let result = KUBECTL_HANDLER.classify(&ctx(&args, "kubectl"));
+        let result = KUBECTL_HANDLER.classify(&HandlerContext::test("kubectl", &args));
         assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "cat /etc/hosts"));
-    }
-
-    #[test]
-    fn kubectl_apply_asks() {
-        let args: Vec<String> = vec!["apply".into(), "-f".into(), "deploy.yaml".into()];
-        let result = KUBECTL_HANDLER.classify(&ctx(&args, "kubectl"));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn aws_describe_allows() {
-        let args: Vec<String> = vec!["ec2".into(), "describe-instances".into()];
-        let result = AWS_HANDLER.classify(&ctx(&args, "aws"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn aws_create_asks() {
-        let args: Vec<String> = vec!["ec2".into(), "create-instance".into()];
-        let result = AWS_HANDLER.classify(&ctx(&args, "aws"));
-        assert!(matches!(result, Classification::Ask(_)));
     }
 }

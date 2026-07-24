@@ -111,9 +111,7 @@ proptest! {
         .. ProptestConfig::default()
     })]
 
-    // -----------------------------------------------------------------------
     // Strategy 1: Safe command passthrough
-    // -----------------------------------------------------------------------
 
     /// Any `SIMPLE_SAFE` command with typical arguments must be allowed.
     #[test]
@@ -138,9 +136,7 @@ proptest! {
         prop_assert!(verdict.decision == Decision::Allow, "{}", msg);
     }
 
-    // -----------------------------------------------------------------------
     // Strategy 2: Injection detection
-    // -----------------------------------------------------------------------
 
     /// A safe command joined to a dangerous command via any injection operator
     /// must produce Ask or Deny — never Allow.
@@ -164,9 +160,7 @@ proptest! {
         prop_assert!(verdict.decision >= Decision::Ask, "{}", msg);
     }
 
-    // -----------------------------------------------------------------------
     // Strategy 3: Recursive construct contrast
-    // -----------------------------------------------------------------------
 
     /// Recursive constructs with safe inner commands must Allow.
     #[test]
@@ -206,9 +200,7 @@ proptest! {
         prop_assert!(verdict.decision >= Decision::Ask, "{}", msg);
     }
 
-    // -----------------------------------------------------------------------
     // Strategy 4: Wrapper transparency
-    // -----------------------------------------------------------------------
 
     /// Wrapper commands must be transparent: wrapping a safe command allows.
     #[test]

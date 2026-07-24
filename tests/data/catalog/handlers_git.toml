@@ -1,0 +1,122 @@
+[meta]
+description = "git handler — subcommand safety and out-of-scope repo redirects"
+
+# Migrated from src/handlers/git.rs unit tests. Only pure command->decision cases
+# and ABSOLUTE out-of-scope repo redirects (Ask regardless of cwd) live here.
+# Declared-scope, cwd-relative, and in-project redirect cases cannot be reproduced
+# in the isolated catalog (fixed temp cwd, empty safe_scopes) and stay white-box.
+
+# ---- safe subcommands (read-only) ----
+[[case]]
+command = "git status"
+decision = "allow"
+
+[[case]]
+command = "git diff"
+decision = "allow"
+
+[[case]]
+command = "git show HEAD"
+decision = "allow"
+
+[[case]]
+command = "git blame src/main.rs"
+decision = "allow"
+
+[[case]]
+command = "git fetch"
+decision = "allow"
+
+[[case]]
+command = "git branch"
+decision = "allow"
+
+[[case]]
+command = "git stash list"
+decision = "allow"
+
+[[case]]
+command = "git tag --list"
+decision = "allow"
+
+# ---- ask subcommands (mutating) ----
+[[case]]
+command = "git commit"
+decision = "ask"
+
+[[case]]
+command = "git push"
+decision = "ask"
+
+[[case]]
+command = "git merge"
+decision = "ask"
+
+[[case]]
+command = "git reset"
+decision = "ask"
+
+[[case]]
+command = "git checkout"
+decision = "ask"
+
+[[case]]
+command = "git branch -d feature"
+decision = "ask"
+
+[[case]]
+command = "git branch -D feature"
+decision = "ask"
+
+[[case]]
+command = "git tag v1.0"
+decision = "ask"
+
+[[case]]
+command = "git tag -d v1.0"
+decision = "ask"
+
+[[case]]
+command = "git stash"
+decision = "ask"
+
+[[case]]
+command = "git remote add origin url"
+decision = "ask"
+
+[[case]]
+command = "git config --unset foo"
+decision = "ask"
+
+# ---- absolute out-of-scope repo redirects: Ask regardless of cwd ----
+# Both the separated (`-C PATH`) and attached (`--flag=PATH`) forms must Ask so
+# the redirect cannot be smuggled past the scope guard (#134).
+[[case]]
+command = "git -C /etc status"
+decision = "ask"
+reason_contains = "outside allowed scope"
+
+[[case]]
+command = "git -C /opt/other-repo log"
+decision = "ask"
+reason_contains = "outside allowed scope"
+
+[[case]]
+command = "git --git-dir /etc/repo/.git log"
+decision = "ask"
+reason_contains = "outside allowed scope"
+
+[[case]]
+command = "git --git-dir=/etc/repo/.git log"
+decision = "ask"
+reason_contains = "outside allowed scope"
+
+[[case]]
+command = "git --work-tree /etc/checkout status"
+decision = "ask"
+reason_contains = "outside allowed scope"
+
+[[case]]
+command = "git --work-tree=/etc/checkout status"
+decision = "ask"
+reason_contains = "outside allowed scope"

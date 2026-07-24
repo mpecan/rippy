@@ -97,8 +97,7 @@ mod tests {
         let mut parser = BashParser::new().unwrap();
         let err = parser.parse("echo $( ( unbalanced").unwrap_err();
         let msg = err.to_string();
-        // `RippyError::Parse`'s Display prepends exactly one "parse error: ";
-        // the parser closure must not add its own, or the prefix triples.
+        // Display prepends exactly one "parse error: "; the closure must not double it.
         assert_eq!(msg.matches("parse error:").count(), 1, "message: {msg}");
     }
 }

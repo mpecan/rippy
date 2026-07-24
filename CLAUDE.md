@@ -73,15 +73,30 @@ Use `#[allow(...)]` only in test code. Prefer returning `Result` or using patter
 - `rustfmt` with `max_width = 100`, edition 2024
 - Run `cargo fmt` before committing
 
+### Comment style
+
+Enforced by `cargo-lint-extra` (`.cargo-lint-extra.toml`, run as `cargo lint-extra` in CI).
+
+- Document public items and non-obvious **why**; never restate the **what** the code already says.
+- No step-narration (`// now loop over the args`) and no comments that echo a self-named call.
+- No decorative banner dividers (`// ---- foo ----`, `// ==== Config ====`, box-drawing rules).
+- Skip `///` doc stubs on trivial private one-liners.
+- Keep inline comments under ~30% of a function's lines; break up or delete dense blocks.
+- Deep rationale (security invariants, attack models, parser hazards) goes in a short `docs/`
+  file (e.g. `docs/security-invariants.md`) with a terse inline pointer
+  (`// see docs/security-invariants.md#dynamic-arg`), not a wall of inline text.
+- Files stay under the 700-line hard cap; split oversized modules into sibling files.
+
 ### Before every change
 
 ```sh
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo lint-extra
 ```
 
-All three must pass clean.
+All four must pass clean.
 
 ## Conventions
 
@@ -100,6 +115,28 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
 - Unit tests: `#[cfg(test)]` module in the source file
 - Test modules use `#[allow(clippy::unwrap_used)]`
 - Integration tests in `tests/`
+- **Handler behavior belongs in the data-driven catalog.** Prefer a
+  `command -> decision` case in `tests/data/catalog/*.toml` over a white-box
+  `handler.classify(&HandlerContext{..})` unit test. Catalog cases run the real
+  parse+analyze pipeline (`build.rs` generates one `#[test]` per TOML entry;
+  `tests/catalog_runner.rs` asserts `verdict.decision`), so they test the actual
+  user-facing verdict and are immune to `HandlerContext` struct refactors. New
+  handlers add catalog cases first.
+- **Reserve white-box `HandlerContext` tests for what a command string cannot
+  reach:** internal helpers, and behavior that depends on injected state —
+  `working_directory`/cwd-relative resolution, `remote = true`, non-empty
+  `safe_scopes`, and real-file `read_file` content (script/SQL/workflow files).
+  Route these through `HandlerContext::test(name, &args)` with struct-update
+  overrides for the non-default fields.
+- **Author every catalog case from OBSERVED analyzer output, never from memory.**
+  The full pipeline can differ from a handler's raw `Classification` (a catch-all
+  config rule may Ask over a handler Allow; the shell parser may mangle an
+  arg such as `-f query={...}`; redirects/pipelines change the verdict). Run the
+  candidate through `isolated_analyzer()` and use its `Decision` as ground truth;
+  when it diverges from the handler variant, keep the white-box test. This is a
+  security tool — a mis-transcribed `decision = "allow"` silently passes while
+  asserting the wrong thing, so keep contrast pairs and never migrate an
+  `ask`/`deny` case you have not observed.
 - Property-based tests in `tests/proptest_robustness.rs` — proptest covers
   the four parsing/analysis surfaces (`Payload::parse`, `BashParser` +
   `Analyzer`, `Pattern::matches`, `Config::load_from_str`) against random

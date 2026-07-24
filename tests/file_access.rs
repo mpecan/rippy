@@ -3,7 +3,7 @@
 mod common;
 use common::{run_rippy_in_dir, run_rippy_in_dir_with_args};
 
-// ---- File-access integration tests ----
+// File-access integration tests
 
 #[test]
 fn file_read_denied_by_rule() {
@@ -33,7 +33,8 @@ fn file_write_denied_by_rule() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::write(
         dir.path().join(".rippy.toml"),
-        "[[rules]]\naction = \"deny-write\"\npattern = \"**/.rippy*\"\nmessage = \"config protected\"\n",
+        "[[rules]]\naction = \"deny-write\"\n\
+         pattern = \"**/.rippy*\"\nmessage = \"config protected\"\n",
     )
     .unwrap();
 
@@ -81,11 +82,15 @@ fn edit_tool_matched_by_rule() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::write(
         dir.path().join(".rippy.toml"),
-        "[[rules]]\naction = \"ask-edit\"\npattern = \"**/node_modules/**\"\nmessage = \"vendor files\"\n",
+        "[[rules]]\naction = \"ask-edit\"\n\
+         pattern = \"**/node_modules/**\"\nmessage = \"vendor files\"\n",
     )
     .unwrap();
 
-    let json = r#"{"tool_name":"Edit","tool_input":{"file_path":"node_modules/pkg/index.js","old_string":"a","new_string":"b"}}"#;
+    let json = concat!(
+        r#"{"tool_name":"Edit","tool_input":{"file_path":"node_modules/pkg/index.js","#,
+        r#""old_string":"a","new_string":"b"}}"#
+    );
     let config = dir.path().join(".rippy.toml");
     let config_str = config.to_str().unwrap();
     let (stdout, code) =

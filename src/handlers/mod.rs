@@ -74,6 +74,24 @@ impl HandlerContext<'_> {
         }
         std::fs::read_to_string(&canonical).ok()
     }
+
+    /// Construct a `HandlerContext` for unit tests with safe defaults.
+    ///
+    /// Defaults: `working_directory = /tmp`, `remote = false`,
+    /// `receives_piped_input = false`, `safe_scopes = &[]`. Override any
+    /// non-default field via struct-update syntax:
+    /// `HandlerContext { remote: true, ..HandlerContext::test("cd", &args) }`.
+    #[cfg(test)]
+    pub(crate) fn test<'a>(command_name: &'a str, args: &'a [String]) -> HandlerContext<'a> {
+        HandlerContext {
+            command_name,
+            args,
+            working_directory: Path::new("/tmp"),
+            remote: false,
+            receives_piped_input: false,
+            safe_scopes: &[],
+        }
+    }
 }
 
 /// The result of classifying a command.
@@ -353,17 +371,6 @@ pub fn is_within_default_safe_dir(path: &Path) -> bool {
 mod tests {
     use super::*;
 
-    fn ctx_with_dir(dir: &Path, remote: bool) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "test",
-            args: &[],
-            working_directory: dir,
-            remote,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
     #[test]
     fn is_within_scope_respects_component_boundary() {
         let cwd = Path::new("/project");
@@ -383,15 +390,13 @@ mod tests {
     #[test]
     fn is_within_safe_dir_matches_default_and_scope_but_not_cwd() {
         let scopes = [std::path::PathBuf::from("/opt/repos")];
-        // Default safe dirs (including macOS /private equivalents).
+        // Default safe dirs (including macOS /private equivalents) and a scope.
         assert!(is_within_safe_dir(Path::new("/tmp/out.txt"), &scopes));
         assert!(is_within_safe_dir(Path::new("/private/tmp/x/log"), &scopes));
         assert!(is_within_safe_dir(Path::new("/var/tmp/y"), &scopes));
-        // Declared scope.
         assert!(is_within_safe_dir(Path::new("/opt/repos/other/f"), &scopes));
-        // The cwd is NOT a safe write dir here (redirects into it must ask).
+        // cwd is NOT safe, and a sibling sharing a string prefix must NOT match.
         assert!(!is_within_safe_dir(Path::new("/project/out.txt"), &scopes));
-        // Component boundary: a sibling sharing a string prefix must NOT match.
         assert!(!is_within_safe_dir(Path::new("/tmpevil/x"), &scopes));
         assert!(!is_within_safe_dir(Path::new("/opt/repos-evil/x"), &scopes));
     }
@@ -426,14 +431,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.txt");
         std::fs::write(&file, "hello").unwrap();
-        let ctx = ctx_with_dir(dir.path(), true);
+        let ctx = HandlerContext {
+            working_directory: dir.path(),
+            remote: true,
+            ..HandlerContext::test("test", &[])
+        };
         assert!(ctx.read_file("test.txt").is_none());
     }
 
     #[test]
     fn read_file_returns_none_for_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ctx_with_dir(dir.path(), false);
+        let ctx = HandlerContext {
+            working_directory: dir.path(),
+            ..HandlerContext::test("test", &[])
+        };
         assert!(ctx.read_file("nonexistent.txt").is_none());
     }
 
@@ -442,14 +454,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.txt");
         std::fs::write(&file, "hello world").unwrap();
-        let ctx = ctx_with_dir(dir.path(), false);
+        let ctx = HandlerContext {
+            working_directory: dir.path(),
+            ..HandlerContext::test("test", &[])
+        };
         assert_eq!(ctx.read_file("test.txt").unwrap(), "hello world");
     }
 
     #[test]
     fn read_file_rejects_path_outside_working_dir() {
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ctx_with_dir(dir.path(), false);
+        let ctx = HandlerContext {
+            working_directory: dir.path(),
+            ..HandlerContext::test("test", &[])
+        };
         assert!(ctx.read_file("../../etc/passwd").is_none());
     }
 
@@ -460,7 +478,10 @@ mod tests {
         #[allow(clippy::cast_possible_truncation)]
         let content = "x".repeat(MAX_FILE_SIZE as usize + 1);
         std::fs::write(&file, content).unwrap();
-        let ctx = ctx_with_dir(dir.path(), false);
+        let ctx = HandlerContext {
+            working_directory: dir.path(),
+            ..HandlerContext::test("test", &[])
+        };
         assert!(ctx.read_file("big.txt").is_none());
     }
 }

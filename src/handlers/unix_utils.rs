@@ -2,7 +2,7 @@ use super::{
     Classification, Handler, HandlerContext, SubcommandHandler, has_flag, is_sole_help_flag,
 };
 
-// ---- tar ----
+// tar
 
 pub static TAR_HANDLER: TarHandler = TarHandler;
 
@@ -27,7 +27,7 @@ impl Handler for TarHandler {
     }
 }
 
-// ---- wget ----
+// wget
 
 pub static WGET_HANDLER: WgetHandler = WgetHandler;
 
@@ -49,7 +49,7 @@ impl Handler for WgetHandler {
     }
 }
 
-// ---- gzip / unzip ----
+// gzip / unzip
 
 pub static GZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["gzip", "gunzip"],
@@ -65,7 +65,7 @@ pub static UNZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     "archive",
 );
 
-// ---- mktemp ----
+// mktemp
 
 pub static MKTEMP_HANDLER: MktempHandler = MktempHandler;
 
@@ -84,7 +84,7 @@ impl Handler for MktempHandler {
     }
 }
 
-// ---- tee ----
+// tee
 
 pub static TEE_HANDLER: TeeHandler = TeeHandler;
 
@@ -113,7 +113,7 @@ impl Handler for TeeHandler {
     }
 }
 
-// ---- sort ----
+// sort
 
 pub static SORT_HANDLER: SortHandler = SortHandler;
 
@@ -138,7 +138,7 @@ impl Handler for SortHandler {
     }
 }
 
-// ---- open ----
+// open
 
 pub static OPEN_HANDLER: OpenHandler = OpenHandler;
 
@@ -157,7 +157,7 @@ impl Handler for OpenHandler {
     }
 }
 
-// ---- yq ----
+// yq
 
 pub static YQ_HANDLER: YqHandler = YqHandler;
 
@@ -176,35 +176,7 @@ impl Handler for YqHandler {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use std::path::Path;
-
-    use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    #[test]
-    fn tar_list_allows() {
-        let args: Vec<String> = vec!["-t".into(), "archive.tar".into()];
-        let result = TAR_HANDLER.classify(&ctx(&args, "tar"));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn tar_extract_asks() {
-        let args: Vec<String> = vec!["-x".into(), "archive.tar".into()];
-        let result = TAR_HANDLER.classify(&ctx(&args, "tar"));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-}
+// Behavioral coverage (tar list/extract, wget, mktemp, open, yq) lives in
+// tests/data/catalog/handlers_text_system.toml — pure command->decision mappings
+// exercised through the real parse+analyze pipeline. The tee/sort `-o` redirect
+// paths return WithRedirects and are covered by redirect integration tests.

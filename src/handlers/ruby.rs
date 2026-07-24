@@ -17,12 +17,11 @@ impl Handler for RubyHandler {
             return Classification::Allow(format!("{} version/help", ctx.command_name));
         }
 
-        // irb is always interactive
         if ctx.command_name == "irb" {
             return Classification::Ask("irb (interactive)".into());
         }
 
-        // -e inline code — analyze source for dangerous patterns
+        // -e inline code: analyze source for dangerous patterns.
         if let Some(source) = get_flag_value(ctx.args, &["-e"]) {
             return if is_ruby_source_safe(&source) {
                 Classification::Allow("ruby -e (safe inline code)".into())
@@ -31,12 +30,10 @@ impl Handler for RubyHandler {
             };
         }
 
-        // No args = interactive
         if ctx.args.is_empty() {
             return Classification::Ask("ruby (interactive)".into());
         }
 
-        // Script file execution — try to read and analyze
         let script = first_positional(ctx.args).unwrap_or("");
         if let Some(source) = ctx.read_file(script) {
             return if is_ruby_source_safe(&source) {
@@ -52,87 +49,30 @@ impl Handler for RubyHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "ruby",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    #[test]
-    fn version_allows() {
-        let args = vec!["--version".into()];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
-            Classification::Allow(_)
-        ));
-    }
-
+    // Handler-level safe/dangerous inline distinction. NOTE: the full pipeline's
+    // isolated stdlib config has a catch-all `command=ruby` rule that Asks, so the
+    // safe-inline Allow is only observable at the handler level here — the catalog
+    // covers the pipeline's fail-closed Ask. See tests/data/catalog/handlers_interpreters.toml.
     #[test]
     fn e_safe_puts_allows() {
         let args = vec!["-e".into(), "puts 'hello'".into()];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Allow(_)
         ));
     }
 
+    // Handler-level danger arm: `-e` inline dangerous code must Ask. The catalog's
+    // isolated stdlib catch-all Asks for any `ruby`, masking this arm at the pipeline
+    // level, so the safety-critical danger->Ask direction is only observable here.
     #[test]
-    fn e_system_asks() {
+    fn e_dangerous_system_asks() {
         let args = vec!["-e".into(), "system('rm -rf /')".into()];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn e_backtick_asks() {
-        let args = vec!["-e".into(), "`ls`".into()];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn no_args_asks() {
-        let args: Vec<String> = vec![];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn irb_asks() {
-        let ctx = HandlerContext {
-            command_name: "irb",
-            args: &[],
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        };
-        assert!(matches!(
-            RUBY_HANDLER.classify(&ctx),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn script_file_missing_asks() {
-        let args = vec!["script.rb".into()];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Ask(_)
         ));
     }
@@ -143,12 +83,8 @@ mod tests {
         std::fs::write(dir.path().join("safe.rb"), "puts 'hello'").unwrap();
         let args = vec!["safe.rb".into()];
         let ctx = HandlerContext {
-            command_name: "ruby",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("ruby", &args)
         };
         assert!(matches!(
             RUBY_HANDLER.classify(&ctx),
@@ -162,12 +98,8 @@ mod tests {
         std::fs::write(dir.path().join("evil.rb"), "system('rm -rf /')").unwrap();
         let args = vec!["evil.rb".into()];
         let ctx = HandlerContext {
-            command_name: "ruby",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("ruby", &args)
         };
         assert!(matches!(
             RUBY_HANDLER.classify(&ctx),

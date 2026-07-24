@@ -88,7 +88,8 @@ impl Package {
                     .is_file()
             {
                 eprintln!(
-                    "[rippy] custom package \"{name}\" is shadowed by the built-in package with the same name"
+                    "[rippy] custom package \"{name}\" is shadowed by the built-in \
+                     package with the same name"
                 );
             }
             return Ok(builtin);
@@ -340,9 +341,10 @@ mod tests {
     #[test]
     fn autopilot_has_allow_default() {
         let directives = package_directives(&Package::Autopilot).unwrap();
-        let has_default_allow = directives
-            .iter()
-            .any(|d| matches!(d, ConfigDirective::Set { key, value } if key == "default" && value == "allow"));
+        let has_default_allow = directives.iter().any(|d| {
+            matches!(d, ConfigDirective::Set { key, value }
+                if key == "default" && value == "allow")
+        });
         assert!(has_default_allow, "autopilot should set default = allow");
     }
 
@@ -408,7 +410,7 @@ mod tests {
         }
     }
 
-    // --- Custom package and resolution tests ---
+    // Custom package and resolution tests
 
     use tempfile::tempdir;
 

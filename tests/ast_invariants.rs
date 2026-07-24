@@ -131,14 +131,12 @@ fn tree_contains(nodes: &[Node], pred: &dyn Fn(&Node) -> bool) -> bool {
     found
 }
 
-// ---------------------------------------------------------------------------
 // Invariant 1: every source-level expansion produces an expansion node.
 //
 // Catches future regressions where a rable bump drops a substitution into a
 // raw `Word` without decomposing it into parts. `is_expansion_node` is the
 // single source of truth rippy's analyzer uses to decide whether to Ask, so
 // a substitution that fails this check silently bypasses the Ask floor.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn every_source_level_expansion_produces_expansion_node() {
@@ -166,29 +164,18 @@ fn every_source_level_expansion_produces_expansion_node() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Invariant 2: heredoc in cmdsub produces a quoted HereDoc node.
 //
-// Direct lock for rable issue #26 — pre-0.1.14 the HereDoc node could be
-// silently dropped when the body contained an unmatched `(`. Tests both the
-// clean case and the previously-buggy unmatched-paren case, asserting both
-// produce an AST containing a HereDoc with the expected content.
-// ---------------------------------------------------------------------------
+// Direct lock for rable issue #26: the HereDoc node must survive a body with an
+// unmatched `(`. see docs/rable-heredoc-regressions.md
 
 #[test]
 fn heredoc_in_cmdsub_produces_quoted_heredoc_node() {
-    // Each case: (source, substring that must appear in the HereDoc.content).
-    // We use a `contains`-check rather than exact equality because rable's
-    // content-trimming semantics (trailing newline, tab stripping for `<<-`,
-    // etc.) are incidental to the invariant we're pinning — what matters is
-    // that the dangerous-token-containing body is visible as quoted heredoc
-    // data, not that the bytes match exactly. This stays robust across
-    // future rable content-normalization tweaks.
+    // (source, substring the HereDoc.content must contain). A `contains` check
+    // tolerates rable's incidental content-trimming; the invariant is that the
+    // body stays visible as quoted heredoc data.
     let cases: &[(&str, &str)] = &[
-        // Clean case — always worked.
         ("$(cat <<'EOF'\nx\nEOF\n)", "x"),
-        // Unmatched-paren case — the rable #26 regression fixture. Pre-0.1.14
-        // this could drop the HereDoc entirely.
         ("$(cat <<'EOF'\nfoo\n(bar\nEOF\n)", "(bar"),
     ];
     for (src, expected_substring) in cases {
@@ -202,12 +189,12 @@ fn heredoc_in_cmdsub_produces_quoted_heredoc_node() {
         });
         assert!(
             found,
-            "expected quoted HereDoc with content containing {expected_substring:?} in AST for {src:?}"
+            "expected quoted HereDoc with content containing \
+             {expected_substring:?} in AST for {src:?}"
         );
     }
 }
 
-// ---------------------------------------------------------------------------
 // Invariant 3: substitution bodies are structured, not raw words.
 //
 // Pre-fork-and-merge (before rable 0.1.15), a substitution body that tripped
@@ -215,7 +202,6 @@ fn heredoc_in_cmdsub_produces_quoted_heredoc_node() {
 // the raw source text. Post-fix, the real grammar parses the body, so the
 // inner `command` of a CommandSubstitution / ProcessSubstitution is always
 // a structured node (a Command, Pipeline, List, etc.) — not a bare Word.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn substitution_body_is_structured_not_raw_word() {
@@ -251,7 +237,6 @@ fn substitution_body_is_structured_not_raw_word() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Invariant 4: `has_expansions` agrees with a textual scan for simple inputs.
 //
 // The AST walker (`has_expansions`) and the textual-scan fallback
@@ -261,7 +246,6 @@ fn substitution_body_is_structured_not_raw_word() {
 //
 // Catches a class of regression where 0.1.15 populates `Word.parts` where
 // 0.1.13 left them empty (or vice versa) and shifts detection semantics.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn has_expansions_agrees_on_simple_inputs() {

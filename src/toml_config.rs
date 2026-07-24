@@ -13,9 +13,7 @@ use crate::error::RippyError;
 use crate::pattern::Pattern;
 use crate::verdict::Decision;
 
-// ---------------------------------------------------------------------------
 // Deserialization structs
-// ---------------------------------------------------------------------------
 
 /// Top-level structure of a `.rippy.toml` file.
 #[derive(Debug, Deserialize)]
@@ -138,9 +136,7 @@ pub struct TomlAlias {
     pub target: String,
 }
 
-// ---------------------------------------------------------------------------
 // TOML → Vec<ConfigDirective> conversion
-// ---------------------------------------------------------------------------
 
 /// Parse a TOML config string into a list of directives.
 ///
@@ -332,9 +328,7 @@ fn parse_decision(word: &str) -> Decision {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Vec<ConfigDirective> → TOML serialization (for `rippy migrate`)
-// ---------------------------------------------------------------------------
 
 /// Serialize a list of directives into TOML format.
 #[must_use]
@@ -433,9 +427,7 @@ fn emit_aliases(directives: &[ConfigDirective], out: &mut String) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]

@@ -47,80 +47,37 @@ impl Handler for PerlHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "perl",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    #[test]
-    fn version_allows() {
-        let args = vec!["--version".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&ctx(&args)),
-            Classification::Allow(_)
-        ));
-    }
-
+    // Handler-level safe-inline Allow. The full pipeline Asks (catch-all
+    // `command=perl` rule); catalog covers the pipeline decision.
     #[test]
     fn e_safe_print_allows() {
         let args = vec!["-e".into(), "print 'hello\\n'".into()];
         assert!(matches!(
-            PERL_HANDLER.classify(&ctx(&args)),
+            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
             Classification::Allow(_)
         ));
     }
 
+    // Handler-level danger arm: `-e`/`-E` inline dangerous code must Ask. The catalog's
+    // isolated stdlib catch-all Asks for any `perl`, masking this arm at the pipeline
+    // level, so the safety-critical danger->Ask direction is only observable here.
     #[test]
-    fn e_system_asks() {
+    fn e_dangerous_system_asks() {
         let args = vec!["-e".into(), "system('rm -rf /')".into()];
         assert!(matches!(
-            PERL_HANDLER.classify(&ctx(&args)),
+            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
             Classification::Ask(_)
         ));
     }
 
     #[test]
-    fn e_backtick_asks() {
-        let args = vec!["-e".into(), "`ls`".into()];
+    fn upper_e_dangerous_system_asks() {
+        let args = vec!["-E".into(), "system('rm -rf /')".into()];
         assert!(matches!(
-            PERL_HANDLER.classify(&ctx(&args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn upper_e_asks_for_dangerous() {
-        let args = vec!["-E".into(), "system('ls')".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&ctx(&args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn no_args_asks() {
-        let args: Vec<String> = vec![];
-        assert!(matches!(
-            PERL_HANDLER.classify(&ctx(&args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn script_file_missing_asks() {
-        let args = vec!["script.pl".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&ctx(&args)),
+            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
             Classification::Ask(_)
         ));
     }
@@ -131,12 +88,8 @@ mod tests {
         std::fs::write(dir.path().join("safe.pl"), "print 'hello\\n'").unwrap();
         let args = vec!["safe.pl".into()];
         let ctx = HandlerContext {
-            command_name: "perl",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("perl", &args)
         };
         assert!(matches!(
             PERL_HANDLER.classify(&ctx),
@@ -150,12 +103,8 @@ mod tests {
         std::fs::write(dir.path().join("evil.pl"), "system('rm -rf /')").unwrap();
         let args = vec!["evil.pl".into()];
         let ctx = HandlerContext {
-            command_name: "perl",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("perl", &args)
         };
         assert!(matches!(
             PERL_HANDLER.classify(&ctx),

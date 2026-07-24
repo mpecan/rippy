@@ -109,7 +109,8 @@ fn load_custom_package_from_path(path: &Path, name: &str) -> Result<CustomPackag
         && meta_name != name
     {
         eprintln!(
-            "[rippy] custom package {}: [meta] name=\"{meta_name}\" does not match filename \"{name}\" (filename wins)",
+            "[rippy] custom package {}: [meta] name=\"{meta_name}\" does not match \
+             filename \"{name}\" (filename wins)",
             path.display(),
         );
     }

@@ -79,84 +79,12 @@ impl Handler for PythonHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "python",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    #[test]
-    fn version_allows() {
-        let args = vec!["--version".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn c_safe_print_allows() {
-        let args = vec!["-c".into(), "print(1)".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn c_import_json_allows() {
-        let args = vec!["-c".into(), "import json; print(json.dumps({}))".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn c_import_os_asks() {
-        let args = vec!["-c".into(), "import os; os.system('ls')".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn c_eval_asks() {
-        let args = vec!["-c".into(), "eval('1+1')".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn script_file_asks() {
-        let args = vec!["script.py".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn no_args_asks() {
-        let args: Vec<String> = vec![];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn m_safe_module_allows() {
-        let args = vec!["-m".into(), "json.tool".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn m_unknown_module_asks() {
-        let args = vec!["-m".into(), "http.server".into()];
-        let result = PYTHON_HANDLER.classify(&ctx(&args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
+    // Command->decision cases (version/-c inline/-m/no-args/missing-script) are
+    // covered by tests/data/catalog/handlers_interpreters.toml. The remaining
+    // tests exercise read_file, which the catalog cannot inject.
     #[test]
     fn script_file_safe_allows() {
         let dir = tempfile::tempdir().unwrap();
@@ -167,12 +95,8 @@ mod tests {
         .unwrap();
         let args = vec!["safe.py".into()];
         let ctx = HandlerContext {
-            command_name: "python",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("python", &args)
         };
         let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Allow(_)));
@@ -188,12 +112,8 @@ mod tests {
         .unwrap();
         let args = vec!["evil.py".into()];
         let ctx = HandlerContext {
-            command_name: "python",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("python", &args)
         };
         let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
@@ -204,12 +124,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let args = vec!["missing.py".into()];
         let ctx = HandlerContext {
-            command_name: "python",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("python", &args)
         };
         let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
