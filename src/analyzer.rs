@@ -137,16 +137,18 @@ impl Analyzer {
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
         // Normalize a leading `NAME=VALUE` env prefix so the string-matching
         // config/CC layers see the real command (e.g. `cargo test`) instead of
-        // the assignment token. Parse resiliently with `.ok()`: on unparseable
-        // input we fall back to the raw string and the real parse error still
-        // surfaces at the `?` below. `strip_env_prefix` refuses to strip when a
-        // value contains an expansion, so no ALLOW rule can bypass the
-        // assignment-expansion guard in `analyze_command_node`.
-        let stripped = self
-            .parser
-            .parse(command)
+        // the assignment token. Parse once and reuse the result below. On
+        // unparseable input we fall back to the raw string and the real parse
+        // error still surfaces at the `?` after the string checks.
+        // `strip_env_prefix` keeps the rest of the command verbatim (redirects,
+        // pipes, `&&` chains), refuses to strip when a value contains an
+        // expansion, and refuses to strip code-influencing vars — so no ALLOW
+        // rule can bypass the analyzer's redirect or assignment-expansion guards.
+        let parsed = self.parser.parse(command);
+        let stripped = parsed
+            .as_ref()
             .ok()
-            .and_then(|n| ast::strip_env_prefix(command, &n));
+            .and_then(|nodes| ast::strip_env_prefix(command, nodes));
         let match_str = stripped.as_deref().unwrap_or(command);
 
         if let Some(decision) = self.cc_rules.check(match_str) {
@@ -172,7 +174,7 @@ impl Analyzer {
             return Ok(verdict);
         }
 
-        let nodes = self.parser.parse(command)?;
+        let nodes = parsed?;
         let cwd = self.working_directory.clone();
         self.node_budget = MAX_NODES;
         Ok(self.analyze_nodes(&nodes, &cwd, 0))
@@ -198,11 +200,9 @@ impl Analyzer {
         }
         self.node_budget -= 1;
         match &node.kind {
-            NodeKind::Command {
-                assignments,
-                words,
-                redirects,
-            } if Self::assignment_has_expansion(assignments) => {
+            NodeKind::Command { assignments, .. }
+                if Self::assignment_has_expansion(assignments) =>
+            {
                 Verdict::ask("assignment with expansion")
             }
             NodeKind::Command {

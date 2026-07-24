@@ -18,6 +18,20 @@ decision = "allow"
 command = "FOO=bar ls"
 decision = "allow"
 
+# Env prefix on the first command of a pipeline/list must still be stripped so
+# the real command is matched (issue #133 compound-command coverage).
+[[case]]
+command = "RUST_LOG=debug cargo test | grep foo"
+decision = "allow"
+
+[[case]]
+command = "INSTA_UPDATE=always cargo test && cargo build"
+decision = "allow"
+
+[[case]]
+command = "A=1 cargo build ; cargo test"
+decision = "allow"
+
 # Git safe subcommands
 [[case]]
 command = "git log --oneline -20"

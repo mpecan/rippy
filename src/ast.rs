@@ -168,42 +168,111 @@ pub fn has_shell_expansion_pattern(s: &str) -> bool {
     false
 }
 
-/// Rebuild the bare command by dropping a leading `NAME=VALUE` env prefix.
+/// Drop a leading `NAME=VALUE` env prefix, returning the rest of the command
+/// verbatim (words, pipes, `&&`/`||`/`;` chains, and redirects all preserved).
 ///
 /// This lets the config/permission string matchers see the real command name
-/// (`cargo`) rather than the assignment token (`INSTA_UPDATE=always`).
+/// (`cargo`) rather than the assignment token (`INSTA_UPDATE=always`), while the
+/// result stays byte-for-byte identical to the same command written without the
+/// prefix — so an env-prefixed command is treated exactly like its bare form and
+/// no new redirect/pipeline path is introduced.
 ///
-/// Returns `None` (caller keeps the original string) unless `nodes` is exactly
-/// one `Command` node that carries at least one assignment and at least one
-/// word.
+/// The prefix is located on the *leftmost* simple command, so pipelines and
+/// lists are handled too: `RUST_LOG=debug cargo test | grep foo` becomes
+/// `cargo test | grep foo`, and `A=1 cargo test && cargo build` becomes
+/// `cargo test && cargo build`. The tail is kept by slicing the original string
+/// from the first word's own source span, never a hand-rolled tokenizer.
 ///
-/// Returns `None` when any assignment value contains a shell expansion. This is
-/// a deliberate coupling: stripping there could let an ALLOW rule mask a
-/// command substitution such as `FOO=$(rm -rf /) cargo test`; those are instead
-/// forced to Ask by the analyzer's assignment-expansion guard.
-///
-/// The bare command is rebuilt from each word's own source span (via rable's
-/// `source_text`), never a hand-rolled tokenizer, so quoted values like
-/// `FOO='a b' cargo test` are handled correctly.
+/// Returns `None` (caller keeps the original string) when:
+/// - the input is not a single top-level statement, or its leftmost node is not
+///   a simple command carrying at least one assignment and one word;
+/// - any assignment value contains a shell expansion — a deliberate coupling, so
+///   an ALLOW rule cannot mask `FOO=$(rm -rf /) cargo test`; those are forced to
+///   Ask by the analyzer's assignment-expansion guard instead;
+/// - any assignment sets a code-influencing variable (see
+///   [`is_dangerous_env_name`]), so a literal `LD_PRELOAD=./evil.so cargo test`
+///   is not masked by a bare-command allow rule and instead reaches the analyzer.
 #[must_use]
 pub fn strip_env_prefix(command: &str, nodes: &[Node]) -> Option<String> {
     let [node] = nodes else {
         return None;
     };
-    let NodeKind::Command {
-        assignments, words, ..
-    } = &node.kind
-    else {
-        return None;
-    };
+    let (assignments, words) = leftmost_simple_command(node)?;
     if assignments.is_empty() || words.is_empty() {
         return None;
     }
     if assignments.iter().any(has_expansions) {
         return None;
     }
-    let parts: Vec<&str> = words.iter().map(|w| w.source_text(command)).collect();
-    Some(parts.join(" "))
+    if assignments
+        .iter()
+        .filter_map(|a| assignment_name(a, command))
+        .any(is_dangerous_env_name)
+    {
+        return None;
+    }
+    let char_start = words.first()?.span.start;
+    let byte_start = command.char_indices().nth(char_start).map(|(i, _)| i)?;
+    command.get(byte_start..).map(str::to_owned)
+}
+
+/// Find the leftmost simple command, descending through the first branch of a
+/// pipeline or list, and return its `(assignments, words)`.
+fn leftmost_simple_command(node: &Node) -> Option<(&[Node], &[Node])> {
+    match &node.kind {
+        NodeKind::Command {
+            assignments, words, ..
+        } => Some((assignments, words)),
+        NodeKind::Pipeline { commands, .. } => commands.first().and_then(leftmost_simple_command),
+        NodeKind::List { items } => items
+            .first()
+            .and_then(|item| leftmost_simple_command(&item.command)),
+        _ => None,
+    }
+}
+
+/// Extract the variable name of a `NAME=VALUE` (or `NAME+=VALUE`) assignment node.
+fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
+    let text = assignment.source_text(source);
+    let (name, _) = text.split_once('=')?;
+    Some(name.strip_suffix('+').unwrap_or(name))
+}
+
+/// Environment variable names whose values can change how a following command
+/// loads or resolves code, letting a *literal* assignment turn an otherwise-safe
+/// command into arbitrary code execution (e.g. `LD_PRELOAD`, `BASH_ENV`,
+/// `GIT_SSH_COMMAND`). When a leading env prefix sets any of these,
+/// [`strip_env_prefix`] refuses to strip so the command is not masked by a
+/// string-layer allow rule and instead falls through to the analyzer.
+#[must_use]
+fn is_dangerous_env_name(name: &str) -> bool {
+    // Dynamic-linker families: Linux `LD_*` (LD_PRELOAD, LD_LIBRARY_PATH,
+    // LD_AUDIT, ...) and macOS `DYLD_*` (DYLD_INSERT_LIBRARIES, ...).
+    if name.starts_with("LD_") || name.starts_with("DYLD_") {
+        return true;
+    }
+    matches!(
+        name,
+        "BASH_ENV"
+            | "ENV"
+            | "SHELLOPTS"
+            | "BASHOPTS"
+            | "IFS"
+            | "PS4"
+            | "GIT_SSH"
+            | "GIT_SSH_COMMAND"
+            | "GIT_EXTERNAL_DIFF"
+            | "GIT_PAGER"
+            | "PAGER"
+            | "EDITOR"
+            | "VISUAL"
+            | "PERL5OPT"
+            | "PERL5LIB"
+            | "PYTHONSTARTUP"
+            | "PYTHONPATH"
+            | "NODE_OPTIONS"
+            | "RUBYOPT"
+    )
 }
 
 /// Check if a redirect target is inherently safe (e.g., /dev/null).
@@ -557,5 +626,66 @@ mod tests {
         assert_eq!(strip("FOO=$(rm -rf /) cargo test"), None);
         assert_eq!(strip("FOO=`whoami` cargo test"), None);
         assert_eq!(strip("FOO=${HOME} cargo test"), None);
+    }
+
+    #[test]
+    fn strip_env_prefix_pipeline_first_command() {
+        // #133: an env prefix on the first command of a pipeline is stripped,
+        // and the rest of the pipeline is preserved verbatim.
+        assert_eq!(
+            strip("RUST_LOG=debug cargo test | grep foo"),
+            Some("cargo test | grep foo".to_owned())
+        );
+    }
+
+    #[test]
+    fn strip_env_prefix_list_first_command() {
+        // #133: an env prefix on the first command of an `&&`/`;` list is
+        // stripped, and the rest of the list is preserved verbatim.
+        assert_eq!(
+            strip("INSTA_UPDATE=always cargo test && cargo build"),
+            Some("cargo test && cargo build".to_owned())
+        );
+        assert_eq!(
+            strip("A=1 cargo test; echo done"),
+            Some("cargo test; echo done".to_owned())
+        );
+    }
+
+    #[test]
+    fn strip_env_prefix_preserves_redirects() {
+        // Redirects must survive stripping so the match string is identical to
+        // the same command written without the prefix (no new bypass path).
+        assert_eq!(
+            strip("FOO=bar cargo build > out.log"),
+            Some("cargo build > out.log".to_owned())
+        );
+    }
+
+    #[test]
+    fn strip_env_prefix_none_for_dangerous_var() {
+        // Code-influencing env vars must not be masked by a bare-command allow
+        // rule; refusing to strip forces them through the analyzer.
+        assert_eq!(strip("LD_PRELOAD=./evil.so cargo test"), None);
+        assert_eq!(strip("LD_LIBRARY_PATH=/tmp cargo test"), None);
+        assert_eq!(strip("DYLD_INSERT_LIBRARIES=./e.dylib cargo test"), None);
+        assert_eq!(strip("BASH_ENV=./e.sh cargo test"), None);
+        assert_eq!(strip("GIT_SSH_COMMAND=./evil git fetch"), None);
+        assert_eq!(strip("NODE_OPTIONS=--require=./e.js node app"), None);
+        // A dangerous var anywhere in a multi-assignment prefix blocks stripping.
+        assert_eq!(strip("SAFE=1 LD_PRELOAD=./e.so cargo test"), None);
+    }
+
+    #[test]
+    fn strip_env_prefix_allows_ordinary_vars() {
+        // Common, non-code-influencing vars still strip normally.
+        assert_eq!(
+            strip("RUST_LOG=debug cargo test"),
+            Some("cargo test".to_owned())
+        );
+        assert_eq!(
+            strip("CARGO_TERM_COLOR=always cargo build"),
+            Some("cargo build".to_owned())
+        );
     }
 }

@@ -275,6 +275,16 @@ pub(crate) fn collect_trace_data(
         .and_then(|n| crate::ast::strip_env_prefix(command, &n));
     let match_str = match_str.as_deref().unwrap_or(command);
 
+    // Transparency: disclose that the leading env prefix was normalized away, so
+    // a reader can see why `VAR=x echo evil` matched an `echo evil` rule.
+    if match_str != command {
+        steps.push(TraceStep {
+            stage: "Normalize env prefix".to_string(),
+            matched: true,
+            detail: format!("matching against `{match_str}`"),
+        });
+    }
+
     if let Some(out) = trace_cc_step(command, match_str, &cc_rules, &mut steps) {
         return Ok(out);
     }
@@ -579,6 +589,58 @@ mod tests {
         let output = collect_trace_data("echo evil", dir.path(), Some(&config_path)).unwrap();
         assert_eq!(output.decision, "deny");
         assert_eq!(output.reason, "no evil");
+        assert!(
+            output
+                .steps
+                .iter()
+                .any(|s| s.stage == "Config rules" && s.matched)
+        );
+    }
+
+    #[test]
+    fn trace_env_prefix_matches_config_rule() {
+        // #133: an env-prefixed command should trace against the stripped form
+        // and match a bare-command rule, disclosing the normalization step.
+        let dir = tempfile::TempDir::new().unwrap();
+        let config_path = dir.path().join("test.toml");
+        std::fs::write(
+            &config_path,
+            "[[rules]]\naction = \"deny\"\npattern = \"echo evil\"\nmessage = \"no evil\"\n",
+        )
+        .unwrap();
+
+        let output = collect_trace_data("VAR=x echo evil", dir.path(), Some(&config_path)).unwrap();
+        assert_eq!(output.decision, "deny");
+        assert_eq!(output.reason, "no evil");
+        assert!(
+            output
+                .steps
+                .iter()
+                .any(|s| s.stage == "Config rules" && s.matched)
+        );
+        // Transparency: the normalization is disclosed.
+        assert!(
+            output
+                .steps
+                .iter()
+                .any(|s| s.stage == "Normalize env prefix" && s.matched)
+        );
+    }
+
+    #[test]
+    fn trace_env_prefix_pipeline_matches_config_rule() {
+        // #133: env prefix on the first command of a pipeline strips correctly.
+        let dir = tempfile::TempDir::new().unwrap();
+        let config_path = dir.path().join("test.toml");
+        std::fs::write(
+            &config_path,
+            "[[rules]]\naction = \"allow\"\npattern = \"echo hi | cat\"\n",
+        )
+        .unwrap();
+
+        let output =
+            collect_trace_data("VAR=x echo hi | cat", dir.path(), Some(&config_path)).unwrap();
+        assert_eq!(output.decision, "allow");
         assert!(
             output
                 .steps

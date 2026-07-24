@@ -18,6 +18,26 @@ command = "FOO=$(rm -rf /) cargo test"
 decision = "ask"
 reason_contains = "assignment with expansion"
 
+# Code-influencing env vars (dynamic linker, BASH_ENV, GIT_SSH_COMMAND, ...) must
+# not be stripped away and masked by a bare-command allow rule (issue #133
+# security guard): even a literal value can inject code, so they fall through to
+# the analyzer and are not auto-approved.
+[[case]]
+command = "LD_PRELOAD=./evil.so cargo test"
+decision = "ask"
+
+[[case]]
+command = "LD_LIBRARY_PATH=/tmp/evil cargo build"
+decision = "ask"
+
+[[case]]
+command = "DYLD_INSERT_LIBRARIES=./evil.dylib cargo test"
+decision = "ask"
+
+[[case]]
+command = "BASH_ENV=./evil.sh cargo test"
+decision = "ask"
+
 # Command substitution
 [[case]]
 command = "echo $(rm -rf /)"
