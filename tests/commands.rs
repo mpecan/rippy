@@ -374,3 +374,87 @@ fn plain_echo_still_allows() {
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "allow");
 }
+
+// ---- `rippy inspect` must agree with the hook path (Refs #137) ----
+
+/// Run the hook path under an isolated HOME + cwd, returning its decision.
+fn hook_decision(dir: &std::path::Path, command: &str) -> String {
+    let payload =
+        serde_json::json!({"tool_name":"Bash","tool_input":{"command": command}}).to_string();
+    let mut cmd = std::process::Command::new(common::rippy_binary());
+    cmd.args(["--mode", "claude"])
+        .env("HOME", dir)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        let _ = stdin.write_all(payload.as_bytes());
+    }
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    v["hookSpecificOutput"]["permissionDecision"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Run `rippy inspect <cmd> --json` under an isolated HOME + cwd, returning
+/// `(decision, reason)`.
+fn inspect_decision(dir: &std::path::Path, command: &str) -> (String, String) {
+    let output = std::process::Command::new(common::rippy_binary())
+        .args(["inspect", command, "--json"])
+        .env("HOME", dir)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "inspect failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    (
+        v["decision"].as_str().unwrap().to_string(),
+        v["reason"].as_str().unwrap().to_string(),
+    )
+}
+
+#[test]
+fn inspect_agrees_with_hook_on_compound() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let commands = [
+        "ls -la | head",
+        "git log --oneline && git status",
+        "ls; echo done",
+        "for i in 1 2 3; do echo $i; done",
+        "x=$(ls); echo $x",
+    ];
+    for command in commands {
+        let hook = hook_decision(dir.path(), command);
+        let (decision, reason) = inspect_decision(dir.path(), command);
+        assert_eq!(
+            decision, hook,
+            "inspect/hook disagree for {command:?}: inspect={decision}, hook={hook}"
+        );
+        assert_ne!(
+            reason, "could not parse command",
+            "inspect wrongly reported {command:?} unparseable"
+        );
+    }
+}
+
+#[test]
+fn inspect_unsafe_compound_matches_hook() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let command = "ls && rm -rf /";
+    let hook = hook_decision(dir.path(), command);
+    let (decision, _reason) = inspect_decision(dir.path(), command);
+    assert_ne!(decision, "allow", "unsafe compound must not auto-approve");
+    assert_eq!(decision, hook, "inspect must match hook on unsafe compound");
+}
