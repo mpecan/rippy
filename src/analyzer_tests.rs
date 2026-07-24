@@ -574,15 +574,12 @@ fn and_combines_normally() {
 
 #[test]
 fn unparseable_command_asks_fail_closed() {
-    // A command rable cannot parse must yield a fail-closed Ask, not an Err.
-    // Previously `analyze` propagated `RippyError::Parse`, which exited
-    // non-blocking for Claude and let the command run un-gated (#150).
+    // Unparseable input must fail closed to Ask, not propagate Err (#150).
     let mut a = make_analyzer();
     let v = a.analyze("foo $( ( bar").unwrap();
     assert_eq!(v.decision, Decision::Ask);
     assert!(v.reason.contains("could not parse"), "reason: {}", v.reason);
 }
-
 
 // --- Help/version short-circuit narrowing (Issue #149) ---
 
@@ -598,8 +595,7 @@ fn sole_long_help_flag_on_unknown_command_allows() {
 
 #[test]
 fn bare_dash_h_alone_no_longer_treated_as_help() {
-    // Bare `-h` is dropped at the analyzer top level (commands overload it),
-    // so a lone `-h` on an unknown command asks -- the safe direction.
+    // Bare `-h` is overloaded (host/hostname), so a lone `-h` asks — the safe way.
     let mut a = make_analyzer();
     let v = a.analyze("frobnicate -h").unwrap();
     assert_eq!(v.decision, Decision::Ask, "{}", v.reason);
@@ -607,8 +603,7 @@ fn bare_dash_h_alone_no_longer_treated_as_help() {
 
 #[test]
 fn help_flag_plus_other_arg_does_not_short_circuit() {
-    // A help flag combined with any other operand must not pre-empt evaluation
-    // of the rest of argv (unknown command -> Ask, not the old anywhere-Allow).
+    // A help flag plus another operand must not pre-empt evaluation (the #149 bypass).
     let mut a = make_analyzer();
     for cmd in ["frobnicate --help --danger", "frobnicate --version now"] {
         let v = a.analyze(cmd).unwrap();

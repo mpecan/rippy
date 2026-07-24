@@ -177,10 +177,9 @@ impl Analyzer {
             return Ok(verdict);
         }
 
-        // Fail-closed: on unparseable input the string-match layers above
-        // (config/CC) have already had priority; anything reaching here that
-        // rable cannot parse is gated with an Ask rather than propagating an
-        // error that would exit non-blocking and let the command run un-gated.
+        // Fail closed: the string-match layers above already had priority, so
+        // anything rable cannot parse is gated with Ask — never an Err that would
+        // exit non-blocking and let the command run un-gated (#150).
         let Ok(nodes) = parsed else {
             return Ok(Verdict::ask(
                 "rippy could not parse this command; approve manually",
@@ -569,11 +568,9 @@ impl Analyzer {
             return v;
         }
 
-        // A help/version flag may short-circuit to Allow ONLY when it is the
-        // command's sole argument. Matching it anywhere in argv let a dangerous
-        // operand ride along auto-approved (see #149). Bare `-h` is dropped here
-        // because unknown commands overload it (e.g. `-h <host>`); a lone `-h`
-        // then Asks, the safe direction.
+        // Short-circuit to Allow ONLY when the help/version flag is the sole arg;
+        // matching it anywhere let a dangerous operand ride along (#149). Bare `-h`
+        // is dropped (commands overload it as `-h <host>`), so a lone `-h` Asks.
         if is_sole_help_flag(&args, &["--help", "--version"]) {
             return Verdict::allow(format!("{cmd_name} help/version"));
         }

@@ -14,29 +14,25 @@ impl Handler for NodeHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // `-V` (capital) is deno's version flag; node/nodejs use `-v`. Listing
-        // both is safe because the flag must be the SOLE argument to short-circuit.
+        // `-V` is deno's version flag; safe since it must be the sole arg here.
         if is_sole_help_flag(ctx.args, &["--version", "-v", "-V", "--help", "-h"]) {
             return Classification::Allow(format!("{} version/help", ctx.command_name));
         }
 
-        // deno eval subcommand — inline code as next positional arg
         if ctx.command_name == "deno" && ctx.args.first().map(String::as_str) == Some("eval") {
             let source = ctx.args.get(1).map_or("", String::as_str);
             return classify_inline(ctx.command_name, source);
         }
 
-        // -e / --eval inline code — analyze source for dangerous patterns
+        // -e/--eval/-p/--print inline code — analyze source for dangerous patterns.
         if let Some(source) = get_flag_value(ctx.args, &["-e", "--eval"]) {
             return classify_inline(ctx.command_name, &source);
         }
 
-        // -p / --print evaluates an expression and prints the result
         if let Some(source) = get_flag_value(ctx.args, &["-p", "--print"]) {
             return classify_inline(ctx.command_name, &source);
         }
 
-        // Interactive REPL
         if has_flag(ctx.args, &["-i", "--interactive"]) || ctx.args.is_empty() {
             return Classification::Ask(format!("{} (interactive)", ctx.command_name));
         }
@@ -79,14 +75,7 @@ mod tests {
     fn deno_capital_v_version_allows() {
         // deno uses `-V` for --version; a lone version flag must short-circuit.
         let args = vec!["-V".into()];
-        let ctx = HandlerContext {
-            command_name: "deno",
-            args: &args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        };
+        let ctx = HandlerContext::test("deno", &args);
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
             Classification::Allow(_)

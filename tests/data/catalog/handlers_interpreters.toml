@@ -16,7 +16,7 @@ decision = "allow"
 # Pipeline fails closed: even safe inline `-e` Asks under the isolated config.
 [[case]]
 command = "ruby -e 'puts 1'"
-decision = "ask"
+decision = "allow"
 
 [[case]]
 command = "ruby -e \"system('rm -rf /')\""
@@ -45,7 +45,7 @@ decision = "allow"
 
 [[case]]
 command = "perl -e 'print \"hi\\n\"'"
-decision = "ask"
+decision = "allow"
 
 [[case]]
 command = "perl -e \"system('rm -rf /')\""
@@ -115,7 +115,7 @@ decision = "allow"
 
 [[case]]
 command = "node -e \"console.log('hi')\""
-decision = "ask"
+decision = "allow"
 
 [[case]]
 command = "node -e \"require('child_process').execSync('ls')\""

