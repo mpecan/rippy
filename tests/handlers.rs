@@ -291,3 +291,134 @@ fn cargo_add_asks() {
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
 }
+
+// ---- Task runner handlers (Issue #135) ----
+
+fn decision(json: &str) -> String {
+    let (stdout, code) = run_rippy(json, "claude", &[]);
+    assert_eq!(code, 0);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    v["hookSpecificOutput"]["permissionDecision"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn payload(cmd: &str) -> String {
+    format!(
+        r#"{{"tool_name":"Bash","tool_input":{{"command":{}}}}}"#,
+        serde_json::to_string(cmd).unwrap()
+    )
+}
+
+#[test]
+fn just_list_allows() {
+    assert_eq!(decision(&payload("just --list")), "allow");
+}
+
+#[test]
+fn just_recipe_asks() {
+    assert_eq!(decision(&payload("just build")), "ask");
+}
+
+#[test]
+fn just_bare_asks() {
+    assert_eq!(decision(&payload("just")), "ask");
+}
+
+#[test]
+fn mise_tasks_allows() {
+    assert_eq!(decision(&payload("mise tasks")), "allow");
+}
+
+#[test]
+fn mise_run_lint_asks() {
+    assert_eq!(decision(&payload("mise run lint")), "ask");
+}
+
+#[test]
+fn tokf_raw_last_allows() {
+    assert_eq!(decision(&payload("tokf raw last")), "allow");
+}
+
+#[test]
+fn tokf_run_git_status_allows() {
+    assert_eq!(decision(&payload("tokf run git status")), "allow");
+}
+
+#[test]
+fn tokf_run_no_command_asks() {
+    assert_eq!(decision(&payload("tokf run")), "ask");
+}
+
+#[test]
+fn npm_run_build_asks() {
+    assert_eq!(decision(&payload("npm run build")), "ask");
+}
+
+#[test]
+fn npm_test_asks() {
+    assert_eq!(decision(&payload("npm test")), "ask");
+}
+
+// SECURITY: compound commands and recursed inner commands must never
+// inherit a safe verdict from the task runner prefix.
+
+#[test]
+fn just_list_compound_rm_asks() {
+    assert_eq!(decision(&payload("just --list && rm -rf /")), "ask");
+}
+
+#[test]
+fn mise_tasks_compound_rm_asks() {
+    assert_eq!(decision(&payload("mise tasks && rm -rf /")), "ask");
+}
+
+#[test]
+fn tokf_raw_compound_rm_asks() {
+    assert_eq!(decision(&payload("tokf raw last && rm -rf /")), "ask");
+}
+
+#[test]
+fn tokf_run_rm_asks() {
+    assert_eq!(decision(&payload("tokf run rm -rf /")), "ask");
+}
+
+// SECURITY (Issue #135): a read-only flag placed AFTER a `just` recipe name is
+// a recipe argument, so the recipe RUNS. Must Ask, never inherit introspection.
+#[test]
+fn just_recipe_trailing_list_asks() {
+    assert_eq!(decision(&payload("just deploy --list")), "ask");
+}
+
+#[test]
+fn just_recipe_trailing_dump_asks() {
+    assert_eq!(decision(&payload("just build --dump")), "ask");
+}
+
+// SECURITY (Issue #135): `mise tasks run <task>` executes the task even though
+// bare `mise tasks` is read-only. Must Ask.
+#[test]
+fn mise_tasks_run_asks() {
+    assert_eq!(decision(&payload("mise tasks run pwn")), "ask");
+}
+
+#[test]
+fn mise_tasks_edit_asks() {
+    assert_eq!(decision(&payload("mise tasks edit pwn")), "ask");
+}
+
+#[test]
+fn mise_tasks_ls_allows() {
+    assert_eq!(decision(&payload("mise tasks ls")), "allow");
+}
+
+#[test]
+fn tokf_test_git_status_allows() {
+    assert_eq!(decision(&payload("tokf test git status")), "allow");
+}
+
+#[test]
+fn tokf_summary_rm_asks() {
+    assert_eq!(decision(&payload("tokf summary rm -rf /")), "ask");
+}

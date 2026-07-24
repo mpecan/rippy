@@ -177,3 +177,36 @@ template = "cat {CMD}"
 safe = [
     { inner = ".rippy" },
 ]
+
+# Contrast for tokf: recurse into inner command (Issue #135)
+[[contrast]]
+description = "tokf run inner command"
+template = "tokf run {CMD}"
+safe = [
+    { inner = "git status" },
+    { inner = "echo hello" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+# Contrast for tokf test/summary wrappers: they also recurse (Issue #135)
+[[contrast]]
+description = "tokf test inner command"
+template = "tokf test {CMD}"
+safe = [
+    { inner = "git status" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
+
+[[contrast]]
+description = "tokf summary inner command"
+template = "tokf summary {CMD}"
+safe = [
+    { inner = "git log" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]
