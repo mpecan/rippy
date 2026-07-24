@@ -177,3 +177,15 @@ template = "cat {CMD}"
 safe = [
     { inner = ".rippy" },
 ]
+
+# Contrast for tokf: recurse into inner command (Issue #135)
+[[contrast]]
+description = "tokf run inner command"
+template = "tokf run {CMD}"
+safe = [
+    { inner = "git status" },
+    { inner = "echo hello" },
+]
+dangerous = [
+    { inner = "rm -rf /", reason_contains = "rm" },
+]

@@ -18,6 +18,7 @@ mod python_tools;
 mod ruby;
 mod shell;
 mod system;
+mod task_runners;
 mod text_tools;
 mod unix_utils;
 
@@ -221,6 +222,9 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &system::IP_HANDLER,
         &system::IFCONFIG_HANDLER,
         &ansible::ANSIBLE_HANDLER,
+        &task_runners::JUST_HANDLER,
+        &task_runners::MISE_HANDLER,
+        &task_runners::TOKF_HANDLER,
     ];
 
     let mut map = HashMap::new();

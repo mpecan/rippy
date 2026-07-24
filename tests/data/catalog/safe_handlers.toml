@@ -127,3 +127,52 @@ decision = "allow"
 [[case]]
 command = "env A=1 B=2 echo hello"
 decision = "allow"
+
+# Task runner safe operations (Issue #135)
+[[case]]
+command = "just --list"
+decision = "allow"
+
+[[case]]
+command = "just --summary"
+decision = "allow"
+
+[[case]]
+command = "just --dump"
+decision = "allow"
+
+[[case]]
+command = "mise tasks"
+decision = "allow"
+
+[[case]]
+command = "mise ls"
+decision = "allow"
+
+[[case]]
+command = "mise current"
+decision = "allow"
+
+[[case]]
+command = "mise doctor"
+decision = "allow"
+
+[[case]]
+command = "tokf raw last"
+decision = "allow"
+
+[[case]]
+command = "tokf ls"
+decision = "allow"
+
+[[case]]
+command = "tokf which cargo"
+decision = "allow"
+
+[[case]]
+command = "tokf show cargo"
+decision = "allow"
+
+[[case]]
+command = "tokf run git status"
+decision = "allow"
