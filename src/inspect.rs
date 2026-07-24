@@ -343,14 +343,14 @@ fn trace_parse_and_classify(
             ));
         }
         ParseOutcome::Compound => {
-            // Pipelines / lists / control-flow / multi-node inputs are not a
-            // single simple command. Route them to the full analyzer — the exact
-            // engine the hook uses — so the verdict cannot be judged on the first
-            // sub-command alone.
+            // Pipelines / lists / control-flow / multi-node inputs, or a single
+            // command carrying redirects, are not a plain simple command. Route
+            // them to the full analyzer — the exact engine the hook uses — so the
+            // verdict cannot be judged on the first sub-command alone.
             steps.push(TraceStep {
                 stage: "Parse".to_string(),
                 matched: true,
-                detail: "compound command; analyzed recursively".to_string(),
+                detail: "compound or redirecting command; analyzed recursively".to_string(),
             });
             return run_analyzer_for_trace(command, config, cwd, steps);
         }
@@ -488,6 +488,12 @@ fn classify_parse(command: &str) -> ParseOutcome {
     let [only] = nodes.as_slice() else {
         return ParseOutcome::Compound;
     };
+    // A single simple command that carries redirects (e.g. `echo x > .env`) is
+    // NOT a plain safe command: the redirect target may be protected. Route it
+    // through the full analyzer so the trace verdict matches the hook.
+    if crate::ast::command_has_redirects(only) {
+        return ParseOutcome::Compound;
+    }
     crate::ast::command_name(only).map_or(ParseOutcome::Compound, |name| {
         ParseOutcome::Simple(name.to_string())
     })
@@ -681,7 +687,13 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         let output = collect_trace_data("ls -la | head", &cwd, None).unwrap();
         assert_ne!(output.reason, "could not parse command");
-        assert_eq!(output.decision, "allow");
+        // Pin the decision to the analyzer's own verdict rather than a hard-coded
+        // "allow" so this test cannot flap on a developer's global config or CC
+        // permissions.
+        let config = Config::load(&cwd, None).unwrap();
+        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+        let verdict = analyzer.analyze("ls -la | head").unwrap();
+        assert_eq!(output.decision, verdict.decision.as_str());
         assert!(output.steps.iter().any(|s| s.stage == "Parse" && s.matched));
     }
 
@@ -698,6 +710,7 @@ mod tests {
         let commands = [
             "ls -la | head",
             "git log --oneline && git status",
+            "git log --oneline || echo fail",
             "ls; echo done",
             "for i in 1 2 3; do echo $i; done",
             "x=$(ls); echo $x",
@@ -709,6 +722,22 @@ mod tests {
                 "command was wrongly reported unparseable: {command}"
             );
         }
+    }
+
+    #[test]
+    fn trace_safe_command_with_redirect_not_short_circuited() {
+        // A lone simple-safe command carrying a redirect (`echo x > .env`) must
+        // NOT auto-approve on the command name alone — it must be routed through
+        // the analyzer so the verdict matches the hook (which asks / denies the
+        // protected redirect target). Regression for #137.
+        let cwd = std::env::current_dir().unwrap();
+        let output = collect_trace_data("echo secret > .env", &cwd, None).unwrap();
+
+        let config = Config::load(&cwd, None).unwrap();
+        let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+        let verdict = analyzer.analyze("echo secret > .env").unwrap();
+        assert_eq!(output.decision, verdict.decision.as_str());
+        assert_ne!(output.decision, "allow");
     }
 
     #[test]

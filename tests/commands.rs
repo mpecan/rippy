@@ -431,9 +431,14 @@ fn inspect_agrees_with_hook_on_compound() {
     let commands = [
         "ls -la | head",
         "git log --oneline && git status",
+        "git log --oneline || echo fail",
         "ls; echo done",
         "for i in 1 2 3; do echo $i; done",
         "x=$(ls); echo $x",
+        // A lone simple-safe command with a redirect must not diverge from the
+        // hook: the redirect target is judged, not just the command name (#137).
+        "echo secret > .env",
+        "cat foo > bar",
     ];
     for command in commands {
         let hook = hook_decision(dir.path(), command);
