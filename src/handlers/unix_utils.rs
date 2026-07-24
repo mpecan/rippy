@@ -179,32 +179,20 @@ impl Handler for YqHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn tar_list_allows() {
         let args: Vec<String> = vec!["-t".into(), "archive.tar".into()];
-        let result = TAR_HANDLER.classify(&ctx(&args, "tar"));
+        let result = TAR_HANDLER.classify(&HandlerContext::test("tar", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn tar_extract_asks() {
         let args: Vec<String> = vec!["-x".into(), "archive.tar".into()];
-        let result = TAR_HANDLER.classify(&ctx(&args, "tar"));
+        let result = TAR_HANDLER.classify(&HandlerContext::test("tar", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 }

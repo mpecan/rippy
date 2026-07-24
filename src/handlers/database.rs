@@ -97,60 +97,48 @@ fn classify_sql_command(tool: &str, sql: &str) -> Classification {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn psql_readonly_sql_allows() {
         let args: Vec<String> = vec!["-c".into(), "SELECT * FROM users".into()];
-        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
+        let result = PSQL_HANDLER.classify(&HandlerContext::test("psql", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn psql_write_sql_asks() {
         let args: Vec<String> = vec!["-c".into(), "DELETE FROM users".into()];
-        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
+        let result = PSQL_HANDLER.classify(&HandlerContext::test("psql", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn psql_list_allows() {
         let args: Vec<String> = vec!["-l".into()];
-        let result = PSQL_HANDLER.classify(&ctx(&args, "psql"));
+        let result = PSQL_HANDLER.classify(&HandlerContext::test("psql", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn mysql_select_allows() {
         let args: Vec<String> = vec!["-e".into(), "SELECT 1".into()];
-        let result = MYSQL_HANDLER.classify(&ctx(&args, "mysql"));
+        let result = MYSQL_HANDLER.classify(&HandlerContext::test("mysql", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn mysql_insert_asks() {
         let args: Vec<String> = vec!["-e".into(), "INSERT INTO users VALUES (1)".into()];
-        let result = MYSQL_HANDLER.classify(&ctx(&args, "mysql"));
+        let result = MYSQL_HANDLER.classify(&HandlerContext::test("mysql", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn sqlite3_readonly_allows() {
         let args: Vec<String> = vec!["-readonly".into(), "test.db".into()];
-        let result = SQLITE3_HANDLER.classify(&ctx(&args, "sqlite3"));
+        let result = SQLITE3_HANDLER.classify(&HandlerContext::test("sqlite3", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -160,12 +148,8 @@ mod tests {
         std::fs::write(dir.path().join("query.sql"), "SELECT * FROM users;").unwrap();
         let args: Vec<String> = vec!["-f".into(), "query.sql".into()];
         let ctx = HandlerContext {
-            command_name: "psql",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("psql", &args)
         };
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Allow(_)));
@@ -177,12 +161,8 @@ mod tests {
         std::fs::write(dir.path().join("migrate.sql"), "DROP TABLE users;").unwrap();
         let args: Vec<String> = vec!["-f".into(), "migrate.sql".into()];
         let ctx = HandlerContext {
-            command_name: "psql",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("psql", &args)
         };
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
@@ -193,12 +173,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let args: Vec<String> = vec!["-f".into(), "missing.sql".into()];
         let ctx = HandlerContext {
-            command_name: "psql",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("psql", &args)
         };
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));

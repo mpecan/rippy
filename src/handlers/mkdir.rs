@@ -74,32 +74,6 @@ mod tests {
 
     use super::*;
 
-    fn mk_ctx<'a>(args: &'a [String], cwd: &'a Path) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: "mkdir",
-            args,
-            working_directory: cwd,
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    fn mk_ctx_with_allowed<'a>(
-        args: &'a [String],
-        cwd: &'a Path,
-        allowed: &'a [PathBuf],
-    ) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: "mkdir",
-            args,
-            working_directory: cwd,
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: allowed,
-        }
-    }
-
     fn is_allow(c: &Classification) -> bool {
         matches!(c, Classification::Allow(_))
     }
@@ -112,28 +86,40 @@ mod tests {
     fn mkdir_relative_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["-p".to_string(), "src/new_dir".to_string()];
-        assert!(is_allow(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_allow(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_absolute_in_project_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["/project/build".to_string()];
-        assert!(is_allow(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_allow(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_tmp_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["-p".to_string(), "/tmp/build-output".to_string()];
-        assert!(is_allow(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_allow(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_outside_project_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["/etc/new_dir".to_string()];
-        assert!(is_ask(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
@@ -141,57 +127,80 @@ mod tests {
         let cwd = PathBuf::from("/project");
         let allowed = vec![PathBuf::from("/opt/repos")];
         let args = ["-p".to_string(), "/opt/repos/new-project".to_string()];
-        assert!(is_allow(
-            &MKDIR_HANDLER.classify(&mk_ctx_with_allowed(&args, &cwd, &allowed))
-        ));
+        assert!(is_allow(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_variable_expansion_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["$HOME/new_dir".to_string()];
-        assert!(is_ask(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_tilde_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["~/new_dir".to_string()];
-        assert!(is_ask(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_no_args_asks() {
         let cwd = PathBuf::from("/project");
-        assert!(is_ask(&MKDIR_HANDLER.classify(&mk_ctx(&[], &cwd))));
+        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &[])
+        })));
     }
 
     #[test]
     fn mkdir_flags_only_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["-p".to_string()];
-        assert!(is_ask(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_mode_flag_skipped() {
         let cwd = PathBuf::from("/project");
         let args = ["-m".to_string(), "755".to_string(), "src/build".to_string()];
-        assert!(is_allow(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_allow(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_multiple_dirs_all_safe() {
         let cwd = PathBuf::from("/project");
         let args = ["-p".to_string(), "src/a".to_string(), "src/b".to_string()];
-        assert!(is_allow(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_allow(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
     fn mkdir_multiple_dirs_one_unsafe() {
         let cwd = PathBuf::from("/project");
         let args = ["-p".to_string(), "src/a".to_string(), "/etc/b".to_string()];
-        assert!(is_ask(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 
     #[test]
@@ -199,12 +208,9 @@ mod tests {
         let cwd = PathBuf::from("/project");
         let args = ["src/dir".to_string()];
         let ctx = HandlerContext {
-            command_name: "mkdir",
-            args: &args,
             working_directory: &cwd,
             remote: true,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("mkdir", &args)
         };
         assert!(is_ask(&MKDIR_HANDLER.classify(&ctx)));
     }
@@ -213,6 +219,9 @@ mod tests {
     fn mkdir_dotdot_escape_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["-p".to_string(), "../../etc/evil".to_string()];
-        assert!(is_ask(&MKDIR_HANDLER.classify(&mk_ctx(&args, &cwd))));
+        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("mkdir", &args)
+        })));
     }
 }

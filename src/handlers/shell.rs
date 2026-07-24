@@ -42,46 +42,34 @@ impl Handler for ShellHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn bash_c_simple_recurses() {
         let args: Vec<String> = vec!["-c".into(), "git status".into()];
-        let result = SHELL_HANDLER.classify(&ctx(&args, "bash"));
+        let result = SHELL_HANDLER.classify(&HandlerContext::test("bash", &args));
         assert!(matches!(result, Classification::Recurse(cmd) if cmd == "git status"));
     }
 
     #[test]
     fn bash_c_with_positional_args_asks() {
         let args: Vec<String> = vec!["-c".into(), "$0 $1".into(), "rm".into(), "-rf /".into()];
-        let result = SHELL_HANDLER.classify(&ctx(&args, "bash"));
+        let result = SHELL_HANDLER.classify(&HandlerContext::test("bash", &args));
         assert!(matches!(result, Classification::Ask(reason) if reason.contains("positional")));
     }
 
     #[test]
     fn bash_interactive_asks() {
         let args: Vec<String> = vec![];
-        let result = SHELL_HANDLER.classify(&ctx(&args, "bash"));
+        let result = SHELL_HANDLER.classify(&HandlerContext::test("bash", &args));
         assert!(matches!(result, Classification::Ask(reason) if reason.contains("interactive")));
     }
 
     #[test]
     fn sh_c_no_command_asks() {
         let args: Vec<String> = vec!["-c".into()];
-        let result = SHELL_HANDLER.classify(&ctx(&args, "sh"));
+        let result = SHELL_HANDLER.classify(&HandlerContext::test("sh", &args));
         assert!(matches!(result, Classification::Ask(reason) if reason.contains("no command")));
     }
 
@@ -91,12 +79,8 @@ mod tests {
         std::fs::write(dir.path().join("test.sh"), "git status\nls -la").unwrap();
         let args = vec!["test.sh".into()];
         let ctx = HandlerContext {
-            command_name: "bash",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("bash", &args)
         };
         let result = SHELL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Recurse(cmd) if cmd.contains("git status")));
@@ -107,12 +91,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let args = vec!["missing.sh".into()];
         let ctx = HandlerContext {
-            command_name: "bash",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("bash", &args)
         };
         let result = SHELL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));

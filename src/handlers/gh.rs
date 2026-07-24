@@ -94,26 +94,14 @@ fn classify_resource(ctx: &HandlerContext, resource: &str) -> Classification {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "gh",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     // gh api tests
     #[test]
     fn api_get_allows() {
         let args: Vec<String> = vec!["api".into(), "repos/owner/repo".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -125,7 +113,7 @@ mod tests {
             "POST".into(),
             "repos/owner/repo/issues".into(),
         ];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -137,7 +125,7 @@ mod tests {
             "DELETE".into(),
             "repos/owner/repo".into(),
         ];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -149,7 +137,7 @@ mod tests {
             "-f".into(),
             "query=mutation { addStar(input: {}) { clientMutationId } }".into(),
         ];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -161,7 +149,7 @@ mod tests {
             "-f".into(),
             "query={ repository(owner: \"o\", name: \"r\") { name } }".into(),
         ];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -173,7 +161,7 @@ mod tests {
             "--input".into(),
             "query.graphql".into(),
         ];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -181,42 +169,42 @@ mod tests {
     #[test]
     fn pr_view_allows() {
         let args: Vec<String> = vec!["pr".into(), "view".into(), "123".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn pr_create_asks() {
         let args: Vec<String> = vec!["pr".into(), "create".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn pr_list_allows() {
         let args: Vec<String> = vec!["pr".into(), "list".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn pr_merge_asks() {
         let args: Vec<String> = vec!["pr".into(), "merge".into(), "123".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn issue_create_asks() {
         let args: Vec<String> = vec!["issue".into(), "create".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn issue_view_allows() {
         let args: Vec<String> = vec!["issue".into(), "view".into(), "42".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -224,14 +212,14 @@ mod tests {
     #[test]
     fn status_allows() {
         let args: Vec<String> = vec!["status".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn help_allows() {
         let args: Vec<String> = vec!["--help".into()];
-        let result = GH_HANDLER.classify(&ctx(&args));
+        let result = GH_HANDLER.classify(&HandlerContext::test("gh", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -250,12 +238,8 @@ mod tests {
             "query.graphql".into(),
         ];
         let ctx = HandlerContext {
-            command_name: "gh",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("gh", &args)
         };
         let result = GH_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Allow(_)));
@@ -276,12 +260,8 @@ mod tests {
             "mutate.graphql".into(),
         ];
         let ctx = HandlerContext {
-            command_name: "gh",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("gh", &args)
         };
         let result = GH_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));

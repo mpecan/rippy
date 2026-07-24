@@ -166,34 +166,22 @@ impl Handler for TokfHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
 
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
     fn classify_just(args: &[&str]) -> Classification {
         let owned: Vec<String> = args.iter().map(|s| (*s).into()).collect();
-        JUST_HANDLER.classify(&ctx(&owned, "just"))
+        JUST_HANDLER.classify(&HandlerContext::test("just", &owned))
     }
 
     fn classify_mise(args: &[&str]) -> Classification {
         let owned: Vec<String> = args.iter().map(|s| (*s).into()).collect();
-        MISE_HANDLER.classify(&ctx(&owned, "mise"))
+        MISE_HANDLER.classify(&HandlerContext::test("mise", &owned))
     }
 
     fn classify_tokf(args: &[&str]) -> Classification {
         let owned: Vec<String> = args.iter().map(|s| (*s).into()).collect();
-        TOKF_HANDLER.classify(&ctx(&owned, "tokf"))
+        TOKF_HANDLER.classify(&HandlerContext::test("tokf", &owned))
     }
 
     // ---- just ----

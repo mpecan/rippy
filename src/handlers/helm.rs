@@ -74,20 +74,8 @@ impl Handler for HelmHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "helm",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn install_dry_run_allows() {
@@ -97,14 +85,14 @@ mod tests {
             "chart".into(),
             "--dry-run".into(),
         ];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn install_without_dry_run_asks() {
         let args: Vec<String> = vec!["install".into(), "myrelease".into(), "chart".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -116,42 +104,42 @@ mod tests {
             "chart".into(),
             "--dry-run".into(),
         ];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn list_allows() {
         let args: Vec<String> = vec!["list".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn dependency_list_allows() {
         let args: Vec<String> = vec!["dependency".into(), "list".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn repo_list_allows() {
         let args: Vec<String> = vec!["repo".into(), "list".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn repo_add_asks() {
         let args: Vec<String> = vec!["repo".into(), "add".into(), "name".into(), "url".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn plugin_list_allows() {
         let args: Vec<String> = vec!["plugin".into(), "list".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -163,21 +151,21 @@ mod tests {
             "1".into(),
             "--dry-run".into(),
         ];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn uninstall_asks() {
         let args: Vec<String> = vec!["uninstall".into(), "myrelease".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn help_allows() {
         let args: Vec<String> = vec!["--help".into()];
-        let result = HELM_HANDLER.classify(&ctx(&args));
+        let result = HELM_HANDLER.classify(&HandlerContext::test("helm", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 }

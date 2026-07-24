@@ -319,26 +319,14 @@ fn classify_lfs(args: &[String]) -> Classification {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "git",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn safe_commands() {
         for sub in &["status", "log", "diff", "fetch", "show", "blame"] {
             let args = vec![sub.to_string()];
-            let result = GIT_HANDLER.classify(&ctx(&args));
+            let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
             assert!(
                 matches!(result, Classification::Allow(_)),
                 "expected allow for git {sub}"
@@ -350,7 +338,7 @@ mod tests {
     fn ask_commands() {
         for sub in &["commit", "push", "merge", "reset", "checkout"] {
             let args = vec![sub.to_string()];
-            let result = GIT_HANDLER.classify(&ctx(&args));
+            let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
             assert!(
                 matches!(result, Classification::Ask(_)),
                 "expected ask for git {sub}"
@@ -361,42 +349,42 @@ mod tests {
     #[test]
     fn branch_list_is_safe() {
         let args = vec!["branch".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn branch_delete_is_ask() {
         let args = vec!["branch".into(), "-D".into(), "feature".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn stash_list_is_safe() {
         let args = vec!["stash".into(), "list".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn global_flags_skipped() {
         let args = vec!["-C".into(), "/tmp".into(), "status".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn dash_c_outside_scope_asks() {
         let args = vec!["-C".into(), "/etc".into(), "status".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn git_dir_outside_scope_asks() {
         let args = vec!["--git-dir".into(), "/etc/repo/.git".into(), "log".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -407,7 +395,7 @@ mod tests {
             "/etc/checkout".into(),
             "status".into(),
         ];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -415,7 +403,7 @@ mod tests {
     #[test]
     fn git_dir_eq_outside_scope_asks() {
         let args = vec!["--git-dir=/etc/repo/.git".into(), "log".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(
             matches!(result, Classification::Ask(_)),
             "--git-dir=<outside> must Ask, got {result:?}"
@@ -425,7 +413,7 @@ mod tests {
     #[test]
     fn work_tree_eq_outside_scope_asks() {
         let args = vec!["--work-tree=/etc/checkout".into(), "status".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(
             matches!(result, Classification::Ask(_)),
             "--work-tree=<outside> must Ask, got {result:?}"
@@ -437,12 +425,8 @@ mod tests {
         let allowed = vec![std::path::PathBuf::from("/opt/repos")];
         let args = vec!["--git-dir=/opt/repos/other/.git".into(), "log".into()];
         let ctx = HandlerContext {
-            command_name: "git",
-            args: &args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
             safe_scopes: &allowed,
+            ..HandlerContext::test("git", &args)
         };
         assert!(matches!(
             GIT_HANDLER.classify(&ctx),
@@ -454,21 +438,21 @@ mod tests {
     fn git_dir_eq_within_project_allows() {
         // `=` form pointing inside the project directory still resolves normally.
         let args = vec!["--git-dir=/tmp/sub/.git".into(), "status".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn dash_c_within_project_allows() {
         let args = vec!["-C".into(), "/tmp/subdir".into(), "status".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn dash_c_relative_allows() {
         let args = vec!["-C".into(), "subdir".into(), "status".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -478,7 +462,7 @@ mod tests {
     #[test]
     fn dash_c_undeclared_read_only_still_asks() {
         let args = vec!["-C".into(), "/opt/other-repo".into(), "log".into()];
-        let result = GIT_HANDLER.classify(&ctx(&args));
+        let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -488,12 +472,8 @@ mod tests {
         let allowed = vec![std::path::PathBuf::from("/opt/repos")];
         let args = vec!["-C".into(), "/opt/repos/other".into(), "log".into()];
         let ctx = HandlerContext {
-            command_name: "git",
-            args: &args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
             safe_scopes: &allowed,
+            ..HandlerContext::test("git", &args)
         };
         assert!(matches!(
             GIT_HANDLER.classify(&ctx),
@@ -507,12 +487,8 @@ mod tests {
         let allowed = vec![std::path::PathBuf::from("/opt/repos")];
         let args = vec!["-C".into(), "/opt/repos/other".into(), "push".into()];
         let ctx = HandlerContext {
-            command_name: "git",
-            args: &args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
             safe_scopes: &allowed,
+            ..HandlerContext::test("git", &args)
         };
         assert!(matches!(GIT_HANDLER.classify(&ctx), Classification::Ask(_)));
     }
@@ -522,12 +498,8 @@ mod tests {
         let allowed = vec![std::path::PathBuf::from("/opt/repos")];
         let args = vec!["-C".into(), "/opt/repos/other".into(), "status".into()];
         let ctx = HandlerContext {
-            command_name: "git",
-            args: &args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
             safe_scopes: &allowed,
+            ..HandlerContext::test("git", &args)
         };
         assert!(matches!(
             GIT_HANDLER.classify(&ctx),

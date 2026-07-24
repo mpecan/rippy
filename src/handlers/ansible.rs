@@ -99,26 +99,14 @@ fn classify_inventory(ctx: &HandlerContext) -> Classification {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(cmd: &'a str, args: &'a [String]) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     // ansible-doc: always allow
     #[test]
     fn ansible_doc_allows() {
         let args = vec!["module_name".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-doc", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-doc", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -126,7 +114,7 @@ mod tests {
     #[test]
     fn ansible_lint_allows() {
         let args = vec!["playbook.yml".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-lint", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-lint", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -134,7 +122,7 @@ mod tests {
     #[test]
     fn ansible_check_allows() {
         let args = vec!["all".into(), "-m".into(), "ping".into(), "--check".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -142,7 +130,7 @@ mod tests {
     #[test]
     fn ansible_short_check_allows() {
         let args = vec!["all".into(), "-m".into(), "ping".into(), "-C".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -150,7 +138,7 @@ mod tests {
     #[test]
     fn ansible_list_hosts_allows() {
         let args = vec!["all".into(), "--list-hosts".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -158,7 +146,7 @@ mod tests {
     #[test]
     fn ansible_without_flags_asks() {
         let args = vec!["all".into(), "-m".into(), "shell".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -166,7 +154,7 @@ mod tests {
     #[test]
     fn playbook_check_allows() {
         let args = vec!["site.yml".into(), "--check".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-playbook", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-playbook", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -174,7 +162,7 @@ mod tests {
     #[test]
     fn playbook_syntax_check_allows() {
         let args = vec!["site.yml".into(), "--syntax-check".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-playbook", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-playbook", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -182,7 +170,7 @@ mod tests {
     #[test]
     fn playbook_list_tasks_allows() {
         let args = vec!["site.yml".into(), "--list-tasks".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-playbook", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-playbook", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -190,7 +178,7 @@ mod tests {
     #[test]
     fn playbook_list_tags_allows() {
         let args = vec!["site.yml".into(), "--list-tags".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-playbook", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-playbook", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -198,7 +186,7 @@ mod tests {
     #[test]
     fn playbook_without_flags_asks() {
         let args = vec!["site.yml".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-playbook", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-playbook", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -206,7 +194,7 @@ mod tests {
     #[test]
     fn vault_view_allows() {
         let args = vec!["view".into(), "secrets.yml".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-vault", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-vault", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -214,7 +202,7 @@ mod tests {
     #[test]
     fn vault_encrypt_asks() {
         let args = vec!["encrypt".into(), "secrets.yml".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-vault", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-vault", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -222,7 +210,7 @@ mod tests {
     #[test]
     fn galaxy_list_allows() {
         let args = vec!["list".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-galaxy", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-galaxy", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -230,7 +218,7 @@ mod tests {
     #[test]
     fn galaxy_search_allows() {
         let args = vec!["search".into(), "nginx".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-galaxy", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-galaxy", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -238,7 +226,7 @@ mod tests {
     #[test]
     fn galaxy_install_asks() {
         let args = vec!["install".into(), "geerlingguy.docker".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-galaxy", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-galaxy", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -246,7 +234,7 @@ mod tests {
     #[test]
     fn config_list_allows() {
         let args = vec!["list".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-config", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-config", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -254,7 +242,7 @@ mod tests {
     #[test]
     fn config_dump_allows() {
         let args = vec!["dump".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-config", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-config", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -262,7 +250,7 @@ mod tests {
     #[test]
     fn config_init_asks() {
         let args = vec!["init".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-config", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-config", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -270,7 +258,7 @@ mod tests {
     #[test]
     fn inventory_list_allows() {
         let args = vec!["--list".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-inventory", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-inventory", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -278,7 +266,7 @@ mod tests {
     #[test]
     fn inventory_graph_allows() {
         let args = vec!["--graph".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-inventory", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-inventory", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -286,7 +274,7 @@ mod tests {
     #[test]
     fn inventory_host_allows() {
         let args = vec!["--host".into(), "webserver1".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-inventory", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-inventory", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -294,7 +282,7 @@ mod tests {
     #[test]
     fn inventory_without_flags_asks() {
         let args: Vec<String> = vec!["-i".into(), "hosts".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-inventory", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-inventory", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -302,7 +290,7 @@ mod tests {
     #[test]
     fn playbook_short_check_allows() {
         let args = vec!["site.yml".into(), "-C".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-playbook", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-playbook", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -310,7 +298,7 @@ mod tests {
     #[test]
     fn playbook_list_hosts_allows() {
         let args = vec!["site.yml".into(), "--list-hosts".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-playbook", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-playbook", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -318,7 +306,7 @@ mod tests {
     #[test]
     fn galaxy_info_allows() {
         let args = vec!["info".into(), "geerlingguy.docker".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-galaxy", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-galaxy", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -326,7 +314,7 @@ mod tests {
     #[test]
     fn config_view_allows() {
         let args = vec!["view".into()];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-config", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-config", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
@@ -334,7 +322,7 @@ mod tests {
     #[test]
     fn vault_no_subcommand_asks() {
         let args: Vec<String> = vec![];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-vault", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-vault", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -342,7 +330,7 @@ mod tests {
     #[test]
     fn galaxy_no_subcommand_asks() {
         let args: Vec<String> = vec![];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-galaxy", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-galaxy", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
@@ -350,7 +338,7 @@ mod tests {
     #[test]
     fn config_no_subcommand_asks() {
         let args: Vec<String> = vec![];
-        let result = ANSIBLE_HANDLER.classify(&ctx("ansible-config", &args));
+        let result = ANSIBLE_HANDLER.classify(&HandlerContext::test("ansible-config", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 }

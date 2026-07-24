@@ -112,39 +112,27 @@ impl Handler for BlackHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn uv_sync_allows() {
         let args: Vec<String> = vec!["sync".into()];
-        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
+        let result = UV_HANDLER.classify(&HandlerContext::test("uv", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn uv_run_recurses() {
         let args: Vec<String> = vec!["run".into(), "python".into()];
-        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
+        let result = UV_HANDLER.classify(&HandlerContext::test("uv", &args));
         assert!(matches!(result, Classification::Recurse(_)));
     }
 
     #[test]
     fn uv_pip_list_allows() {
         let args: Vec<String> = vec!["pip".into(), "list".into()];
-        let result = UV_HANDLER.classify(&ctx(&args, "uv"));
+        let result = UV_HANDLER.classify(&HandlerContext::test("uv", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 }

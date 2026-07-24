@@ -52,26 +52,14 @@ impl Handler for RubyHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "ruby",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn version_allows() {
         let args = vec!["--version".into()];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Allow(_)
         ));
     }
@@ -80,7 +68,7 @@ mod tests {
     fn e_safe_puts_allows() {
         let args = vec!["-e".into(), "puts 'hello'".into()];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Allow(_)
         ));
     }
@@ -89,7 +77,7 @@ mod tests {
     fn e_system_asks() {
         let args = vec!["-e".into(), "system('rm -rf /')".into()];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Ask(_)
         ));
     }
@@ -98,7 +86,7 @@ mod tests {
     fn e_backtick_asks() {
         let args = vec!["-e".into(), "`ls`".into()];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Ask(_)
         ));
     }
@@ -107,21 +95,14 @@ mod tests {
     fn no_args_asks() {
         let args: Vec<String> = vec![];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Ask(_)
         ));
     }
 
     #[test]
     fn irb_asks() {
-        let ctx = HandlerContext {
-            command_name: "irb",
-            args: &[],
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        };
+        let ctx = HandlerContext::test("irb", &[]);
         assert!(matches!(
             RUBY_HANDLER.classify(&ctx),
             Classification::Ask(_)
@@ -132,7 +113,7 @@ mod tests {
     fn script_file_missing_asks() {
         let args = vec!["script.rb".into()];
         assert!(matches!(
-            RUBY_HANDLER.classify(&ctx(&args)),
+            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Ask(_)
         ));
     }
@@ -143,12 +124,8 @@ mod tests {
         std::fs::write(dir.path().join("safe.rb"), "puts 'hello'").unwrap();
         let args = vec!["safe.rb".into()];
         let ctx = HandlerContext {
-            command_name: "ruby",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("ruby", &args)
         };
         assert!(matches!(
             RUBY_HANDLER.classify(&ctx),
@@ -162,12 +139,8 @@ mod tests {
         std::fs::write(dir.path().join("evil.rb"), "system('rm -rf /')").unwrap();
         let args = vec!["evil.rb".into()];
         let ctx = HandlerContext {
-            command_name: "ruby",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("ruby", &args)
         };
         assert!(matches!(
             RUBY_HANDLER.classify(&ctx),

@@ -61,33 +61,6 @@ mod tests {
 
     use super::*;
 
-    fn mk_ctx<'a>(cmd: &'a str, args: &'a [String], cwd: &'a Path) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: cwd,
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
-
-    fn mk_ctx_with_allowed<'a>(
-        cmd: &'a str,
-        args: &'a [String],
-        cwd: &'a Path,
-        allowed: &'a [PathBuf],
-    ) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: cwd,
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: allowed,
-        }
-    }
-
     fn is_allow(c: &Classification) -> bool {
         matches!(c, Classification::Allow(_))
     }
@@ -101,7 +74,10 @@ mod tests {
     #[test]
     fn cd_no_args_asks() {
         let cwd = PathBuf::from("/project");
-        let ctx = mk_ctx("cd", &[], &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &[])
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -111,7 +87,10 @@ mod tests {
     fn cd_dash_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["-".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -121,7 +100,10 @@ mod tests {
     fn cd_tilde_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["~".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -129,7 +111,10 @@ mod tests {
     fn cd_tilde_subdir_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["~/Documents".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -139,7 +124,10 @@ mod tests {
     fn cd_variable_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["$HOME".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -147,7 +135,10 @@ mod tests {
     fn cd_command_substitution_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["$(pwd)".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -155,7 +146,10 @@ mod tests {
     fn cd_backtick_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["`pwd`".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -165,7 +159,10 @@ mod tests {
     fn cd_relative_subdir_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["src".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -173,7 +170,10 @@ mod tests {
     fn cd_relative_nested_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["src/handlers".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -181,7 +181,10 @@ mod tests {
     fn cd_dot_allows() {
         let cwd = PathBuf::from("/project");
         let args = [".".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -190,7 +193,10 @@ mod tests {
         // CWD is a subdir — going up escapes the working_directory
         let cwd = PathBuf::from("/project/src");
         let args = ["..".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -200,7 +206,10 @@ mod tests {
     fn cd_dotdot_from_root_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["..".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -208,7 +217,10 @@ mod tests {
     fn cd_relative_escape_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["../../etc".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -218,7 +230,10 @@ mod tests {
     fn cd_absolute_within_project_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["/project/src".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -226,7 +241,10 @@ mod tests {
     fn cd_absolute_outside_project_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["/etc".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -236,7 +254,10 @@ mod tests {
     fn cd_tmp_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["/tmp".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -244,7 +265,10 @@ mod tests {
     fn cd_tmp_subdir_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["/tmp/build-output".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -252,7 +276,10 @@ mod tests {
     fn cd_var_tmp_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["/var/tmp".to_string()];
-        let ctx = mk_ctx("cd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -263,7 +290,11 @@ mod tests {
         let cwd = PathBuf::from("/project");
         let args = ["/opt/repos/other-project".to_string()];
         let allowed = vec![PathBuf::from("/opt/repos")];
-        let ctx = mk_ctx_with_allowed("cd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -272,7 +303,11 @@ mod tests {
         let cwd = PathBuf::from("/project");
         let args = ["/opt/repos".to_string()];
         let allowed = vec![PathBuf::from("/opt/repos")];
-        let ctx = mk_ctx_with_allowed("cd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -281,7 +316,11 @@ mod tests {
         let cwd = PathBuf::from("/project");
         let args = ["/etc".to_string()];
         let allowed = vec![PathBuf::from("/opt/repos")];
-        let ctx = mk_ctx_with_allowed("cd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -291,7 +330,11 @@ mod tests {
         let cwd = PathBuf::from("/opt/repos/project-a");
         let args = ["../project-b".to_string()];
         let allowed = vec![PathBuf::from("/opt/repos")];
-        let ctx = mk_ctx_with_allowed("cd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -304,15 +347,27 @@ mod tests {
         ];
 
         let args = ["/opt/repos/foo".to_string()];
-        let ctx = mk_ctx_with_allowed("cd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
 
         let args = ["/home/user/work/bar".to_string()];
-        let ctx = mk_ctx_with_allowed("cd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
 
         let args = ["/home/user/personal".to_string()];
-        let ctx = mk_ctx_with_allowed("cd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("cd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -322,7 +377,10 @@ mod tests {
     fn pushd_within_project_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["src".to_string()];
-        let ctx = mk_ctx("pushd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("pushd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -330,7 +388,10 @@ mod tests {
     fn pushd_outside_project_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["/etc".to_string()];
-        let ctx = mk_ctx("pushd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("pushd", &args)
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -338,7 +399,10 @@ mod tests {
     fn pushd_tmp_allows() {
         let cwd = PathBuf::from("/project");
         let args = ["/tmp".to_string()];
-        let ctx = mk_ctx("pushd", &args, &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("pushd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -347,7 +411,11 @@ mod tests {
         let cwd = PathBuf::from("/project");
         let args = ["/opt/repos/other".to_string()];
         let allowed = vec![PathBuf::from("/opt/repos")];
-        let ctx = mk_ctx_with_allowed("pushd", &args, &cwd, &allowed);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            safe_scopes: &allowed,
+            ..HandlerContext::test("pushd", &args)
+        };
         assert!(is_allow(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -356,7 +424,10 @@ mod tests {
     #[test]
     fn popd_asks() {
         let cwd = PathBuf::from("/project");
-        let ctx = mk_ctx("popd", &[], &cwd);
+        let ctx = HandlerContext {
+            working_directory: &cwd,
+            ..HandlerContext::test("popd", &[])
+        };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }
 
@@ -367,12 +438,9 @@ mod tests {
         let cwd = PathBuf::from("/project");
         let args = ["src".to_string()];
         let ctx = HandlerContext {
-            command_name: "cd",
-            args: &args,
             working_directory: &cwd,
             remote: true,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("cd", &args)
         };
         assert!(is_ask(&CD_HANDLER.classify(&ctx)));
     }

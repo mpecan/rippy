@@ -63,32 +63,20 @@ impl Handler for CurlHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx<'a>(args: &'a [String], cmd: &'a str) -> HandlerContext<'a> {
-        HandlerContext {
-            command_name: cmd,
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn curl_get_allows() {
         let args: Vec<String> = vec!["https://example.com".into()];
-        let result = CURL_HANDLER.classify(&ctx(&args, "curl"));
+        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 
     #[test]
     fn curl_data_asks() {
         let args: Vec<String> = vec!["-d".into(), "foo=bar".into(), "https://example.com".into()];
-        let result = CURL_HANDLER.classify(&ctx(&args, "curl"));
+        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
         assert!(matches!(result, Classification::Ask(reason) if reason.contains("data")));
     }
 
@@ -99,21 +87,21 @@ mod tests {
             "output.html".into(),
             "https://example.com".into(),
         ];
-        let result = CURL_HANDLER.classify(&ctx(&args, "curl"));
+        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
         assert!(matches!(result, Classification::WithRedirects(_, _, _)));
     }
 
     #[test]
     fn curl_post_method_asks() {
         let args: Vec<String> = vec!["-X".into(), "POST".into(), "https://example.com".into()];
-        let result = CURL_HANDLER.classify(&ctx(&args, "curl"));
+        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
         assert!(matches!(result, Classification::Ask(_)));
     }
 
     #[test]
     fn curl_help_allows() {
         let args: Vec<String> = vec!["--help".into()];
-        let result = CURL_HANDLER.classify(&ctx(&args, "curl"));
+        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
         assert!(matches!(result, Classification::Allow(_)));
     }
 }

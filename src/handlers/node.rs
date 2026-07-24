@@ -68,26 +68,14 @@ fn classify_inline(cmd: &str, source: &str) -> Classification {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::path::Path;
 
     use super::*;
-
-    fn ctx(args: &[String]) -> HandlerContext<'_> {
-        HandlerContext {
-            command_name: "node",
-            args,
-            working_directory: Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        }
-    }
 
     #[test]
     fn version_allows() {
         let args = vec!["--version".into()];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Allow(_)
         ));
     }
@@ -114,7 +102,7 @@ mod tests {
     fn e_safe_console_log_allows() {
         let args = vec!["-e".into(), "console.log('hi')".into()];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Allow(_)
         ));
     }
@@ -126,7 +114,7 @@ mod tests {
             "require('child_process').execSync('ls')".into(),
         ];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Ask(_)
         ));
     }
@@ -135,7 +123,7 @@ mod tests {
     fn e_require_fs_asks() {
         let args = vec!["-e".into(), "require('fs').rmSync('/')".into()];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Ask(_)
         ));
     }
@@ -144,7 +132,7 @@ mod tests {
     fn p_eval_asks() {
         let args = vec!["-p".into(), "eval('1+1')".into()];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Ask(_)
         ));
     }
@@ -153,7 +141,7 @@ mod tests {
     fn p_safe_allows() {
         let args = vec!["-p".into(), "Math.PI".into()];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Allow(_)
         ));
     }
@@ -162,7 +150,7 @@ mod tests {
     fn no_args_asks() {
         let args: Vec<String> = vec![];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Ask(_)
         ));
     }
@@ -171,7 +159,7 @@ mod tests {
     fn interactive_asks() {
         let args = vec!["-i".into()];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Ask(_)
         ));
     }
@@ -180,7 +168,7 @@ mod tests {
     fn script_file_missing_asks() {
         let args = vec!["app.js".into()];
         assert!(matches!(
-            NODE_HANDLER.classify(&ctx(&args)),
+            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Ask(_)
         ));
     }
@@ -191,12 +179,8 @@ mod tests {
         std::fs::write(dir.path().join("safe.js"), "console.log('hello')").unwrap();
         let args = vec!["safe.js".into()];
         let ctx = HandlerContext {
-            command_name: "node",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("node", &args)
         };
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
@@ -214,12 +198,8 @@ mod tests {
         .unwrap();
         let args = vec!["evil.js".into()];
         let ctx = HandlerContext {
-            command_name: "node",
-            args: &args,
             working_directory: dir.path(),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
+            ..HandlerContext::test("node", &args)
         };
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
@@ -230,14 +210,7 @@ mod tests {
     #[test]
     fn deno_eval_safe_allows() {
         let args = vec!["eval".into(), "console.log('hi')".into()];
-        let ctx = HandlerContext {
-            command_name: "deno",
-            args: &args,
-            working_directory: std::path::Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        };
+        let ctx = HandlerContext::test("deno", &args);
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
             Classification::Allow(_)
@@ -247,14 +220,7 @@ mod tests {
     #[test]
     fn deno_eval_dangerous_asks() {
         let args = vec!["eval".into(), "require('child_process').exec('ls')".into()];
-        let ctx = HandlerContext {
-            command_name: "deno",
-            args: &args,
-            working_directory: std::path::Path::new("/tmp"),
-            remote: false,
-            receives_piped_input: false,
-            safe_scopes: &[],
-        };
+        let ctx = HandlerContext::test("deno", &args);
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
             Classification::Ask(_)
