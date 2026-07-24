@@ -79,6 +79,41 @@ pub enum Command {
     List(ListArgs),
     /// Manage safety packages (review, develop, autopilot)
     Profile(ProfileArgs),
+    /// Manage safe scopes (directories trusted for cross-repo work)
+    Scope(ScopeArgs),
+}
+
+/// Arguments for `rippy scope` — manage safe scope directories.
+#[derive(Args, Debug)]
+pub struct ScopeArgs {
+    #[command(subcommand)]
+    pub target: ScopeTarget,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ScopeTarget {
+    /// Declare a directory as a safe scope
+    Add {
+        /// Directory to trust (e.g. "~/src"); reads within it stop prompting
+        dir: String,
+        /// Write to global config (~/.rippy/config.toml) instead of project .rippy.toml
+        #[arg(long)]
+        global: bool,
+    },
+    /// Remove a previously declared safe scope
+    Remove {
+        /// Directory to remove (matched as written, before expansion)
+        dir: String,
+        /// Operate on global config (~/.rippy/config.toml) instead of project .rippy.toml
+        #[arg(long)]
+        global: bool,
+    },
+    /// List declared safe scopes
+    List {
+        /// List from global config (~/.rippy/config.toml) instead of project .rippy.toml
+        #[arg(long)]
+        global: bool,
+    },
 }
 
 #[derive(Args, Debug)]

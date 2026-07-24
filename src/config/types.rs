@@ -124,7 +124,10 @@ pub enum ConfigDirective {
         source: String,
         target: String,
     },
-    CdAllow(PathBuf),
+    /// A user-declared safe scope directory (from `[scopes] safe` or the
+    /// legacy `[cd] allowed-dirs` / `cd-allow`). Reads within it are allowed;
+    /// writes still ask.
+    SafeScope(PathBuf),
     /// Marker separating baseline (stdlib + global) from project rules.
     ProjectBoundary,
 }

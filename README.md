@@ -267,6 +267,42 @@ The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited fro
 
 Plus `[settings]` (`default`, `log`, `log-full`, `package`, `auto-mode`) and `[[aliases]]` (`source` / `target`). Any rule can also carry a `when = { … }` clause to gate it on runtime context (git branch, cwd, env var, file existence, or an external command) — see the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full grammar.
 
+### Safe scopes (cross-repo research)
+
+By default rippy only auto-approves path operations (`cd`, `mkdir`, `git -C … log`) that stay inside the project directory (plus `/tmp` and `/var/tmp`). Anything outside prompts. **Safe scopes** let you opt specific sibling directories into that trusted set so cross-repo research stops prompting:
+
+```toml
+[scopes]
+safe = ["~/src", "/opt/repos"]
+```
+
+Entries support a leading `~` and `$VAR` / `${VAR}` expansion, and `.`/`..` are normalized away. Paths that resolve to the filesystem root (`/`) or an empty path are rejected — declaring `/` would auto-approve nearly the whole filesystem.
+
+The legacy `[cd]` table is still accepted as an alias and feeds the same list:
+
+```toml
+[cd]
+allowed-dirs = ["/opt/repos"]   # equivalent to [scopes] safe
+```
+
+Semantics inside a declared scope mirror the project directory:
+
+- **Reads are allowed** — `cd ~/src/other`, `git -C ~/src/other log`, `mkdir ~/src/other/tmp` auto-approve.
+- **Writes still ask** — `git -C ~/src/other push` (and other mutating subcommands) still prompt.
+
+Manage scopes from the CLI instead of hand-editing:
+
+```sh
+rippy scope add ~/src          # add to project .rippy.toml (use --global for ~/.rippy/config.toml)
+rippy scope list               # show declared scopes
+rippy scope remove ~/src       # remove one
+```
+
+**Opt-in and transparency guarantees:**
+
+- Scopes declared in a **project** `.rippy.toml` only take effect after `rippy trust` — an untrusted project config is ignored, and `rippy trust` flags scope declarations as protection-weakening before you approve them.
+- **Non-goal (deliberate):** read-only git against an *undeclared* path still prompts. `git -C <any-repo> log` runs that repo's `.git/config` (pager/alias) code, so it is never auto-approved without an explicit scope covering it.
+
 ### Auto-mode coexistence (Claude Code)
 
 Claude Code can run in an **auto permission mode** (`acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`) where the user has opted into fewer prompts. rippy adapts its uncertain (`ask`) verdicts to that choice, while keeping `deny` a hard floor:
@@ -310,6 +346,9 @@ auto-mode = "defer"   # default: yield uncertain verdicts to auto modes
 | `rippy allow <pattern>` | Add an allow rule to config |
 | `rippy deny <pattern>` | Add a deny rule to config |
 | `rippy ask <pattern>` | Add an ask rule to config |
+| `rippy scope add <dir>` | Declare a safe scope (add `--global` for `~/.rippy/config.toml`) |
+| `rippy scope list` | List declared safe scopes |
+| `rippy scope remove <dir>` | Remove a declared safe scope |
 | `rippy suggest` | Analyze tracking data and suggest config rules |
 | `rippy stats` | Show aggregate decision tracking statistics |
 | `rippy trust` | Manage trust for project-level config files |

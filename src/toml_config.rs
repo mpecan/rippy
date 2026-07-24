@@ -25,6 +25,7 @@ pub struct TomlConfig {
     pub meta: Option<TomlMeta>,
     pub settings: Option<TomlSettings>,
     pub cd: Option<TomlCd>,
+    pub scopes: Option<TomlScopes>,
     pub git: Option<TomlGit>,
     #[serde(default)]
     pub rules: Vec<TomlRule>,
@@ -47,11 +48,24 @@ pub struct TomlMeta {
 }
 
 /// Configuration for `cd` directory navigation.
+///
+/// Legacy back-compat alias for `[scopes] safe`; new configs should prefer
+/// `[scopes]`. Both feed the same internal safe-scope list.
 #[derive(Debug, Deserialize)]
 pub struct TomlCd {
     /// Additional directories that `cd` is allowed to navigate to.
     #[serde(default, rename = "allowed-dirs")]
     pub allowed_dirs: Vec<String>,
+}
+
+/// First-class safe-scope configuration (`[scopes] safe = ["~/src"]`).
+///
+/// Directories the user explicitly trusts for cross-repo work: reads within
+/// them are auto-approved, writes still ask.
+#[derive(Debug, Deserialize)]
+pub struct TomlScopes {
+    #[serde(default)]
+    pub safe: Vec<String>,
 }
 
 /// Git workflow style configuration.
@@ -156,9 +170,16 @@ fn toml_to_directives(config: &TomlConfig) -> Result<Vec<ConfigDirective>, Strin
         settings_to_directives(settings, &mut directives);
     }
 
+    // First-class `[scopes] safe` and the legacy `[cd] allowed-dirs` alias both
+    // feed the same internal safe-scope list.
+    if let Some(scopes) = &config.scopes {
+        for dir in &scopes.safe {
+            directives.push(ConfigDirective::SafeScope(std::path::PathBuf::from(dir)));
+        }
+    }
     if let Some(cd) = &config.cd {
         for dir in &cd.allowed_dirs {
-            directives.push(ConfigDirective::CdAllow(std::path::PathBuf::from(dir)));
+            directives.push(ConfigDirective::SafeScope(std::path::PathBuf::from(dir)));
         }
     }
 
@@ -320,9 +341,29 @@ fn parse_decision(word: &str) -> Decision {
 pub fn rules_to_toml(directives: &[ConfigDirective]) -> String {
     let mut out = String::new();
     emit_settings(directives, &mut out);
+    emit_scopes(directives, &mut out);
     emit_rules(directives, &mut out);
     emit_aliases(directives, &mut out);
     out
+}
+
+/// Emit a `[scopes] safe = [...]` block for any declared safe scopes so
+/// `rippy migrate` round-trips legacy `scope` / `cd-allow` directives instead
+/// of silently dropping them.
+fn emit_scopes(directives: &[ConfigDirective], out: &mut String) {
+    let scopes: Vec<String> = directives
+        .iter()
+        .filter_map(|d| match d {
+            ConfigDirective::SafeScope(p) => Some(format!("{:?}", p.display().to_string())),
+            _ => None,
+        })
+        .collect();
+    if scopes.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "[scopes]");
+    let _ = writeln!(out, "safe = [{}]", scopes.join(", "));
+    out.push('\n');
 }
 
 fn emit_settings(directives: &[ConfigDirective], out: &mut String) {

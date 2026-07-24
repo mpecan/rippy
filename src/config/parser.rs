@@ -95,7 +95,7 @@ pub fn parse_rule(line: &str) -> Result<ConfigDirective, String> {
         "allow-edit" | "ask-edit" | "deny-edit" => parse_file_rule(keyword, rest, "edit"),
         "set" => parse_set_directive(rest),
         "alias" => parse_alias_directive(rest),
-        "cd-allow" => parse_cd_allow_directive(rest),
+        "scope" | "cd-allow" => parse_scope_directive(keyword, rest),
         _ => Err(format!("unknown directive: {keyword}")),
     }
 }
@@ -211,12 +211,12 @@ fn parse_alias_directive(rest: &[Token]) -> Result<ConfigDirective, String> {
     })
 }
 
-fn parse_cd_allow_directive(rest: &[Token]) -> Result<ConfigDirective, String> {
+fn parse_scope_directive(keyword: &str, rest: &[Token]) -> Result<ConfigDirective, String> {
     let (path_str, _) = extract_pattern_and_message(rest);
     if path_str.is_empty() {
-        return Err("cd-allow requires a directory path".into());
+        return Err(format!("{keyword} requires a directory path"));
     }
-    Ok(ConfigDirective::CdAllow(PathBuf::from(path_str)))
+    Ok(ConfigDirective::SafeScope(PathBuf::from(path_str)))
 }
 
 fn parse_rule_kind(word: &str) -> Decision {
@@ -369,6 +369,25 @@ mod tests {
             }
             _ => panic!("expected Rule"),
         }
+    }
+
+    #[test]
+    fn parse_scope_directive_keyword() {
+        for kw in ["scope /opt/repos", "cd-allow /opt/repos"] {
+            let d = parse_rule(kw).unwrap();
+            match d {
+                ConfigDirective::SafeScope(p) => {
+                    assert_eq!(p, std::path::PathBuf::from("/opt/repos"));
+                }
+                _ => panic!("expected SafeScope for {kw:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn parse_scope_empty_errors() {
+        assert!(parse_rule("scope").is_err());
+        assert!(parse_rule("cd-allow").is_err());
     }
 
     #[test]

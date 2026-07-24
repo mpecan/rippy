@@ -390,6 +390,30 @@ fn structured_rule_round_trips() {
 }
 
 #[test]
+fn safe_scopes_round_trip_through_migrate() {
+    // `rippy migrate` must carry legacy `scope` / `cd-allow` directives into a
+    // `[scopes]` block instead of silently dropping them.
+    let directives = vec![
+        ConfigDirective::SafeScope(std::path::PathBuf::from("/opt/repos")),
+        ConfigDirective::SafeScope(std::path::PathBuf::from("~/src")),
+    ];
+    let serialized = rules_to_toml(&directives);
+    assert!(
+        serialized.contains("[scopes]"),
+        "missing block: {serialized}"
+    );
+    assert!(serialized.contains("\"/opt/repos\""));
+    assert!(serialized.contains("\"~/src\""));
+
+    let re_parsed = parse_toml_config(&serialized, Path::new("t.toml")).unwrap();
+    let scope_count = re_parsed
+        .iter()
+        .filter(|d| matches!(d, ConfigDirective::SafeScope(_)))
+        .count();
+    assert_eq!(scope_count, 2, "scopes lost on round-trip: {serialized}");
+}
+
+#[test]
 fn rule_with_risk_field_errors() {
     // Regression: the `risk` field was accepted silently (#117). It is now
     // rejected as an unknown field so users don't write no-op configs.
@@ -427,4 +451,43 @@ fn rule_with_typo_field_errors() {
 fn rule_without_pattern_or_structured_fails() {
     let toml = "[[rules]]\naction = \"deny\"\nmessage = \"missing\"\n";
     assert!(parse_toml_config(toml, Path::new("t")).is_err());
+}
+
+#[test]
+fn parse_scopes_safe_table() {
+    let toml = "[scopes]\nsafe = [\"/opt/repos\", \"/srv/work\"]\n";
+    let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+    let config = Config::from_directives(directives);
+    assert_eq!(
+        config.safe_scopes,
+        vec![
+            std::path::PathBuf::from("/opt/repos"),
+            std::path::PathBuf::from("/srv/work"),
+        ]
+    );
+}
+
+#[test]
+fn parse_cd_allowed_dirs_back_compat() {
+    let toml = "[cd]\nallowed-dirs = [\"/opt/legacy\"]\n";
+    let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+    let config = Config::from_directives(directives);
+    assert_eq!(
+        config.safe_scopes,
+        vec![std::path::PathBuf::from("/opt/legacy")]
+    );
+}
+
+#[test]
+fn scopes_and_cd_merge_into_one_list() {
+    let toml = "[scopes]\nsafe = [\"/opt/a\"]\n[cd]\nallowed-dirs = [\"/opt/b\"]\n";
+    let directives = parse_toml_config(toml, Path::new("test.toml")).unwrap();
+    let config = Config::from_directives(directives);
+    assert_eq!(
+        config.safe_scopes,
+        vec![
+            std::path::PathBuf::from("/opt/a"),
+            std::path::PathBuf::from("/opt/b"),
+        ]
+    );
 }

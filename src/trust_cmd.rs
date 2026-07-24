@@ -86,7 +86,7 @@ fn print_config_summary(path: &Path, content: &str) {
         stats.deny,
     );
 
-    if stats.allow > 0 || stats.sets_default_allow {
+    if stats.allow > 0 || stats.sets_default_allow || stats.declares_scopes {
         eprintln!();
         eprintln!("WARNING: this config WEAKENS protections:");
         if stats.allow > 0 {
@@ -98,6 +98,11 @@ fn print_config_summary(path: &Path, content: &str) {
         if stats.sets_default_allow {
             eprintln!("  - sets default action to allow (all unknown commands auto-approved)");
         }
+        if stats.declares_scopes {
+            eprintln!(
+                "  - declares safe scope(s) that widen auto-approval to directories outside this project"
+            );
+        }
     }
 }
 
@@ -107,6 +112,7 @@ struct ConfigSafety {
     ask: usize,
     deny: usize,
     sets_default_allow: bool,
+    declares_scopes: bool,
 }
 
 fn analyze_config_safety(content: &str) -> ConfigSafety {
@@ -115,10 +121,22 @@ fn analyze_config_safety(content: &str) -> ConfigSafety {
         ask: 0,
         deny: 0,
         sets_default_allow: false,
+        declares_scopes: false,
     };
 
     for line in content.lines() {
         let trimmed = line.trim();
+        // Safe-scope declarations (TOML `[scopes]`/`safe`, legacy `[cd]`/
+        // `allowed-dirs`, or flat `scope`/`cd-allow`) widen auto-approval.
+        if trimmed.starts_with("[scopes]")
+            || trimmed.starts_with("safe ")
+            || trimmed.starts_with("safe=")
+            || trimmed.starts_with("allowed-dirs")
+            || trimmed.starts_with("scope ")
+            || trimmed.starts_with("cd-allow ")
+        {
+            stats.declares_scopes = true;
+        }
         // Line-based format
         if trimmed.starts_with("allow ") {
             stats.allow += 1;
@@ -204,4 +222,34 @@ fn list_trusted() -> Result<ExitCode, RippyError> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_toml_scopes_as_weakening() {
+        let s = analyze_config_safety("[scopes]\nsafe = [\"/opt/repos\"]\n");
+        assert!(s.declares_scopes);
+    }
+
+    #[test]
+    fn detects_legacy_cd_allowed_dirs() {
+        let s = analyze_config_safety("[cd]\nallowed-dirs = [\"/opt/repos\"]\n");
+        assert!(s.declares_scopes);
+    }
+
+    #[test]
+    fn detects_flat_scope_directive() {
+        assert!(analyze_config_safety("scope /opt/repos\n").declares_scopes);
+        assert!(analyze_config_safety("cd-allow /opt/repos\n").declares_scopes);
+    }
+
+    #[test]
+    fn plain_config_not_flagged_for_scopes() {
+        let s = analyze_config_safety("[settings]\ndefault = \"ask\"\n");
+        assert!(!s.declares_scopes);
+    }
 }

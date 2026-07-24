@@ -46,8 +46,11 @@ pub struct Config {
     /// Whether to auto-trust all project configs without checking the trust DB.
     pub trust_project_configs: bool,
     aliases: Vec<(String, String)>,
-    /// Extra directories that `cd` is allowed to navigate to (beyond the project root).
-    pub cd_allowed_dirs: Vec<std::path::PathBuf>,
+    /// User-declared safe scopes (beyond the project root). Path-based handlers
+    /// (`cd`, `mkdir`, `git -C`) treat these as in-scope: reads within them are
+    /// allowed, writes still ask. Paths are tilde/env-expanded and normalized at
+    /// load time; entries that would resolve to the filesystem root are dropped.
+    pub safe_scopes: Vec<std::path::PathBuf>,
     /// Index range in `rules` containing project-config rules.
     /// `None` when no project config was loaded. Rules outside this range
     /// are baseline (stdlib + global) or env override.
@@ -260,8 +263,18 @@ impl Config {
         result
     }
 
-    /// Build a `Config` from a list of directives.
+    /// Build a `Config` from a list of directives, reading `$HOME` for
+    /// safe-scope tilde expansion.
     pub fn from_directives(directives: Vec<ConfigDirective>) -> Self {
+        Self::from_directives_with_home(directives, home_dir().as_deref())
+    }
+
+    /// Build a `Config` from directives with an explicit home directory used
+    /// for safe-scope tilde expansion (pass `None` to skip tilde expansion).
+    pub fn from_directives_with_home(
+        directives: Vec<ConfigDirective>,
+        home: Option<&Path>,
+    ) -> Self {
         let mut config = Self {
             self_protect: true,
             ..Self::default()
@@ -304,10 +317,16 @@ impl Config {
                         in_project_section = true;
                     }
                 }
-                ConfigDirective::CdAllow(path) => {
-                    config
-                        .cd_allowed_dirs
-                        .push(crate::handlers::normalize_path(&path));
+                ConfigDirective::SafeScope(path) => {
+                    if in_project_section {
+                        weakening_notes.push(format!(
+                            "declares safe scope \"{}\" that widens auto-approval",
+                            path.display()
+                        ));
+                    }
+                    if let Some(scope) = expand_scope_path(&path, home) {
+                        config.safe_scopes.push(scope);
+                    }
                 }
             }
         }
@@ -355,6 +374,141 @@ fn resolve_package(home: Option<&PathBuf>, cwd: &Path) -> Option<crate::packages
         Err(e) => {
             eprintln!("[rippy] {e}");
             None
+        }
+    }
+}
+
+/// Validate a user-supplied safe-scope directory for the `rippy scope` CLI.
+///
+/// Thin wrapper over [`expand_and_validate_scope`] so the CLI and the
+/// config-load path apply exactly the same "too broad" rules. Returns the
+/// expanded absolute path (the caller stores the original as-written string).
+///
+/// # Errors
+///
+/// Returns a human-readable message describing why the directory was rejected.
+pub fn validate_safe_scope(dir: &str, home: Option<&Path>) -> Result<PathBuf, String> {
+    expand_and_validate_scope(Path::new(dir), home)
+}
+
+/// Expand a declared safe-scope path and validate that it is safe to trust.
+///
+/// Expands a leading `~` (using `home`) and `$VAR`/`${VAR}` references, then
+/// normalizes `.`/`..` components. Rejects paths that resolve to the filesystem
+/// root, an empty path, a non-absolute path, or the home directory itself — all
+/// of which would auto-approve far too much. Both the config-load path
+/// ([`expand_scope_path`]) and the `rippy scope` CLI ([`validate_safe_scope`])
+/// go through here so the two agree on what counts as "too broad".
+///
+/// # Errors
+///
+/// Returns a human-readable message describing why the directory was rejected.
+fn expand_and_validate_scope(raw: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
+    let raw_str = raw
+        .to_str()
+        .ok_or_else(|| format!("'{}' is not valid UTF-8", raw.display()))?;
+    let expanded = expand_scope_string(raw_str, home);
+    let normalized = crate::handlers::normalize_path(Path::new(&expanded));
+    if normalized.as_os_str().is_empty() || normalized == Path::new("/") {
+        return Err(format!(
+            "'{raw_str}' resolves to the filesystem root or is empty"
+        ));
+    }
+    if !normalized.is_absolute() {
+        return Err(format!(
+            "'{raw_str}' must resolve to an absolute path (got '{}')",
+            normalized.display()
+        ));
+    }
+    if let Some(h) = home
+        && normalized == crate::handlers::normalize_path(h)
+    {
+        return Err(format!(
+            "'{raw_str}' is your home directory — too broad to be a safe scope"
+        ));
+    }
+    Ok(normalized)
+}
+
+/// Expand and validate a declared safe-scope path for the config-load path.
+///
+/// Returns `None` for any path that is too broad to trust (filesystem root,
+/// empty, non-absolute, or the home directory) — see
+/// [`expand_and_validate_scope`]. Rejected entries are silently dropped rather
+/// than disabling the hook. This keeps a hand-edited or trusted-project
+/// `[scopes] safe = ["~"]` from widening auto-approval across the whole home
+/// directory, matching what the `rippy scope` CLI refuses to add.
+fn expand_scope_path(raw: &Path, home: Option<&Path>) -> Option<std::path::PathBuf> {
+    expand_and_validate_scope(raw, home).ok()
+}
+
+/// Expand a leading tilde then any `$VAR`/`${VAR}` references in `raw`.
+fn expand_scope_string(raw: &str, home: Option<&Path>) -> String {
+    let tilde_expanded = expand_leading_tilde(raw, home);
+    expand_env_vars(&tilde_expanded)
+}
+
+fn expand_leading_tilde(raw: &str, home: Option<&Path>) -> String {
+    match home {
+        Some(h) if raw == "~" => h.to_string_lossy().into_owned(),
+        Some(h) => raw.strip_prefix("~/").map_or_else(
+            || raw.to_string(),
+            |rest| h.join(rest).to_string_lossy().into_owned(),
+        ),
+        None => raw.to_string(),
+    }
+}
+
+/// Expand `$VAR` and `${VAR}` references using the process environment.
+/// Unknown variables are kept literal so they cannot silently widen a scope.
+fn expand_env_vars(input: &str) -> String {
+    if !input.contains('$') {
+        return input.to_string();
+    }
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '$' {
+            append_var_expansion(&mut out, &mut chars);
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn append_var_expansion(out: &mut String, chars: &mut std::iter::Peekable<std::str::Chars>) {
+    let braced = chars.peek() == Some(&'{');
+    if braced {
+        chars.next();
+    }
+    let mut name = String::new();
+    while let Some(&c) = chars.peek() {
+        let is_name_char = if braced {
+            c != '}'
+        } else {
+            c.is_ascii_alphanumeric() || c == '_'
+        };
+        if !is_name_char {
+            break;
+        }
+        name.push(c);
+        chars.next();
+    }
+    if braced && chars.peek() == Some(&'}') {
+        chars.next();
+    }
+    match std::env::var_os(&name) {
+        Some(val) if !name.is_empty() => out.push_str(&val.to_string_lossy()),
+        _ => {
+            out.push('$');
+            if braced {
+                out.push('{');
+                out.push_str(&name);
+                out.push('}');
+            } else {
+                out.push_str(&name);
+            }
         }
     }
 }

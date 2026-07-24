@@ -19,7 +19,31 @@ use std::sync::LazyLock;
 
 use proptest::prelude::*;
 use rippy_cli::allowlists;
+use rippy_cli::analyzer::Analyzer;
+use rippy_cli::config::{Config, ConfigDirective};
+use rippy_cli::environment::Environment;
 use rippy_cli::verdict::Decision;
+
+/// Candidate safe-scope inputs, including dangerous/degenerate ones (`/`, `~`,
+/// empty) that must never widen auto-approval to an unrelated path.
+const SCOPE_INPUTS: &[&str] = &["/", "~", "", "/opt", "/opt/repos", "/srv/work"];
+
+/// Absolute paths that are NOT under any legitimate `SCOPE_INPUTS` prefix, nor
+/// under the test cwd (`/project`) or the default safe dirs.
+const OUTSIDE_PATHS: &[&str] = &[
+    "/etc/secrets",
+    "/usr/local/bin",
+    "/var/log/syslog",
+    "/root/.ssh",
+];
+
+fn analyzer_with_scope_input(scope: &str) -> Analyzer {
+    let config = Config::from_directives(vec![ConfigDirective::SafeScope(
+        std::path::PathBuf::from(scope),
+    )]);
+    let env = Environment::for_test(std::path::PathBuf::from("/project"));
+    Analyzer::from_env(config, env).expect("analyzer builds")
+}
 
 /// Cached sorted lists — avoid re-sorting on every proptest iteration.
 static SAFE_CMDS: LazyLock<Vec<&'static str>> = LazyLock::new(allowlists::all_simple_safe);
@@ -35,6 +59,18 @@ const DANGEROUS_COMMANDS: &[&str] = &[
 
 /// Injection separators that create compound commands.
 const INJECTION_VECTORS: &[&str] = &["; ", " && ", " || "];
+
+/// Git repo-redirect flag forms — separated (`--git-dir PATH`) and attached
+/// (`--git-dir=PATH`). All must be scope-checked identically so a redirect to
+/// an outside repo cannot be smuggled past the guard via the `=` form (#134).
+/// `{P}` is replaced with the target path.
+const GIT_REDIRECT_TEMPLATES: &[&str] = &[
+    "git -C {P} log",
+    "git --git-dir {P} log",
+    "git --git-dir={P} log",
+    "git --work-tree {P} status",
+    "git --work-tree={P} status",
+];
 
 /// Typical safe arguments for `SIMPLE_SAFE` commands.
 const SAFE_ARGS: &[&str] = &["", "-la", "-v", "file.txt", "/tmp/foo", "-r .", "-n 10"];
@@ -206,5 +242,47 @@ proptest! {
             wrapper, cmd, verdict.reason,
         );
         prop_assert!(verdict.decision >= Decision::Ask, "{}", msg);
+    }
+
+    /// A declared safe scope (even a degenerate `/`, `~`, or empty input) must
+    /// never auto-approve a `cd` into a path outside a genuine declared prefix.
+    /// Guards the root/broad-scope bypass and the prefix-boundary guarantee (#134).
+    #[test]
+    fn declared_scope_never_auto_approves_outside_path(
+        scope_idx in 0..SCOPE_INPUTS.len(),
+        path_idx in 0..OUTSIDE_PATHS.len(),
+    ) {
+        let scope = SCOPE_INPUTS[scope_idx];
+        let outside = OUTSIDE_PATHS[path_idx];
+        let mut analyzer = analyzer_with_scope_input(scope);
+        let cmd = format!("cd {outside}");
+        let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
+        prop_assert!(
+            verdict.decision >= Decision::Ask,
+            "scope {:?} auto-approved outside path {:?} => {:?}",
+            scope, outside, verdict.reason,
+        );
+    }
+
+    /// A read-only git command redirected (any flag form, separated or `=`) to a
+    /// path outside every declared scope must never auto-approve — the attached
+    /// `=` form must not slip past the guard the separated form enforces (#134).
+    #[test]
+    fn git_repo_redirect_outside_never_auto_approves(
+        scope_idx in 0..SCOPE_INPUTS.len(),
+        tmpl_idx in 0..GIT_REDIRECT_TEMPLATES.len(),
+        path_idx in 0..OUTSIDE_PATHS.len(),
+    ) {
+        let scope = SCOPE_INPUTS[scope_idx];
+        let template = GIT_REDIRECT_TEMPLATES[tmpl_idx];
+        let outside = OUTSIDE_PATHS[path_idx];
+        let cmd = template.replace("{P}", outside);
+        let mut analyzer = analyzer_with_scope_input(scope);
+        let verdict = analyzer.analyze(&cmd).expect("analyze succeeds");
+        prop_assert!(
+            verdict.decision >= Decision::Ask,
+            "redirect {:?} with scope {:?} auto-approved outside path => {:?}",
+            cmd, scope, verdict.reason,
+        );
     }
 }
