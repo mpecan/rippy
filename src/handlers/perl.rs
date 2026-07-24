@@ -50,66 +50,14 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn version_allows() {
-        let args = vec!["--version".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
-            Classification::Allow(_)
-        ));
-    }
-
+    // Handler-level safe-inline Allow. The full pipeline Asks (catch-all
+    // `command=perl` rule); catalog covers the pipeline decision.
     #[test]
     fn e_safe_print_allows() {
         let args = vec!["-e".into(), "print 'hello\\n'".into()];
         assert!(matches!(
             PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
             Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn e_system_asks() {
-        let args = vec!["-e".into(), "system('rm -rf /')".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn e_backtick_asks() {
-        let args = vec!["-e".into(), "`ls`".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn upper_e_asks_for_dangerous() {
-        let args = vec!["-E".into(), "system('ls')".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn no_args_asks() {
-        let args: Vec<String> = vec![];
-        assert!(matches!(
-            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn script_file_missing_asks() {
-        let args = vec!["script.pl".into()];
-        assert!(matches!(
-            PERL_HANDLER.classify(&HandlerContext::test("perl", &args)),
-            Classification::Ask(_)
         ));
     }
 

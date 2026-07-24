@@ -71,15 +71,10 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn version_allows() {
-        let args = vec!["--version".into()];
-        assert!(matches!(
-            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
-            Classification::Allow(_)
-        ));
-    }
-
+    // Command->decision cases are covered by the catalog
+    // (tests/data/catalog/handlers_interpreters.toml). Retained tests exercise the
+    // handler-level safe/dangerous distinction (the pipeline Asks via a catch-all
+    // `command=node` rule) and read_file, neither reachable from a command string.
     #[test]
     fn deno_capital_v_version_allows() {
         // deno uses `-V` for --version; a lone version flag must short-circuit.
@@ -108,68 +103,11 @@ mod tests {
     }
 
     #[test]
-    fn e_require_child_process_asks() {
-        let args = vec![
-            "-e".into(),
-            "require('child_process').execSync('ls')".into(),
-        ];
-        assert!(matches!(
-            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn e_require_fs_asks() {
-        let args = vec!["-e".into(), "require('fs').rmSync('/')".into()];
-        assert!(matches!(
-            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn p_eval_asks() {
-        let args = vec!["-p".into(), "eval('1+1')".into()];
-        assert!(matches!(
-            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
     fn p_safe_allows() {
         let args = vec!["-p".into(), "Math.PI".into()];
         assert!(matches!(
             NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
             Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn no_args_asks() {
-        let args: Vec<String> = vec![];
-        assert!(matches!(
-            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn interactive_asks() {
-        let args = vec!["-i".into()];
-        assert!(matches!(
-            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn script_file_missing_asks() {
-        let args = vec!["app.js".into()];
-        assert!(matches!(
-            NODE_HANDLER.classify(&HandlerContext::test("node", &args)),
-            Classification::Ask(_)
         ));
     }
 
@@ -214,16 +152,6 @@ mod tests {
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
             Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn deno_eval_dangerous_asks() {
-        let args = vec!["eval".into(), "require('child_process').exec('ls')".into()];
-        let ctx = HandlerContext::test("deno", &args);
-        assert!(matches!(
-            NODE_HANDLER.classify(&ctx),
-            Classification::Ask(_)
         ));
     }
 }

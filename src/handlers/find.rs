@@ -43,20 +43,9 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn find_search_only_allows() {
-        let args: Vec<String> = vec![".".into(), "-name".into(), "*.rs".into()];
-        let result = FIND_HANDLER.classify(&HandlerContext::test("find", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn find_delete_asks() {
-        let args: Vec<String> = vec![".".into(), "-name".into(), "*.tmp".into(), "-delete".into()];
-        let result = FIND_HANDLER.classify(&HandlerContext::test("find", &args));
-        assert!(matches!(result, Classification::Ask(reason) if reason.contains("delete")));
-    }
-
+    // find search/-delete/-ok command->decision cases are covered by
+    // tests/data/catalog/handlers_text_system.toml. This test asserts the Recurse
+    // variant and exact inner-command extraction, which a command string can't check.
     #[test]
     fn find_exec_recurses() {
         let args: Vec<String> = vec![
@@ -71,18 +60,5 @@ mod tests {
         ];
         let result = FIND_HANDLER.classify(&HandlerContext::test("find", &args));
         assert!(matches!(result, Classification::Recurse(cmd) if cmd == "wc -l {}"));
-    }
-
-    #[test]
-    fn find_ok_asks() {
-        let args: Vec<String> = vec![
-            ".".into(),
-            "-ok".into(),
-            "rm".into(),
-            "{}".into(),
-            ";".into(),
-        ];
-        let result = FIND_HANDLER.classify(&HandlerContext::test("find", &args));
-        assert!(matches!(result, Classification::Ask(reason) if reason.contains("ok")));
     }
 }

@@ -1,0 +1,230 @@
+[meta]
+description = "Container / cloud / ansible handlers — command -> decision"
+
+# Migrated from docker.rs, helm.rs, cloud.rs, ansible.rs unit tests. Only pure
+# command_name+args cases. docker/kubectl `exec` (remote recurse) and the
+# `-o/--output` redirect cases stay white-box (they assert non-decision variants).
+
+# ---- docker / podman ----
+[[case]]
+command = "docker ps"
+decision = "allow"
+
+[[case]]
+command = "docker compose ps"
+decision = "allow"
+
+[[case]]
+command = "docker compose up"
+decision = "ask"
+
+[[case]]
+command = "docker run alpine"
+decision = "ask"
+
+[[case]]
+command = "docker save myimage"
+decision = "allow"
+
+[[case]]
+command = "docker export container"
+decision = "allow"
+
+[[case]]
+command = "podman ps"
+decision = "allow"
+
+# ---- helm ----
+[[case]]
+command = "helm list"
+decision = "allow"
+
+[[case]]
+command = "helm install myrelease chart"
+decision = "ask"
+
+[[case]]
+command = "helm install myrelease chart --dry-run"
+decision = "allow"
+
+[[case]]
+command = "helm upgrade myrelease chart --dry-run"
+decision = "allow"
+
+[[case]]
+command = "helm dependency list"
+decision = "allow"
+
+[[case]]
+command = "helm repo list"
+decision = "allow"
+
+[[case]]
+command = "helm repo add name url"
+decision = "ask"
+
+[[case]]
+command = "helm plugin list"
+decision = "allow"
+
+[[case]]
+command = "helm rollback myrelease 1 --dry-run"
+decision = "allow"
+
+[[case]]
+command = "helm uninstall myrelease"
+decision = "ask"
+
+[[case]]
+command = "helm --help"
+decision = "allow"
+
+# ---- kubectl / aws / gcloud / az ----
+[[case]]
+command = "kubectl get pods"
+decision = "allow"
+
+[[case]]
+command = "kubectl apply -f deploy.yaml"
+decision = "ask"
+
+[[case]]
+command = "aws ec2 describe-instances"
+decision = "allow"
+
+[[case]]
+command = "aws ec2 create-instance"
+decision = "ask"
+
+[[case]]
+command = "gcloud compute instances list"
+decision = "allow"
+
+[[case]]
+command = "gsutil ls"
+decision = "allow"
+
+[[case]]
+command = "az vm list"
+decision = "allow"
+
+# ---- ansible family ----
+[[case]]
+command = "ansible-doc module_name"
+decision = "allow"
+
+[[case]]
+command = "ansible-lint playbook.yml"
+decision = "allow"
+
+[[case]]
+command = "ansible all -m ping --check"
+decision = "allow"
+
+[[case]]
+command = "ansible all -m ping -C"
+decision = "allow"
+
+[[case]]
+command = "ansible all --list-hosts"
+decision = "allow"
+
+[[case]]
+command = "ansible all -m shell"
+decision = "ask"
+
+[[case]]
+command = "ansible-playbook site.yml --check"
+decision = "allow"
+
+[[case]]
+command = "ansible-playbook site.yml --syntax-check"
+decision = "allow"
+
+[[case]]
+command = "ansible-playbook site.yml --list-tasks"
+decision = "allow"
+
+[[case]]
+command = "ansible-playbook site.yml --list-tags"
+decision = "allow"
+
+[[case]]
+command = "ansible-playbook site.yml --list-hosts"
+decision = "allow"
+
+[[case]]
+command = "ansible-playbook site.yml -C"
+decision = "allow"
+
+[[case]]
+command = "ansible-playbook site.yml"
+decision = "ask"
+
+[[case]]
+command = "ansible-vault view secrets.yml"
+decision = "allow"
+
+[[case]]
+command = "ansible-vault encrypt secrets.yml"
+decision = "ask"
+
+[[case]]
+command = "ansible-vault"
+decision = "ask"
+
+[[case]]
+command = "ansible-galaxy list"
+decision = "allow"
+
+[[case]]
+command = "ansible-galaxy search nginx"
+decision = "allow"
+
+[[case]]
+command = "ansible-galaxy info geerlingguy.docker"
+decision = "allow"
+
+[[case]]
+command = "ansible-galaxy install geerlingguy.docker"
+decision = "ask"
+
+[[case]]
+command = "ansible-galaxy"
+decision = "ask"
+
+[[case]]
+command = "ansible-config list"
+decision = "allow"
+
+[[case]]
+command = "ansible-config dump"
+decision = "allow"
+
+[[case]]
+command = "ansible-config view"
+decision = "allow"
+
+[[case]]
+command = "ansible-config init"
+decision = "ask"
+
+[[case]]
+command = "ansible-config"
+decision = "ask"
+
+[[case]]
+command = "ansible-inventory --list"
+decision = "allow"
+
+[[case]]
+command = "ansible-inventory --graph"
+decision = "allow"
+
+[[case]]
+command = "ansible-inventory --host webserver1"
+decision = "allow"
+
+[[case]]
+command = "ansible-inventory -i hosts"
+decision = "ask"

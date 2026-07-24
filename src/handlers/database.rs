@@ -100,48 +100,9 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn psql_readonly_sql_allows() {
-        let args: Vec<String> = vec!["-c".into(), "SELECT * FROM users".into()];
-        let result = PSQL_HANDLER.classify(&HandlerContext::test("psql", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn psql_write_sql_asks() {
-        let args: Vec<String> = vec!["-c".into(), "DELETE FROM users".into()];
-        let result = PSQL_HANDLER.classify(&HandlerContext::test("psql", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn psql_list_allows() {
-        let args: Vec<String> = vec!["-l".into()];
-        let result = PSQL_HANDLER.classify(&HandlerContext::test("psql", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn mysql_select_allows() {
-        let args: Vec<String> = vec!["-e".into(), "SELECT 1".into()];
-        let result = MYSQL_HANDLER.classify(&HandlerContext::test("mysql", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn mysql_insert_asks() {
-        let args: Vec<String> = vec!["-e".into(), "INSERT INTO users VALUES (1)".into()];
-        let result = MYSQL_HANDLER.classify(&HandlerContext::test("mysql", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn sqlite3_readonly_allows() {
-        let args: Vec<String> = vec!["-readonly".into(), "test.db".into()];
-        let result = SQLITE3_HANDLER.classify(&HandlerContext::test("sqlite3", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
+    // Inline-SQL command->decision cases (psql -c, psql -l, mysql -e, sqlite3
+    // -readonly) are covered by tests/data/catalog/handlers_text_system.toml. The
+    // `-f` tests below classify SQL read from a real file via read_file.
     #[test]
     fn psql_f_readonly_allows() {
         let dir = tempfile::tempdir().unwrap();

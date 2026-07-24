@@ -256,13 +256,9 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn kubectl_get_allows() {
-        let args: Vec<String> = vec!["get".into(), "pods".into()];
-        let result = KUBECTL_HANDLER.classify(&HandlerContext::test("kubectl", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
+    // Pure subcommand->decision cases (kubectl get/apply, aws describe/create) are
+    // covered by tests/data/catalog/handlers_containers.toml. The exec test below
+    // asserts the RecurseRemote variant, which a command string cannot express.
     #[test]
     fn kubectl_exec_recurses_remote() {
         let args: Vec<String> = vec![
@@ -274,26 +270,5 @@ mod tests {
         ];
         let result = KUBECTL_HANDLER.classify(&HandlerContext::test("kubectl", &args));
         assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "cat /etc/hosts"));
-    }
-
-    #[test]
-    fn kubectl_apply_asks() {
-        let args: Vec<String> = vec!["apply".into(), "-f".into(), "deploy.yaml".into()];
-        let result = KUBECTL_HANDLER.classify(&HandlerContext::test("kubectl", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn aws_describe_allows() {
-        let args: Vec<String> = vec!["ec2".into(), "describe-instances".into()];
-        let result = AWS_HANDLER.classify(&HandlerContext::test("aws", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn aws_create_asks() {
-        let args: Vec<String> = vec!["ec2".into(), "create-instance".into()];
-        let result = AWS_HANDLER.classify(&HandlerContext::test("aws", &args));
-        assert!(matches!(result, Classification::Ask(_)));
     }
 }

@@ -55,66 +55,16 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn version_allows() {
-        let args = vec!["--version".into()];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
-            Classification::Allow(_)
-        ));
-    }
-
+    // Handler-level safe/dangerous inline distinction. NOTE: the full pipeline's
+    // isolated stdlib config has a catch-all `command=ruby` rule that Asks, so the
+    // safe-inline Allow is only observable at the handler level here — the catalog
+    // covers the pipeline's fail-closed Ask. See tests/data/catalog/handlers_interpreters.toml.
     #[test]
     fn e_safe_puts_allows() {
         let args = vec!["-e".into(), "puts 'hello'".into()];
         assert!(matches!(
             RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
             Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn e_system_asks() {
-        let args = vec!["-e".into(), "system('rm -rf /')".into()];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn e_backtick_asks() {
-        let args = vec!["-e".into(), "`ls`".into()];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn no_args_asks() {
-        let args: Vec<String> = vec![];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn irb_asks() {
-        let ctx = HandlerContext::test("irb", &[]);
-        assert!(matches!(
-            RUBY_HANDLER.classify(&ctx),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn script_file_missing_asks() {
-        let args = vec!["script.rb".into()];
-        assert!(matches!(
-            RUBY_HANDLER.classify(&HandlerContext::test("ruby", &args)),
-            Classification::Ask(_)
         ));
     }
 

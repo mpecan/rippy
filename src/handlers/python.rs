@@ -82,69 +82,9 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn version_allows() {
-        let args = vec!["--version".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn c_safe_print_allows() {
-        let args = vec!["-c".into(), "print(1)".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn c_import_json_allows() {
-        let args = vec!["-c".into(), "import json; print(json.dumps({}))".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn c_import_os_asks() {
-        let args = vec!["-c".into(), "import os; os.system('ls')".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn c_eval_asks() {
-        let args = vec!["-c".into(), "eval('1+1')".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn script_file_asks() {
-        let args = vec!["script.py".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn no_args_asks() {
-        let args: Vec<String> = vec![];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn m_safe_module_allows() {
-        let args = vec!["-m".into(), "json.tool".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn m_unknown_module_asks() {
-        let args = vec!["-m".into(), "http.server".into()];
-        let result = PYTHON_HANDLER.classify(&HandlerContext::test("python", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
+    // Command->decision cases (version/-c inline/-m/no-args/missing-script) are
+    // covered by tests/data/catalog/handlers_interpreters.toml. The remaining
+    // tests exercise read_file, which the catalog cannot inject.
     #[test]
     fn script_file_safe_allows() {
         let dir = tempfile::tempdir().unwrap();

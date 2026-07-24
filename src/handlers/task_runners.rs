@@ -166,6 +166,12 @@ impl Handler for TokfHandler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    // Single command->decision cases (just/mise/tokf/uv safe & ask subcommands)
+    // are covered by tests/data/catalog/handlers_task_runners.toml. Retained here:
+    // const-iterating typo guards (every entry of MISE_SAFE/TOKF_SAFE must Allow),
+    // the #135 flag-after-recipe/tasks-run guards, and the wrapper Recurse tests
+    // that assert exact inner-command extraction — none of which a command string
+    // in the catalog can express.
 
     use super::*;
 
@@ -185,54 +191,6 @@ mod tests {
     }
 
     // ---- just ----
-
-    #[test]
-    fn just_list_allows() {
-        assert!(matches!(
-            classify_just(&["--list"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn just_summary_allows() {
-        assert!(matches!(
-            classify_just(&["--summary"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn just_dump_allows() {
-        assert!(matches!(
-            classify_just(&["--dump"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn just_show_allows() {
-        assert!(matches!(
-            classify_just(&["--show", "build"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn just_recipe_asks() {
-        assert!(matches!(classify_just(&["build"]), Classification::Ask(_)));
-    }
-
-    #[test]
-    fn just_bare_asks() {
-        // Bare `just` runs the default recipe = arbitrary code. Must Ask.
-        assert!(matches!(classify_just(&[]), Classification::Ask(_)));
-    }
-
-    #[test]
-    fn just_fmt_asks() {
-        assert!(matches!(classify_just(&["--fmt"]), Classification::Ask(_)));
-    }
 
     #[test]
     fn just_short_flags_allow() {
@@ -270,82 +228,6 @@ mod tests {
     }
 
     // ---- mise ----
-
-    #[test]
-    fn mise_tasks_allows() {
-        assert!(matches!(
-            classify_mise(&["tasks"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn mise_ls_allows() {
-        assert!(matches!(classify_mise(&["ls"]), Classification::Allow(_)));
-    }
-
-    #[test]
-    fn mise_current_allows() {
-        assert!(matches!(
-            classify_mise(&["current"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn mise_doctor_allows() {
-        assert!(matches!(
-            classify_mise(&["doctor"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn mise_env_allows() {
-        assert!(matches!(classify_mise(&["env"]), Classification::Allow(_)));
-    }
-
-    #[test]
-    fn mise_run_asks() {
-        assert!(matches!(
-            classify_mise(&["run", "lint"]),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn mise_exec_asks() {
-        assert!(matches!(
-            classify_mise(&["exec", "--", "rm"]),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn mise_install_asks() {
-        assert!(matches!(
-            classify_mise(&["install"]),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn mise_use_asks() {
-        assert!(matches!(classify_mise(&["use"]), Classification::Ask(_)));
-    }
-
-    #[test]
-    fn mise_settings_asks() {
-        assert!(matches!(
-            classify_mise(&["settings"]),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn mise_bare_asks() {
-        assert!(matches!(classify_mise(&[]), Classification::Ask(_)));
-    }
 
     #[test]
     fn mise_safe_subcommands_allow() {
@@ -395,43 +277,6 @@ mod tests {
     }
 
     // ---- tokf ----
-
-    #[test]
-    fn tokf_raw_allows() {
-        assert!(matches!(
-            classify_tokf(&["raw", "last"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn tokf_ls_allows() {
-        assert!(matches!(classify_tokf(&["ls"]), Classification::Allow(_)));
-    }
-
-    #[test]
-    fn tokf_which_allows() {
-        assert!(matches!(
-            classify_tokf(&["which", "cargo"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn tokf_show_allows() {
-        assert!(matches!(
-            classify_tokf(&["show", "cargo"]),
-            Classification::Allow(_)
-        ));
-    }
-
-    #[test]
-    fn tokf_rewrite_allows() {
-        assert!(matches!(
-            classify_tokf(&["rewrite"]),
-            Classification::Allow(_)
-        ));
-    }
 
     #[test]
     fn tokf_run_recurses() {
@@ -495,41 +340,5 @@ mod tests {
                 "expected Allow for `tokf {sub}`"
             );
         }
-    }
-
-    #[test]
-    fn tokf_run_empty_asks() {
-        assert!(matches!(classify_tokf(&["run"]), Classification::Ask(_)));
-    }
-
-    #[test]
-    fn tokf_config_asks() {
-        assert!(matches!(classify_tokf(&["config"]), Classification::Ask(_)));
-    }
-
-    #[test]
-    fn tokf_cache_asks() {
-        assert!(matches!(classify_tokf(&["cache"]), Classification::Ask(_)));
-    }
-
-    #[test]
-    fn tokf_history_asks() {
-        assert!(matches!(
-            classify_tokf(&["history"]),
-            Classification::Ask(_)
-        ));
-    }
-
-    #[test]
-    fn tokf_search_asks() {
-        assert!(matches!(classify_tokf(&["search"]), Classification::Ask(_)));
-    }
-
-    #[test]
-    fn tokf_unknown_asks() {
-        assert!(matches!(
-            classify_tokf(&["frobnicate"]),
-            Classification::Ask(_)
-        ));
     }
 }

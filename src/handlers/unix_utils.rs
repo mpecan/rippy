@@ -176,23 +176,7 @@ impl Handler for YqHandler {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn tar_list_allows() {
-        let args: Vec<String> = vec!["-t".into(), "archive.tar".into()];
-        let result = TAR_HANDLER.classify(&HandlerContext::test("tar", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn tar_extract_asks() {
-        let args: Vec<String> = vec!["-x".into(), "archive.tar".into()];
-        let result = TAR_HANDLER.classify(&HandlerContext::test("tar", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-}
+// Behavioral coverage (tar list/extract, wget, mktemp, open, yq) lives in
+// tests/data/catalog/handlers_text_system.toml — pure command->decision mappings
+// exercised through the real parse+analyze pipeline. The tee/sort `-o` redirect
+// paths return WithRedirects and are covered by redirect integration tests.

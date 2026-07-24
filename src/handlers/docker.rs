@@ -142,27 +142,10 @@ mod tests {
         assert!(matches!(result, Classification::RecurseRemote(cmd) if cmd == "bash"));
     }
 
-    #[test]
-    fn docker_compose_safe() {
-        let args: Vec<String> = vec!["compose".into(), "ps".into()];
-        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn docker_run_asks() {
-        let args: Vec<String> = vec!["run".into(), "alpine".into()];
-        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn docker_save_stdout_allows() {
-        let args: Vec<String> = vec!["save".into(), "myimage".into()];
-        let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
+    // Pure subcommand->decision cases (compose ps/up, run, save/export to stdout,
+    // safe subcommands) are covered by tests/data/catalog/handlers_containers.toml.
+    // The tests below assert non-decision Classification variants (RecurseRemote,
+    // WithRedirects) that a command string cannot express.
     #[test]
     fn docker_save_output_file() {
         let args: Vec<String> = vec![
@@ -192,17 +175,5 @@ mod tests {
         ];
         let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
         assert!(matches!(result, Classification::WithRedirects(..)));
-    }
-
-    #[test]
-    fn docker_safe_subcommands() {
-        for sub in &["ps", "images", "logs", "inspect", "version", "info"] {
-            let args: Vec<String> = vec![(*sub).into()];
-            let result = DOCKER_HANDLER.classify(&HandlerContext::test("docker", &args));
-            assert!(
-                matches!(result, Classification::Allow(_)),
-                "docker {sub} should be allowed"
-            );
-        }
     }
 }

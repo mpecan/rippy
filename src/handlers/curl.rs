@@ -66,20 +66,9 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn curl_get_allows() {
-        let args: Vec<String> = vec!["https://example.com".into()];
-        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
-        assert!(matches!(result, Classification::Allow(_)));
-    }
-
-    #[test]
-    fn curl_data_asks() {
-        let args: Vec<String> = vec!["-d".into(), "foo=bar".into(), "https://example.com".into()];
-        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
-        assert!(matches!(result, Classification::Ask(reason) if reason.contains("data")));
-    }
-
+    // curl GET/-d/-X POST/--help command->decision cases are covered by
+    // tests/data/catalog/handlers_text_system.toml. This test asserts the
+    // WithRedirects variant for `-o`, which a command string cannot express.
     #[test]
     fn curl_output_file() {
         let args: Vec<String> = vec![
@@ -89,19 +78,5 @@ mod tests {
         ];
         let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
         assert!(matches!(result, Classification::WithRedirects(_, _, _)));
-    }
-
-    #[test]
-    fn curl_post_method_asks() {
-        let args: Vec<String> = vec!["-X".into(), "POST".into(), "https://example.com".into()];
-        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
-        assert!(matches!(result, Classification::Ask(_)));
-    }
-
-    #[test]
-    fn curl_help_allows() {
-        let args: Vec<String> = vec!["--help".into()];
-        let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
-        assert!(matches!(result, Classification::Allow(_)));
     }
 }

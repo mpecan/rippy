@@ -100,6 +100,28 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
 - Unit tests: `#[cfg(test)]` module in the source file
 - Test modules use `#[allow(clippy::unwrap_used)]`
 - Integration tests in `tests/`
+- **Handler behavior belongs in the data-driven catalog.** Prefer a
+  `command -> decision` case in `tests/data/catalog/*.toml` over a white-box
+  `handler.classify(&HandlerContext{..})` unit test. Catalog cases run the real
+  parse+analyze pipeline (`build.rs` generates one `#[test]` per TOML entry;
+  `tests/catalog_runner.rs` asserts `verdict.decision`), so they test the actual
+  user-facing verdict and are immune to `HandlerContext` struct refactors. New
+  handlers add catalog cases first.
+- **Reserve white-box `HandlerContext` tests for what a command string cannot
+  reach:** internal helpers, and behavior that depends on injected state —
+  `working_directory`/cwd-relative resolution, `remote = true`, non-empty
+  `safe_scopes`, and real-file `read_file` content (script/SQL/workflow files).
+  Route these through `HandlerContext::test(name, &args)` with struct-update
+  overrides for the non-default fields.
+- **Author every catalog case from OBSERVED analyzer output, never from memory.**
+  The full pipeline can differ from a handler's raw `Classification` (a catch-all
+  config rule may Ask over a handler Allow; the shell parser may mangle an
+  arg such as `-f query={...}`; redirects/pipelines change the verdict). Run the
+  candidate through `isolated_analyzer()` and use its `Decision` as ground truth;
+  when it diverges from the handler variant, keep the white-box test. This is a
+  security tool — a mis-transcribed `decision = "allow"` silently passes while
+  asserting the wrong thing, so keep contrast pairs and never migrate an
+  `ask`/`deny` case you have not observed.
 - Property-based tests in `tests/proptest_robustness.rs` — proptest covers
   the four parsing/analysis surfaces (`Payload::parse`, `BashParser` +
   `Analyzer`, `Pattern::matches`, `Config::load_from_str`) against random

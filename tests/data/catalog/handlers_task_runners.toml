@@ -1,0 +1,196 @@
+[meta]
+description = "Task-runner handlers (just/mise/tokf/uv) — command -> decision"
+
+# Migrated from src/handlers/task_runners.rs and python_tools.rs unit tests.
+# tokf/uv `run`-style wrappers Recurse; the exact inner-string extraction stays
+# white-box, but the resulting pipeline decision is captured here.
+
+# ---- just ----
+[[case]]
+command = "just --list"
+decision = "allow"
+
+[[case]]
+command = "just --summary"
+decision = "allow"
+
+[[case]]
+command = "just --dump"
+decision = "allow"
+
+[[case]]
+command = "just --show build"
+decision = "allow"
+
+[[case]]
+command = "just build"
+decision = "ask"
+
+# Bare `just` runs the default recipe = arbitrary code. Must Ask.
+[[case]]
+command = "just"
+decision = "ask"
+
+[[case]]
+command = "just --fmt"
+decision = "ask"
+
+# #135 regression: a read-only flag AFTER a recipe name is a recipe argument,
+# so `just` RUNS the recipe — must Ask, never Allow.
+[[case]]
+command = "just deploy --list"
+decision = "ask"
+
+[[case]]
+command = "just build --list"
+decision = "ask"
+
+# ---- mise ----
+[[case]]
+command = "mise tasks"
+decision = "allow"
+
+[[case]]
+command = "mise ls"
+decision = "allow"
+
+[[case]]
+command = "mise current"
+decision = "allow"
+
+[[case]]
+command = "mise doctor"
+decision = "allow"
+
+[[case]]
+command = "mise env"
+decision = "allow"
+
+[[case]]
+command = "mise tasks ls"
+decision = "allow"
+
+[[case]]
+command = "mise tasks info build"
+decision = "allow"
+
+[[case]]
+command = "mise run lint"
+decision = "ask"
+
+[[case]]
+command = "mise exec -- rm"
+decision = "ask"
+
+[[case]]
+command = "mise install"
+decision = "ask"
+
+[[case]]
+command = "mise use"
+decision = "ask"
+
+[[case]]
+command = "mise settings"
+decision = "ask"
+
+[[case]]
+command = "mise"
+decision = "ask"
+
+# #135: `mise tasks run <task>` executes the task. Must Ask.
+[[case]]
+command = "mise tasks run pwn"
+decision = "ask"
+
+# ---- tokf ----
+[[case]]
+command = "tokf raw last"
+decision = "allow"
+
+[[case]]
+command = "tokf ls"
+decision = "allow"
+
+[[case]]
+command = "tokf which cargo"
+decision = "allow"
+
+[[case]]
+command = "tokf show cargo"
+decision = "allow"
+
+[[case]]
+command = "tokf rewrite"
+decision = "allow"
+
+# `tokf run <safe>` recurses to the inner command, which resolves normally.
+[[case]]
+command = "tokf run git status"
+decision = "allow"
+
+# `tokf test <danger>` recurses to the inner command; danger is not hidden.
+[[case]]
+command = "tokf test rm -rf /"
+decision = "ask"
+
+[[case]]
+command = "tokf run"
+decision = "ask"
+
+[[case]]
+command = "tokf config"
+decision = "ask"
+
+[[case]]
+command = "tokf cache"
+decision = "ask"
+
+[[case]]
+command = "tokf history"
+decision = "ask"
+
+[[case]]
+command = "tokf search"
+decision = "ask"
+
+[[case]]
+command = "tokf frobnicate"
+decision = "ask"
+
+# ---- uv / ruff / black ----
+[[case]]
+command = "uv sync"
+decision = "allow"
+
+[[case]]
+command = "uv pip list"
+decision = "allow"
+
+[[case]]
+command = "uv run python"
+decision = "ask"
+
+[[case]]
+command = "uv run"
+decision = "ask"
+
+[[case]]
+command = "uvx cowsay"
+decision = "ask"
+
+[[case]]
+command = "ruff check"
+decision = "allow"
+
+[[case]]
+command = "ruff format"
+decision = "ask"
+
+[[case]]
+command = "black --check"
+decision = "allow"
+
+[[case]]
+command = "black ."
+decision = "ask"
