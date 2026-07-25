@@ -43,3 +43,10 @@ pub mod tracking;
 pub mod trust;
 pub mod trust_cmd;
 pub mod verdict;
+
+/// Whole-catalog reason snapshot; lives here (not in `tests/`) because it needs
+/// the crate-internal deterministic test harness.
+#[cfg(test)]
+#[expect(clippy::unwrap_used, clippy::panic)]
+#[path = "analyzer_snapshot_tests.rs"]
+mod analyzer_snapshot_tests;
