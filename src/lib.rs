@@ -11,6 +11,9 @@ pub mod debug_cmd;
 pub mod discover;
 pub mod environment;
 pub mod error;
+#[cfg(any(feature = "fuzzing", test))]
+#[doc(hidden)]
+pub mod fuzz_support;
 pub(crate) mod git_styles;
 pub(crate) mod handlers;
 pub mod inspect;

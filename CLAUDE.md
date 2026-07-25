@@ -137,6 +137,16 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
   security tool — a mis-transcribed `decision = "allow"` silently passes while
   asserting the wrong thing, so keep contrast pairs and never migrate an
   `ask`/`deny` case you have not observed.
+- **Metamorphic "never fail open" invariants** live in `tests/metamorphic/`
+  (shared grammar + invariants) and run as proptests via
+  `tests/proptest_metamorphic.rs` under plain `cargo test`; invariant 8 is
+  in-crate at `src/resolve_proptests.rs`. The same harness is driven
+  coverage-guided by the nightly `fuzz/` crate (excluded from the workspace, so
+  the stable gate never builds it). Never soften an invariant to make it pass —
+  carve the shape out with a named, issue-referencing predicate and pin the
+  reproducer as an `#[ignore]`d test. See `docs/fuzzing.md`.
+- `rippy inspect` is **not** a verdict oracle — it can diverge from the analyzer
+  pipeline (issue #167). Observe with `common::isolated_analyzer()`.
 - Property-based tests in `tests/proptest_robustness.rs` — proptest covers
   the four parsing/analysis surfaces (`Payload::parse`, `BashParser` +
   `Analyzer`, `Pattern::matches`, `Config::load_from_str`) against random

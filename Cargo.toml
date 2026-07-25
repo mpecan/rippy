@@ -10,6 +10,14 @@ keywords = ["ai-safety", "claude-code", "shell-hook", "cursor", "gemini-cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 rust-version = "1.93"
+# The cargo-fuzz crate is its own workspace and needs a nightly toolchain; it
+# must never be pulled into the published .crate or the stable build.
+exclude = ["fuzz"]
+
+[features]
+# Exposes `fuzz_support`, the shim `fuzz/fuzz_targets/metamorphic.rs` needs to
+# reach crate-internal expansion resolution. Off by default.
+fuzzing = []
 
 [[bin]]
 name = "rippy"

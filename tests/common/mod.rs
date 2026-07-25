@@ -1,12 +1,7 @@
-#![allow(dead_code, clippy::expect_used)]
+#![allow(dead_code, unused_imports, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::LazyLock;
-
-use rippy_cli::analyzer::Analyzer;
-use rippy_cli::config::Config;
-use rippy_cli::environment::Environment;
 
 pub fn rippy_binary() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_BIN_EXE_rippy"));
@@ -72,22 +67,7 @@ pub fn run_rippy_in_dir_with_args(
     (stdout, code)
 }
 
-// Library-level test utilities (no subprocess, used by catalog & proptest)
+#[path = "analyzer.rs"]
+mod analyzer;
 
-static TEST_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    let dir = std::env::temp_dir().join("rippy-test-shared");
-    std::fs::create_dir_all(&dir).ok();
-    dir
-});
-
-/// Stdlib config with no home directory — isolated from developer machine.
-/// Parsed once and reused across all tests in a process.
-pub static ISOLATED_CONFIG: LazyLock<Config> =
-    LazyLock::new(|| Config::load_with_home(&TEST_DIR, None, None).expect("stdlib config loads"));
-
-/// Build a fresh `Analyzer` with stdlib rules, fully isolated from developer
-/// config (no `~/.rippy/`, no `~/.claude/`).
-pub fn isolated_analyzer() -> Analyzer {
-    let env = Environment::for_test(TEST_DIR.clone());
-    Analyzer::from_env(ISOLATED_CONFIG.clone(), env).expect("Analyzer::from_env succeeds")
-}
+pub use analyzer::{ISOLATED_CONFIG, isolated_analyzer};

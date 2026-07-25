@@ -361,7 +361,7 @@ fn literal_if_inert(text: &str, what: &str) -> WordResolution {
 /// Detect bash process substitution `<(...)` / `>(...)`. `has_shell_expansion_pattern`
 /// keys on `$`/backtick and misses these, yet bash runs the inner command when it
 /// expands the default/alternate/locale text they are embedded in. See #156.
-fn has_process_substitution(text: &str) -> bool {
+pub(crate) fn has_process_substitution(text: &str) -> bool {
     text.as_bytes()
         .windows(2)
         .any(|w| (w[0] == b'<' || w[0] == b'>') && w[1] == b'(')
@@ -651,3 +651,7 @@ pub(crate) mod tests;
 #[cfg(test)]
 #[path = "resolve_tests2.rs"]
 mod tests2;
+
+#[cfg(test)]
+#[path = "resolve_proptests.rs"]
+mod proptests;
