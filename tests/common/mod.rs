@@ -1,4 +1,7 @@
-#![allow(dead_code, clippy::expect_used)]
+#![allow(dead_code, clippy::expect_used, clippy::panic)]
+
+pub mod catalog;
+pub mod surfaces;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

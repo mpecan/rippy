@@ -1,0 +1,232 @@
+[meta]
+description = "Dangerous neighbours: for each approved namespace, the nearest shape that must ask"
+
+# bounds `aws configure get / aws <service> list-*` -- observed reason: aws configure set
+[[case]]
+command = 'aws configure set aws_access_key_id AKIAEXAMPLE'
+decision = "ask"
+
+# bounds `aws sts get-caller-identity` -- observed reason: aws sts assume-role
+[[case]]
+command = 'aws sts assume-role --role-arn arn:aws:iam::1:role/r --role-session-name s'
+decision = "ask"
+
+# bounds `az vm show` -- observed reason: az vm delete --name demo
+[[case]]
+command = 'az vm delete --name demo'
+decision = "ask"
+
+# bounds `gcloud compute instances describe` -- observed reason: gcloud compute instances delete demo
+[[case]]
+command = 'gcloud compute instances delete demo'
+decision = "ask"
+
+# bounds `gsutil ls` -- observed reason: gsutil rm
+[[case]]
+command = 'gsutil rm gs://bucket/object'
+decision = "ask"
+
+# bounds `docker config ls` -- observed reason: docker config create
+[[case]]
+command = 'docker config create mysecret ./secret.txt'
+decision = "ask"
+
+# bounds `docker-compose ps` -- observed reason: compose up
+[[case]]
+command = 'docker-compose up -d'
+decision = "ask"
+
+# bounds `gh release list` -- observed reason: gh release create
+[[case]]
+command = 'gh release create v1.0.0'
+decision = "ask"
+
+# bounds `gh repo view` -- observed reason: gh repo delete
+[[case]]
+command = 'gh repo delete owner/repo'
+decision = "ask"
+
+# bounds `gh run view` -- observed reason: gh run cancel
+[[case]]
+command = 'gh run cancel 12345'
+decision = "ask"
+
+# bounds `gh workflow view` -- observed reason: gh workflow run
+[[case]]
+command = 'gh workflow run ci.yml'
+decision = "ask"
+
+# bounds `gh gist view` -- observed reason: gh gist create
+[[case]]
+command = 'gh gist create notes.txt'
+decision = "ask"
+
+# bounds `gh project view` -- observed reason: gh project edit
+[[case]]
+command = 'gh project edit 1'
+decision = "ask"
+
+# bounds `gh label list` -- observed reason: gh label create
+[[case]]
+command = 'gh label create bug'
+decision = "ask"
+
+# bounds `gh codespace list` -- observed reason: gh codespace create
+[[case]]
+command = 'gh codespace create'
+decision = "ask"
+
+# bounds `gh secret list` -- observed reason: gh secret set
+[[case]]
+command = 'gh secret set MY_TOKEN'
+decision = "ask"
+
+# bounds `gh variable list` -- observed reason: gh variable set
+[[case]]
+command = 'gh variable set MY_VAR bar'
+decision = "ask"
+
+# bounds `helm dependency update` -- observed reason: helm dependency install
+[[case]]
+command = 'helm dependency install ./chart'
+decision = "ask"
+
+# bounds `helm plugin list` -- observed reason: helm plugin install
+[[case]]
+command = 'helm plugin install https://example.com/plugin'
+decision = "ask"
+
+# bounds `npm config get` -- observed reason: npm config set
+[[case]]
+command = 'npm config set registry https://evil.example.com'
+decision = "ask"
+
+# bounds `npm c get` -- observed reason: npm config set
+[[case]]
+command = 'npm c set registry https://evil.example.com'
+decision = "ask"
+
+# bounds `npm cache ls` -- observed reason: npm cache clean
+[[case]]
+command = 'npm cache clean --force'
+decision = "ask"
+
+# bounds `python -m json.tool` -- observed reason: python -m pip
+[[case]]
+command = 'python -m pip install requests'
+decision = "ask"
+
+# bounds `uv pip freeze` -- observed reason: uv pip install
+[[case]]
+command = 'uv pip install requests'
+decision = "ask"
+
+# bounds `uv python list` -- observed reason: uv python install
+[[case]]
+command = 'uv python install 3.12'
+decision = "ask"
+
+# bounds `uv cache dir` -- observed reason: uv cache clean
+[[case]]
+command = 'uv cache clean'
+decision = "ask"
+
+# bounds `mktemp -u` -- observed reason: mktemp
+[[case]]
+command = 'mktemp -p /etc'
+decision = "ask"
+
+# bounds `gzip --list archive.gz` -- observed reason: gzip -d
+[[case]]
+command = 'gzip -d archive.gz'
+decision = "ask"
+
+# bounds `unzip l archive.zip` -- observed reason: archive archive.zip
+[[case]]
+command = 'unzip archive.zip'
+decision = "ask"
+
+# bounds `awk <program> as an inline program rippy can read` -- observed reason: awk -f (script file)
+[[case]]
+command = 'awk -f /tmp/script.awk notes.txt'
+decision = "ask"
+
+# bounds `cd <path> inside a safe scope` -- observed reason: cd to /etc
+[[case]]
+command = 'cd /etc'
+decision = "ask"
+
+# bounds `pushd <path> inside a safe scope` -- observed reason: pushd to /etc
+[[case]]
+command = 'pushd /etc'
+decision = "ask"
+
+# bounds `curl <url>` -- observed reason: redirect to /etc/hosts
+[[case]]
+command = 'curl -o /etc/hosts https://example.com'
+decision = "ask"
+
+# bounds `deno eval <safe code>` -- observed reason: deno script execution
+[[case]]
+command = 'deno run script.ts'
+decision = "ask"
+
+# bounds `node -e <safe code>` -- observed reason: nodejs script execution
+[[case]]
+command = 'nodejs script.js'
+decision = "ask"
+
+# bounds `env with assignments only` -- observed reason: matched rule: command=rm
+[[case]]
+command = 'env FOO=bar rm -rf /tmp/x'
+decision = "ask"
+
+# bounds `fd <pattern>` -- observed reason: matched rule: command=rm
+[[case]]
+command = 'fd -x rm {}'
+decision = "ask"
+
+# bounds `find <path> <expression>` -- observed reason: find -delete
+[[case]]
+command = 'find /tmp -delete'
+decision = "ask"
+
+# bounds `ifconfig <interface>` -- observed reason: ifconfig (modify interface)
+[[case]]
+command = 'ifconfig en0 down'
+decision = "ask"
+
+# bounds `ip <object> <action>` -- observed reason: ip link set
+[[case]]
+command = 'ip link set en0 down'
+decision = "ask"
+
+# bounds `mkdir <path> inside a safe scope` -- observed reason: mkdir outside allowed scope (/etc/rippy-demo)
+[[case]]
+command = 'mkdir /etc/rippy-demo'
+decision = "ask"
+
+# bounds `ruff check` -- observed reason: ruff check (modifying)
+[[case]]
+command = 'ruff check --fix .'
+decision = "ask"
+
+# bounds `sed <script> as a filter` -- observed reason: sed -i (in-place edit)
+[[case]]
+command = "sed -i 's/a/b/' notes.txt"
+decision = "ask"
+
+# bounds `sqlite3 <database> <read-only sql>` -- observed reason: sqlite3 (write SQL)
+[[case]]
+command = "sqlite3 db.sqlite 'DROP TABLE t'"
+decision = "ask"
+
+# bounds `tee with no file operand` -- observed reason: redirect to /etc/hosts
+[[case]]
+command = 'tee /etc/hosts'
+decision = "ask"
+
+# bounds `yq <filter>` -- observed reason: yq -i (in-place)
+[[case]]
+command = "yq -i '.a = 1' config.yaml"
+decision = "ask"

@@ -1,0 +1,394 @@
+[meta]
+description = "Declared aws / az / gcloud / gsutil / kubectl / helm allow surfaces, one observed allow case each"
+
+[[case]]
+command = 'aws --help'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 wait'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 help'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 query'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 scan'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 tail'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 receive-message'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 batch-get-item'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 transact-get-items'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 list-buckets'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 get-object'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 show-dashboard'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 head-object'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 lookup-events'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 filter-log-events'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 validate-template'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 estimate-template-cost'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 simulate-principal-policy'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 generate-presigned-url'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 download-db-log-file-portion'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 detect-stack-drift'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 test-event-pattern'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 check-if-phone-number-is-opted-out'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 admin-get-user'
+decision = "allow"
+
+[[case]]
+command = 'aws s3 admin-list-groups-for-user'
+decision = "allow"
+
+[[case]]
+command = 'aws configure list'
+decision = "allow"
+
+[[case]]
+command = 'aws configure list-profiles'
+decision = "allow"
+
+[[case]]
+command = 'aws configure get'
+decision = "allow"
+
+[[case]]
+command = 'aws configure'
+decision = "allow"
+
+[[case]]
+command = 'aws sts get-caller-identity'
+decision = "allow"
+
+[[case]]
+command = 'aws sts get-session-token'
+decision = "allow"
+
+[[case]]
+command = 'aws sts get-access-key-info'
+decision = "allow"
+
+[[case]]
+command = 'aws sts decode-authorization-message'
+decision = "allow"
+
+[[case]]
+command = 'az --help'
+decision = "allow"
+
+[[case]]
+command = 'az vm get'
+decision = "allow"
+
+[[case]]
+command = 'az vm exists'
+decision = "allow"
+
+[[case]]
+command = 'az vm query'
+decision = "allow"
+
+[[case]]
+command = 'az vm logs'
+decision = "allow"
+
+[[case]]
+command = 'az vm check-health'
+decision = "allow"
+
+[[case]]
+command = 'az vm download'
+decision = "allow"
+
+[[case]]
+command = 'az vm tail'
+decision = "allow"
+
+[[case]]
+command = 'az vm list-sizes'
+decision = "allow"
+
+[[case]]
+command = 'az vm show-connection-string'
+decision = "allow"
+
+[[case]]
+command = 'az vm get-instance-view'
+decision = "allow"
+
+[[case]]
+command = 'gcloud --help'
+decision = "allow"
+
+[[case]]
+command = 'gsutil --help'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances describe'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances get'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances show'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances info'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances status'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances version'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances get-credentials'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances list-tags'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances read'
+decision = "allow"
+
+[[case]]
+command = 'gcloud compute instances configurations'
+decision = "allow"
+
+[[case]]
+command = 'gsutil cat'
+decision = "allow"
+
+[[case]]
+command = 'gsutil stat'
+decision = "allow"
+
+[[case]]
+command = 'gsutil du'
+decision = "allow"
+
+[[case]]
+command = 'gsutil hash'
+decision = "allow"
+
+[[case]]
+command = 'gsutil version'
+decision = "allow"
+
+[[case]]
+command = 'gsutil help'
+decision = "allow"
+
+[[case]]
+command = 'helm completion bash'
+decision = "allow"
+
+[[case]]
+command = 'helm env'
+decision = "allow"
+
+[[case]]
+command = 'helm get values myrelease'
+decision = "allow"
+
+[[case]]
+command = 'helm help'
+decision = "allow"
+
+[[case]]
+command = 'helm history myrelease'
+decision = "allow"
+
+[[case]]
+command = 'helm lint ./chart'
+decision = "allow"
+
+[[case]]
+command = 'helm ls'
+decision = "allow"
+
+[[case]]
+command = 'helm search repo nginx'
+decision = "allow"
+
+[[case]]
+command = 'helm show chart ./chart'
+decision = "allow"
+
+[[case]]
+command = 'helm inspect chart ./chart'
+decision = "allow"
+
+[[case]]
+command = 'helm status myrelease'
+decision = "allow"
+
+[[case]]
+command = 'helm template ./chart'
+decision = "allow"
+
+[[case]]
+command = 'helm verify ./chart'
+decision = "allow"
+
+[[case]]
+command = 'helm version'
+decision = "allow"
+
+[[case]]
+command = 'helm uninstall myrelease --dry-run'
+decision = "allow"
+
+[[case]]
+command = 'helm dependency update'
+decision = "allow"
+
+[[case]]
+command = 'helm dependency build'
+decision = "allow"
+
+[[case]]
+command = 'kubectl describe'
+decision = "allow"
+
+[[case]]
+command = 'kubectl explain'
+decision = "allow"
+
+[[case]]
+command = 'kubectl logs'
+decision = "allow"
+
+[[case]]
+command = 'kubectl top'
+decision = "allow"
+
+[[case]]
+command = 'kubectl cluster-info'
+decision = "allow"
+
+[[case]]
+command = 'kubectl version'
+decision = "allow"
+
+[[case]]
+command = 'kubectl api-resources'
+decision = "allow"
+
+[[case]]
+command = 'kubectl api-versions'
+decision = "allow"
+
+[[case]]
+command = 'kubectl auth'
+decision = "allow"
+
+[[case]]
+command = 'kubectl wait'
+decision = "allow"
+
+[[case]]
+command = 'kubectl diff'
+decision = "allow"
+
+[[case]]
+command = 'kubectl plugin'
+decision = "allow"
+
+[[case]]
+command = 'kubectl completion'
+decision = "allow"
+
+[[case]]
+command = 'kubectl kustomize'
+decision = "allow"
+
+[[case]]
+command = 'kubectl config current-context'
+decision = "allow"
+
+[[case]]
+command = 'kubectl config get-contexts'
+decision = "allow"
+
+[[case]]
+command = 'kubectl config get-clusters'
+decision = "allow"
+
+[[case]]
+command = 'kubectl config get-users'
+decision = "allow"
+
+[[case]]
+command = 'kubectl config get-context'
+decision = "allow"
