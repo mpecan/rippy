@@ -4,9 +4,9 @@ use super::{
 };
 use crate::python_safety::is_python_source_safe;
 
-pub static PYTHON_HANDLER: PythonHandler = PythonHandler;
+pub(crate) static PYTHON_HANDLER: PythonHandler = PythonHandler;
 
-pub struct PythonHandler;
+pub(crate) struct PythonHandler;
 
 impl Handler for PythonHandler {
     fn commands(&self) -> &[&str] {

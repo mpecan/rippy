@@ -16,7 +16,7 @@ const PERMISSIVE_TOML: &str = include_str!("stdlib/git_permissive.toml");
 
 /// A named git workflow style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GitStyle {
+pub(crate) enum GitStyle {
     Cautious,
     Standard,
     Permissive,
@@ -28,7 +28,7 @@ impl GitStyle {
     /// # Errors
     ///
     /// Returns an error if the name is not recognized.
-    pub fn parse(s: &str) -> Result<Self, String> {
+    pub(crate) fn parse(s: &str) -> Result<Self, String> {
         match s {
             "cautious" => Ok(Self::Cautious),
             "standard" => Ok(Self::Standard),
@@ -66,7 +66,7 @@ impl GitStyle {
 ///
 /// Returns an error if a style name is unrecognized or a style TOML
 /// fails to parse.
-pub fn expand_git_config(git: &TomlGit) -> Result<Vec<ConfigDirective>, String> {
+pub(crate) fn expand_git_config(git: &TomlGit) -> Result<Vec<ConfigDirective>, String> {
     let mut directives = Vec::new();
 
     if let Some(style_name) = &git.style {

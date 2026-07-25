@@ -2,9 +2,9 @@ use super::{Classification, Handler, HandlerContext, first_positional};
 
 // just
 
-pub static JUST_HANDLER: JustHandler = JustHandler;
+pub(crate) static JUST_HANDLER: JustHandler = JustHandler;
 
-pub struct JustHandler;
+pub(crate) struct JustHandler;
 
 /// Read-only introspection flags that make `just` print-and-exit.
 /// These only short-circuit recipe execution when they appear BEFORE any recipe
@@ -48,9 +48,9 @@ impl Handler for JustHandler {
 
 // mise
 
-pub static MISE_HANDLER: MiseHandler = MiseHandler;
+pub(crate) static MISE_HANDLER: MiseHandler = MiseHandler;
 
-pub struct MiseHandler;
+pub(crate) struct MiseHandler;
 
 /// Read-only mise subcommands. Excludes run/exec/install/use/up/set/config/
 /// plugin/activate and friends, which execute code or mutate state. `tasks` is
@@ -109,9 +109,9 @@ fn classify_mise_tasks(ctx: &HandlerContext) -> Classification {
 
 // tokf
 
-pub static TOKF_HANDLER: TokfHandler = TokfHandler;
+pub(crate) static TOKF_HANDLER: TokfHandler = TokfHandler;
 
-pub struct TokfHandler;
+pub(crate) struct TokfHandler;
 
 /// Read-only tokf subcommands. Excludes config/cache/history (mutate state)
 /// and network/auth subcommands, which fall through to Ask.

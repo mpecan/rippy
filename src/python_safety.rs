@@ -57,7 +57,7 @@ const DANGEROUS_ATTRIBUTES: &[&str] = &[
 /// This is a heuristic check — it may have false positives (blocking safe code)
 /// but should not have false negatives (allowing dangerous code).
 #[must_use]
-pub fn is_python_source_safe(source: &str) -> bool {
+pub(crate) fn is_python_source_safe(source: &str) -> bool {
     !has_dangerous_imports(source)
         && !has_dangerous_builtins(source)
         && !has_dangerous_attributes(source)

@@ -4,9 +4,9 @@ use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
 /// (executable) inventory script.
 const STATIC_INVENTORY_EXTENSIONS: &[&str] = &[".ini", ".yaml", ".yml", ".json"];
 
-pub static ANSIBLE_HANDLER: AnsibleHandler = AnsibleHandler;
+pub(crate) static ANSIBLE_HANDLER: AnsibleHandler = AnsibleHandler;
 
-pub struct AnsibleHandler;
+pub(crate) struct AnsibleHandler;
 
 impl Handler for AnsibleHandler {
     fn commands(&self) -> &[&str] {

@@ -10,7 +10,7 @@ use crate::ast;
 
 /// Result of resolving a single word.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WordResolution {
+pub(crate) enum WordResolution {
     /// All parts resolved to a single literal string.
     Literal(String),
     /// Brace expansion produced multiple words (changes argument count).
@@ -31,7 +31,7 @@ pub enum WordResolution {
 
 /// The static resolution state of a variable name.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VarState {
+pub(crate) enum VarState {
     /// The variable is unset.
     Unset,
     /// The variable is set to a statically-known literal value.
@@ -47,7 +47,7 @@ pub enum VarState {
 /// [`ScopedLookup`] with a strict lexical-scope (checkpoint/truncate)
 /// discipline, so they never satisfy a `$VAR` outside the scope that bound them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LocalBinding {
+pub(crate) enum LocalBinding {
     /// Value fully known statically (literal `VAR=val` assignment / prefix).
     /// Substitutes its real value exactly like an env var and is re-analyzed —
     /// no injection surface beyond today's env path.
@@ -59,7 +59,7 @@ pub enum LocalBinding {
 
 /// Outcome of resolving a full argument list.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedArgs {
+pub(crate) struct ResolvedArgs {
     /// Resolved argument list, or `None` if any word was unresolvable
     /// or a `DynamicKnown` value landed in argument position.
     pub args: Option<Vec<String>>,
@@ -81,7 +81,7 @@ pub struct ResolvedArgs {
 
 /// Trait for looking up variable values. Allows test injection without
 /// touching the real process environment.
-pub trait VarLookup: Send + Sync {
+pub(crate) trait VarLookup: Send + Sync {
     /// Returns `Some(value)` if the variable is set, `None` if unset.
     fn lookup(&self, name: &str) -> Option<String>;
 
@@ -104,7 +104,7 @@ pub trait VarLookup: Send + Sync {
 /// matched *before* any `[` array subscript, so `${PIPESTATUS[0]}` is
 /// recognized too.
 #[must_use]
-pub fn is_status_var(name: &str) -> bool {
+pub(crate) fn is_status_var(name: &str) -> bool {
     let base = name.split('[').next().unwrap_or(name);
     if base.is_empty() {
         return false;
@@ -137,7 +137,7 @@ pub fn is_status_var(name: &str) -> bool {
 /// `state` consults `locals` (most-recent binding wins) and status-var names
 /// first, then falls back to `inner`. Literal locals surface their value;
 /// dynamic locals and status vars surface [`VarState::DynamicSet`].
-pub struct ScopedLookup<'a> {
+pub(crate) struct ScopedLookup<'a> {
     locals: &'a [(String, LocalBinding)],
     inner: &'a dyn VarLookup,
 }
@@ -145,7 +145,10 @@ pub struct ScopedLookup<'a> {
 impl<'a> ScopedLookup<'a> {
     /// Wrap `inner` with the given command-local bindings.
     #[must_use]
-    pub const fn new(locals: &'a [(String, LocalBinding)], inner: &'a dyn VarLookup) -> Self {
+    pub(crate) const fn new(
+        locals: &'a [(String, LocalBinding)],
+        inner: &'a dyn VarLookup,
+    ) -> Self {
         Self { locals, inner }
     }
 
@@ -182,7 +185,7 @@ impl VarLookup for ScopedLookup<'_> {
 /// No allowlist — the resolved value is re-classified through the full
 /// analyzer pipeline, so the variable's content (not its name) determines
 /// the verdict.
-pub struct EnvLookup;
+pub(crate) struct EnvLookup;
 
 impl VarLookup for EnvLookup {
     fn lookup(&self, name: &str) -> Option<String> {
@@ -192,7 +195,7 @@ impl VarLookup for EnvLookup {
 
 /// Attempt to resolve a single word node into literal text (or multiple words).
 #[must_use]
-pub fn resolve_word(node: &Node, vars: &dyn VarLookup) -> WordResolution {
+pub(crate) fn resolve_word(node: &Node, vars: &dyn VarLookup) -> WordResolution {
     resolve_word_kind(&node.kind, vars)
 }
 
@@ -562,7 +565,7 @@ pub(crate) fn strip_outer_quotes(s: &str) -> String {
 /// plus a flag indicating whether the first word (command position) contains
 /// a `ParamExpansion` — which forces Ask even when resolution succeeds.
 #[must_use]
-pub fn resolve_command_args(words: &[Node], vars: &dyn VarLookup) -> ResolvedArgs {
+pub(crate) fn resolve_command_args(words: &[Node], vars: &dyn VarLookup) -> ResolvedArgs {
     let command_position_dynamic = words.first().is_some_and(word_has_param_expansion);
     let mut resolved: Vec<String> = Vec::with_capacity(words.len());
     let mut failure_reason: Option<String> = None;
@@ -609,7 +612,7 @@ fn word_has_param_expansion(node: &Node) -> bool {
 /// If the argument contains shell metacharacters or whitespace, it is
 /// single-quoted with internal single quotes escaped as `'\''`.
 #[must_use]
-pub fn shell_join_arg(arg: &str) -> String {
+pub(crate) fn shell_join_arg(arg: &str) -> String {
     if arg.is_empty() {
         return "''".to_string();
     }
@@ -629,7 +632,7 @@ const fn is_safe_unquoted(b: u8) -> bool {
 
 /// Join resolved args into a single shell-safe command string.
 #[must_use]
-pub fn shell_join(args: &[String]) -> String {
+pub(crate) fn shell_join(args: &[String]) -> String {
     args.iter()
         .map(|a| shell_join_arg(a))
         .collect::<Vec<_>>()

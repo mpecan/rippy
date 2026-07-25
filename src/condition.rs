@@ -40,7 +40,7 @@ pub enum Condition {
 }
 
 /// Evaluate all conditions (AND). Returns true if all pass or list is empty.
-pub fn evaluate_all(conditions: &[Condition], ctx: &MatchContext) -> bool {
+pub(crate) fn evaluate_all(conditions: &[Condition], ctx: &MatchContext) -> bool {
     conditions.iter().all(|c| evaluate_one(c, ctx))
 }
 
@@ -120,7 +120,7 @@ fn evaluate_exec(cmd: &str) -> bool {
 /// # Errors
 ///
 /// Returns an error string if the TOML structure is unrecognized.
-pub fn parse_conditions(value: &Value) -> Result<Vec<Condition>, String> {
+pub(crate) fn parse_conditions(value: &Value) -> Result<Vec<Condition>, String> {
     let table = value.as_table().ok_or("'when' must be a TOML table")?;
 
     let mut conditions = Vec::new();
@@ -199,7 +199,7 @@ fn parse_env_condition(val: &Value) -> Result<Condition, String> {
 ///
 /// Returns `None` if not in a git repository or git is not available.
 #[must_use]
-pub fn detect_git_branch(cwd: &Path) -> Option<String> {
+pub(crate) fn detect_git_branch(cwd: &Path) -> Option<String> {
     let output = Command::new("git")
         .args(["symbolic-ref", "--short", "HEAD"])
         .current_dir(cwd)

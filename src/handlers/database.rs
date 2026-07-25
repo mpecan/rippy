@@ -6,9 +6,9 @@ use crate::sql::classify_sql;
 
 // psql
 
-pub static PSQL_HANDLER: PsqlHandler = PsqlHandler;
+pub(crate) static PSQL_HANDLER: PsqlHandler = PsqlHandler;
 
-pub struct PsqlHandler;
+pub(crate) struct PsqlHandler;
 
 impl Handler for PsqlHandler {
     fn commands(&self) -> &[&str] {
@@ -39,9 +39,9 @@ impl Handler for PsqlHandler {
 
 // mysql
 
-pub static MYSQL_HANDLER: MysqlHandler = MysqlHandler;
+pub(crate) static MYSQL_HANDLER: MysqlHandler = MysqlHandler;
 
-pub struct MysqlHandler;
+pub(crate) struct MysqlHandler;
 
 impl Handler for MysqlHandler {
     fn commands(&self) -> &[&str] {
@@ -61,9 +61,9 @@ impl Handler for MysqlHandler {
 
 // sqlite3
 
-pub static SQLITE3_HANDLER: Sqlite3Handler = Sqlite3Handler;
+pub(crate) static SQLITE3_HANDLER: Sqlite3Handler = Sqlite3Handler;
 
-pub struct Sqlite3Handler;
+pub(crate) struct Sqlite3Handler;
 
 impl Handler for Sqlite3Handler {
     fn commands(&self) -> &[&str] {

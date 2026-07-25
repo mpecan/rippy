@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::verdict::Decision;
 
 /// Loaded Claude Code permission rules.
-pub struct CcRules {
+pub(crate) struct CcRules {
     allow: Vec<String>,
     deny: Vec<String>,
     ask: Vec<String>,
@@ -26,7 +26,7 @@ impl CcRules {
     ///
     /// Priority: deny > ask > allow.
     #[must_use]
-    pub fn check(&self, command: &str) -> Option<Decision> {
+    pub(crate) fn check(&self, command: &str) -> Option<Decision> {
         for pattern in &self.deny {
             if command_matches_pattern(command, pattern) {
                 return Some(Decision::Deny);
@@ -48,15 +48,16 @@ impl CcRules {
         None
     }
 
-    /// Returns true if no rules were loaded.
+    /// Returns true if no rules were loaded. Only exercised by tests today.
+    #[cfg(test)]
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub(crate) const fn is_empty(&self) -> bool {
         self.allow.is_empty() && self.deny.is_empty() && self.ask.is_empty()
     }
 
     /// Return all rules as (decision, pattern) pairs for inspection.
     #[must_use]
-    pub fn all_rules(&self) -> Vec<(Decision, &str)> {
+    pub(crate) fn all_rules(&self) -> Vec<(Decision, &str)> {
         let mut rules = Vec::new();
         for p in &self.allow {
             rules.push((Decision::Allow, p.as_str()));
@@ -80,7 +81,7 @@ impl CcRules {
 /// 3. `~/.claude/settings.json`
 /// 4. `~/.claude/settings.local.json`
 #[must_use]
-pub fn load_cc_rules(working_dir: &Path) -> CcRules {
+pub(crate) fn load_cc_rules(working_dir: &Path) -> CcRules {
     load_cc_rules_with_home(working_dir, env_home_dir())
 }
 
@@ -88,7 +89,7 @@ pub fn load_cc_rules(working_dir: &Path) -> CcRules {
 ///
 /// Pass `None` to skip `~/.claude/` settings (useful for tests).
 #[must_use]
-pub fn load_cc_rules_with_home(working_dir: &Path, home: Option<PathBuf>) -> CcRules {
+pub(crate) fn load_cc_rules_with_home(working_dir: &Path, home: Option<PathBuf>) -> CcRules {
     load_rules_from_paths(&get_settings_paths_with_home(working_dir, home))
 }
 

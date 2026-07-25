@@ -2,9 +2,9 @@ use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
 
 // sed
 
-pub static SED_HANDLER: SedHandler = SedHandler;
+pub(crate) static SED_HANDLER: SedHandler = SedHandler;
 
-pub struct SedHandler;
+pub(crate) struct SedHandler;
 
 impl Handler for SedHandler {
     fn commands(&self) -> &[&str] {
@@ -118,9 +118,9 @@ fn sed_has_dangerous_flag(expr: &str) -> bool {
     false
 }
 
-pub static AWK_HANDLER: AwkHandler = AwkHandler;
+pub(crate) static AWK_HANDLER: AwkHandler = AwkHandler;
 
-pub struct AwkHandler;
+pub(crate) struct AwkHandler;
 
 impl Handler for AwkHandler {
     fn commands(&self) -> &[&str] {

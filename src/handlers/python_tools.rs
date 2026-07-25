@@ -2,9 +2,9 @@ use super::{Classification, Handler, HandlerContext, has_flag};
 
 // uv
 
-pub static UV_HANDLER: UvHandler = UvHandler;
+pub(crate) static UV_HANDLER: UvHandler = UvHandler;
 
-pub struct UvHandler;
+pub(crate) struct UvHandler;
 
 const UV_SAFE: &[&str] = &["sync", "lock", "tree", "version", "help", "venv", "export"];
 
@@ -72,9 +72,9 @@ impl Handler for UvHandler {
 
 // ruff
 
-pub static RUFF_HANDLER: RuffHandler = RuffHandler;
+pub(crate) static RUFF_HANDLER: RuffHandler = RuffHandler;
 
-pub struct RuffHandler;
+pub(crate) struct RuffHandler;
 
 impl Handler for RuffHandler {
     fn commands(&self) -> &[&str] {
@@ -92,9 +92,9 @@ impl Handler for RuffHandler {
 
 // black
 
-pub static BLACK_HANDLER: BlackHandler = BlackHandler;
+pub(crate) static BLACK_HANDLER: BlackHandler = BlackHandler;
 
-pub struct BlackHandler;
+pub(crate) struct BlackHandler;
 
 impl Handler for BlackHandler {
     fn commands(&self) -> &[&str] {

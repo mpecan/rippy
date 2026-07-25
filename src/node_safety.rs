@@ -58,7 +58,7 @@ const DANGEROUS_METHODS: &[&str] = &[
 /// This is a heuristic check — it may have false positives (blocking safe code)
 /// but should not have false negatives (allowing dangerous code).
 #[must_use]
-pub fn is_node_source_safe(source: &str) -> bool {
+pub(crate) fn is_node_source_safe(source: &str) -> bool {
     !has_dangerous_requires(source)
         && !has_dangerous_globals(source)
         && !has_dangerous_methods(source)

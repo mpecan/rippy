@@ -76,7 +76,7 @@ impl RiskLevel {
 
 /// Classify a command group key into a risk level.
 #[must_use]
-pub fn classify(group_key: &str) -> RiskLevel {
+pub(crate) fn classify(group_key: &str) -> RiskLevel {
     // Check safe subcommands first (e.g. "docker ps" is low even though "docker" is high).
     if SAFE_SUBCOMMANDS.contains(&group_key) {
         return RiskLevel::Low;

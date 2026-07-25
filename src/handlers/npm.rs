@@ -1,8 +1,8 @@
 use super::{Classification, Handler, HandlerContext, has_flag, is_sole_help_flag};
 
-pub static NPM_HANDLER: NpmHandler = NpmHandler;
+pub(crate) static NPM_HANDLER: NpmHandler = NpmHandler;
 
-pub struct NpmHandler;
+pub(crate) struct NpmHandler;
 
 const SAFE: &[&str] = &[
     "list",

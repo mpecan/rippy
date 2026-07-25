@@ -3,9 +3,9 @@ use super::{
 };
 use crate::perl_safety::is_perl_source_safe;
 
-pub static PERL_HANDLER: PerlHandler = PerlHandler;
+pub(crate) static PERL_HANDLER: PerlHandler = PerlHandler;
 
-pub struct PerlHandler;
+pub(crate) struct PerlHandler;
 
 impl Handler for PerlHandler {
     fn commands(&self) -> &[&str] {

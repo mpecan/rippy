@@ -1,8 +1,8 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
 
-pub static FIND_HANDLER: FindHandler = FindHandler;
+pub(crate) static FIND_HANDLER: FindHandler = FindHandler;
 
-pub struct FindHandler;
+pub(crate) struct FindHandler;
 
 impl Handler for FindHandler {
     fn commands(&self) -> &[&str] {

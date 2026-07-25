@@ -3,17 +3,17 @@ use crate::parser::BashParser;
 use std::collections::HashMap;
 
 /// Test-only `VarLookup` impl backed by a `HashMap`.
-pub struct MockLookup {
+pub(crate) struct MockLookup {
     vars: HashMap<String, String>,
 }
 
 impl MockLookup {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             vars: HashMap::new(),
         }
     }
-    pub fn with(mut self, name: &str, value: &str) -> Self {
+    pub(crate) fn with(mut self, name: &str, value: &str) -> Self {
         self.vars.insert(name.to_string(), value.to_string());
         self
     }

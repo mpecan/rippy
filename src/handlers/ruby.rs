@@ -3,9 +3,9 @@ use super::{
 };
 use crate::ruby_safety::is_ruby_source_safe;
 
-pub static RUBY_HANDLER: RubyHandler = RubyHandler;
+pub(crate) static RUBY_HANDLER: RubyHandler = RubyHandler;
 
-pub struct RubyHandler;
+pub(crate) struct RubyHandler;
 
 impl Handler for RubyHandler {
     fn commands(&self) -> &[&str] {

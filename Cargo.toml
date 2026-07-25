@@ -52,3 +52,8 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
+# Contradicts `unreachable_pub` (enabled at the crate root in src/lib.rs): once
+# internal modules are `pub(crate)`, their items are converted `pub`→`pub(crate)`,
+# which this nursery lint then flags as "redundant" inside private submodules. We
+# deliberately keep the `unreachable_pub` net and silence this opposing lint.
+redundant_pub_crate = "allow"

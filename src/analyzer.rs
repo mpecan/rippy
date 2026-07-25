@@ -115,7 +115,8 @@ impl Analyzer {
     /// # Errors
     ///
     /// Returns `RippyError::Parse` if the bash parser cannot be initialized.
-    pub fn new_with_var_lookup(
+    #[cfg(test)]
+    pub(crate) fn new_with_var_lookup(
         config: Config,
         remote: bool,
         working_directory: PathBuf,
