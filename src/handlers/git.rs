@@ -295,20 +295,13 @@ fn check_config_kv(kv: &str) -> Option<Classification> {
 /// Dispatch a `SAFE_SUBCOMMANDS` member to its flag-aware classifier, falling
 /// through to a plain `Allow` for members with no dangerous flags.
 fn classify_safe_subcommand(sub: &str, args: &[String], desc: &str) -> Classification {
-    match sub {
-        "diff" => classify_diff(args, desc),
-        "archive" => classify_output_path(args, &["--output"], &["-o", "--output"], desc),
-        "format-patch" => classify_output_path(
-            args,
-            &["--output-directory"],
-            &["-o", "--output-directory"],
-            desc,
-        ),
-        "grep" => classify_grep(args, desc),
-        "difftool" => classify_difftool(args, desc),
-        "fetch" => classify_fetch(args, desc),
-        _ => Classification::Allow(AllowReason::handler(desc)),
-    }
+    GUARDED_SAFE_SUBCOMMANDS
+        .iter()
+        .find(|(name, _, _)| *name == sub)
+        .map_or_else(
+            || Classification::Allow(AllowReason::handler(desc)),
+            |(_, _, classify)| classify(args, desc),
+        )
 }
 
 fn classify_diff(args: &[String], desc: &str) -> Classification {
@@ -316,6 +309,19 @@ fn classify_diff(args: &[String], desc: &str) -> Classification {
         return Classification::Ask("git diff --ext-diff (enables external diff driver)".into());
     }
     classify_output_path(args, &["--output"], &["-o", "--output"], desc)
+}
+
+fn classify_archive(args: &[String], desc: &str) -> Classification {
+    classify_output_path(args, &["--output"], &["-o", "--output"], desc)
+}
+
+fn classify_format_patch(args: &[String], desc: &str) -> Classification {
+    classify_output_path(
+        args,
+        &["--output-directory"],
+        &["-o", "--output-directory"],
+        desc,
+    )
 }
 
 /// Flags whose attached (`--flag=PATH`) or separated (`--flag PATH` / `-o PATH`)
@@ -437,31 +443,43 @@ fn extract_subcommand(args: &[String]) -> (String, Vec<String>) {
     (String::new(), Vec::new())
 }
 
-/// The `SAFE_SUBCOMMANDS` members whose approval is conditional, paired with
-/// the condition `classify_safe_subcommand` enforces.
-const GUARDED_SAFE_SUBCOMMANDS: &[(&str, &str)] = &[
+type SubClassifier = fn(&[String], &str) -> Classification;
+
+/// The `SAFE_SUBCOMMANDS` members whose approval is conditional: the condition,
+/// and the classifier that enforces it.
+///
+/// One table drives both `classify_safe_subcommand` and the catalog guard text,
+/// so a new conditional subcommand cannot be documented as unconditional.
+const GUARDED_SAFE_SUBCOMMANDS: &[(&str, &str, SubClassifier)] = &[
     (
         "diff",
         "no --ext-diff; an --output target runs the redirect pipeline",
+        classify_diff,
     ),
     (
         "archive",
         "an -o/--output target runs the redirect pipeline",
+        classify_archive,
     ),
     (
         "format-patch",
         "an -o/--output-directory target runs the redirect pipeline",
+        classify_format_patch,
     ),
-    ("grep", "no -O/--open-files-in-pager"),
-    ("difftool", "no -x/--extcmd"),
-    ("fetch", "no URL-like or scp-like remote operand"),
+    ("grep", "no -O/--open-files-in-pager", classify_grep),
+    ("difftool", "no -x/--extcmd", classify_difftool),
+    (
+        "fetch",
+        "no URL-like or scp-like remote operand",
+        classify_fetch,
+    ),
 ];
 
 fn guard_for(sub: &str) -> &'static str {
     GUARDED_SAFE_SUBCOMMANDS
         .iter()
-        .find(|(name, _)| *name == sub)
-        .map_or("", |(_, guard)| *guard)
+        .find(|(name, _, _)| *name == sub)
+        .map_or("", |(_, guard, _)| *guard)
 }
 
 /// Every `git` invocation `classify` approves, as data. Mirrors the dispatch in
@@ -473,7 +491,11 @@ fn git_allow_surface() -> Vec<AllowEntry> {
         AllowEntry::guarded("git", format!("no subcommand; {scope_guard}")),
         AllowEntry::guarded(
             "git -c <key>=<value> <subcommand>",
-            format!("key one of {}", SAFE_CONFIG_KEYS.join(", ")),
+            format!(
+                "gate only, not an approval — the key must be one of {}, and the \
+                 `<subcommand>` still has to be approved by its own row",
+                SAFE_CONFIG_KEYS.join(", ")
+            ),
         ),
     ];
     for sub in SAFE_SUBCOMMANDS {
@@ -510,7 +532,8 @@ fn git_allow_surface() -> Vec<AllowEntry> {
     entries.push(AllowEntry::guarded(
         "git config",
         format!(
-            "one of {} present, or a single key operand and none of {}",
+            "one of {} present, or at most one argument (bare `git config` included) and \
+             none of {}",
             git_subcommands::CONFIG_READ_FLAGS.join(" "),
             git_subcommands::CONFIG_WRITE_FLAGS.join(" ")
         ),
@@ -528,6 +551,19 @@ mod tests {
     // (tests/data/catalog/handlers_git.toml). The tests below need injected state
     // the catalog cannot reach: a cwd-relative/in-project target (fixed `/tmp` cwd)
     // or a non-empty `safe_scopes`.
+    /// A guarded entry naming a subcommand outside `SAFE_SUBCOMMANDS` never
+    /// runs and never renders a catalog row.
+    #[test]
+    fn every_guarded_subcommand_is_a_safe_subcommand() {
+        for (name, guard, _) in GUARDED_SAFE_SUBCOMMANDS {
+            assert!(
+                SAFE_SUBCOMMANDS.contains(name),
+                "{name} is guarded but not in SAFE_SUBCOMMANDS"
+            );
+            assert!(!guard.is_empty(), "{name} declares an empty guard");
+        }
+    }
+
     #[test]
     fn global_flags_skipped() {
         let args = vec!["-C".into(), "/tmp".into(), "status".into()];

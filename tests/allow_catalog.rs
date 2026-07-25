@@ -8,9 +8,57 @@
 use std::path::PathBuf;
 
 use rippy_cli::allow_catalog;
-use rippy_cli::verdict::Decision;
+use rippy_cli::verdict::{AllowCategory, AllowReason, Decision};
 
 mod common;
+
+/// Verbs a widening would plausibly introduce. Each declared namespace is
+/// probed with all of them; an approval no `allow_surface()` declares is a
+/// handler that widened without saying so.
+const MUTATION_VERBS: &[&str] = &[
+    "add",
+    "apply",
+    "clean",
+    "commit",
+    "copy",
+    "create",
+    "delete",
+    "deploy",
+    "destroy",
+    "disable",
+    "edit",
+    "enable",
+    "exec",
+    "export",
+    "import",
+    "init",
+    "install",
+    "kill",
+    "load",
+    "login",
+    "move",
+    "publish",
+    "prune",
+    "pull",
+    "push",
+    "remove",
+    "rename",
+    "reset",
+    "restart",
+    "restore",
+    "rm",
+    "run",
+    "save",
+    "set",
+    "start",
+    "stop",
+    "sync",
+    "uninstall",
+    "update",
+    "upgrade",
+    "upload",
+    "write",
+];
 
 const REGENERATE: &str =
     "regenerate with RIPPY_UPDATE_ALLOW_CATALOG=1 cargo test --test allow_catalog";
@@ -94,6 +142,116 @@ fn every_literal_surface_is_allowed() {
         "handler allow surfaces disagree with the analyzer:\n  {}",
         unexpected.join("\n  ")
     );
+}
+
+/// Does `surface` cover `probe`, word by word?
+///
+/// `<operand>` and `[optional]` are open-ended — they and every later word
+/// match anything. An alternation (`node|nodejs`, `--help|-h`) is a *closed*
+/// choice: it covers the spelled alternatives only. Reading it as a wildcard
+/// would let one `npm --help|-v` row silently vouch for the whole `npm`
+/// namespace and disarm the check.
+fn covers(surface: &str, probe: &[&str]) -> bool {
+    let words: Vec<&str> = surface.split_whitespace().collect();
+    for (i, word) in words.iter().enumerate() {
+        if word.contains(['<', '[', '*']) {
+            return i < probe.len();
+        }
+        if probe
+            .get(i)
+            .is_none_or(|actual| !word.split('|').any(|alt| alt == *actual))
+        {
+            return false;
+        }
+    }
+    words.len() == probe.len()
+}
+
+fn is_declared(declared: &[String], probe: &[&str]) -> bool {
+    declared.iter().any(|surface| covers(surface, probe))
+}
+
+/// Every command prefix a fully literal surface hangs a verb off, e.g.
+/// `git lfs` from `git lfs status`. Probing these is what makes the catalog a
+/// two-way check instead of a restatement of whatever the handler declared.
+fn declared_namespaces(declared: &[String]) -> Vec<Vec<&str>> {
+    let mut namespaces: Vec<Vec<&str>> = Vec::new();
+    for surface in declared {
+        let words: Vec<&str> = surface.split_whitespace().collect();
+        if words.len() < 2 || words.iter().any(|w| w.contains(['<', '[', '*', '|'])) {
+            continue;
+        }
+        let namespace = words[..words.len() - 1].to_vec();
+        if !namespaces.contains(&namespace) {
+            namespaces.push(namespace);
+        }
+    }
+    namespaces
+}
+
+/// Each declared namespace crossed with every mutation verb it does not
+/// already declare — the invocations the sibling-verb check actually runs.
+fn sibling_verb_probes(declared: &[String]) -> Vec<String> {
+    let mut probes = Vec::new();
+    for namespace in declared_namespaces(declared) {
+        for verb in MUTATION_VERBS {
+            let mut probe = namespace.clone();
+            probe.push(verb);
+            if !is_declared(declared, &probe) {
+                probes.push(probe.join(" "));
+            }
+        }
+    }
+    probes
+}
+
+/// The direction `every_literal_surface_is_allowed` cannot check: a handler
+/// that approves an invocation its `allow_surface()` never mentions. Without
+/// this, a widening added straight to `classify` produces no catalog diff.
+#[test]
+fn no_handler_approves_an_undeclared_verb() {
+    let declared = allow_catalog::declared_surfaces();
+    let mut analyzer = common::isolated_analyzer();
+    let mut undeclared = Vec::new();
+
+    for command in sibling_verb_probes(&declared) {
+        let verdict = analyzer.analyze(&command).unwrap();
+        let from_handler =
+            verdict.allow_reason().map(AllowReason::category) == Some(AllowCategory::Handler);
+        if verdict.decision == Decision::Allow && from_handler {
+            undeclared.push(format!("`{command}` -> {}", verdict.reason));
+        }
+    }
+
+    assert!(
+        undeclared.is_empty(),
+        "a handler approves invocations it does not declare in allow_surface(); either stop \
+         approving them or declare them (then {REGENERATE}):\n  {}",
+        undeclared.join("\n  ")
+    );
+}
+
+/// A matching bug can disarm the sibling-verb check without failing anything:
+/// an overly generous `is_declared` skips every probe and the suite still goes
+/// green. Pin the probe set so that silence is impossible.
+#[test]
+fn sibling_verb_probes_cover_the_declared_namespaces() {
+    let declared = allow_catalog::declared_surfaces();
+    let probes = sibling_verb_probes(&declared);
+    let namespaces = declared_namespaces(&declared).len();
+
+    assert!(namespaces > 40, "only {namespaces} namespaces derived");
+    assert!(
+        probes.len() > 30 * MUTATION_VERBS.len(),
+        "only {} probes generated from {namespaces} namespaces",
+        probes.len()
+    );
+    for expected in ["git lfs prune", "docker compose start", "npm install"] {
+        assert!(
+            probes.contains(&expected.to_owned()),
+            "`{expected}` is no longer probed"
+        );
+    }
 }
 
 /// A divergence recorded but no longer produced by any handler is stale text.

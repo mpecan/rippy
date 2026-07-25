@@ -4,8 +4,15 @@
 # rippy allow catalog
 
 Every way rippy can decide `allow` without asking you, grouped by why.
-`tests/allow_catalog.rs` fails when this file drifts from the code, so a pull
-request that widens the approved set shows up here as a diff.
+
+**How far the guarantee goes.** The handler sections are what each handler
+*declares* as its allow surface, not a proof about its code.
+`tests/allow_catalog.rs` fails when this file drifts from those declarations,
+and it checks both directions: every literal surface listed here must really be
+approved by the analyzer, and each declared namespace is probed with a set of
+mutation verbs so an approval a handler grants without declaring it also fails.
+The probe vocabulary is finite, so treat a missing row as *not declared* rather
+than as a proof that nothing else is approved.
 
 **What this file is not.** Handlers that judge *content* — inline `python -c`
 code, a `sed` script, the SQL behind `psql -c` — are listed by the invocation
@@ -60,6 +67,8 @@ Per-command handlers: the exact invocations each one auto-approves.
 
 ### `ansible`, `ansible-playbook`, `ansible-vault`, `ansible-galaxy`, `ansible-config`, `ansible-inventory`, `ansible-doc`, `ansible-lint`
 
+Rows are written with `ansible`; unless a row says otherwise they apply the same way to every command name in this heading.
+
 | Approved invocation | Condition |
 | --- | --- |
 | `ansible-doc` | — |
@@ -76,6 +85,8 @@ Per-command handlers: the exact invocations each one auto-approves.
 | `ansible-config view` | — |
 
 ### `awk`, `gawk`, `mawk`, `nawk`
+
+Rows are written with `awk`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
@@ -142,6 +153,8 @@ Per-command handlers: the exact invocations each one auto-approves.
 
 ### `bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`
 
+Rows are written with `bash`; unless a row says otherwise they apply the same way to every command name in this heading.
+
 Delegates only — approves nothing directly.
 
 ### `black`
@@ -151,6 +164,8 @@ Delegates only — approves nothing directly.
 | `black --check\|--diff` | — |
 
 ### `cd`, `pushd`, `popd`
+
+Rows are written with `cd`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
@@ -171,6 +186,8 @@ Delegates only — approves nothing directly.
 | `dmesg` | no -c/-C/--clear |
 
 ### `docker`, `docker-compose`, `podman`, `podman-compose`
+
+Rows are written with `docker`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
@@ -277,6 +294,8 @@ Delegates only — approves nothing directly.
 | `find <path> <expression>` | no -delete, -ok/-okdir, -fprint/-fprint0/-fprintf/-fls, -exec or -execdir |
 
 ### `gcloud`, `gsutil`
+
+Rows are written with `gcloud`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
@@ -451,7 +470,7 @@ Delegates only — approves nothing directly.
 | Approved invocation | Condition |
 | --- | --- |
 | `git` | no subcommand; -C/--git-dir/--work-tree must stay in the cwd or a declared safe scope, and any -c/--config-env key must be on the safe config-key list |
-| `git -c <key>=<value> <subcommand>` | key one of user.name, user.email, color.ui, core.autocrlf, core.quotepath, init.defaultbranch, pull.rebase, advice.detachedhead |
+| `git -c <key>=<value> <subcommand>` | gate only, not an approval — the key must be one of user.name, user.email, color.ui, core.autocrlf, core.quotepath, init.defaultbranch, pull.rebase, advice.detachedhead, and the `<subcommand>` still has to be approved by its own row |
 | `git status` | — |
 | `git log` | — |
 | `git show` | — |
@@ -510,9 +529,11 @@ Delegates only — approves nothing directly.
 | `git lfs status` | — |
 | `git lfs env` | — |
 | `git lfs version` | — |
-| `git config` | one of --get --get-all --list -l --get-regexp present, or a single key operand and none of --unset --add --edit --replace-all |
+| `git config` | one of --get --get-all --list -l --get-regexp present, or at most one argument (bare `git config` included) and none of --unset --add --edit --replace-all |
 
 ### `gzip`, `gunzip`
+
+Rows are written with `gzip`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
@@ -581,6 +602,8 @@ Delegates only — approves nothing directly.
 
 ### `kubectl`, `k`
 
+Rows are written with `kubectl`; unless a row says otherwise they apply the same way to every command name in this heading.
+
 | Approved invocation | Condition |
 | --- | --- |
 | `kubectl get` | — |
@@ -644,6 +667,8 @@ Delegates only — approves nothing directly.
 
 ### `node`, `nodejs`, `deno`
 
+Rows are written with `node`; unless a row says otherwise they apply the same way to every command name in this heading.
+
 | Approved invocation | Condition |
 | --- | --- |
 | `node\|nodejs\|deno --version\|-v\|-V\|--help\|-h` | sole argument |
@@ -652,6 +677,8 @@ Delegates only — approves nothing directly.
 | `node <script>` | script readable from the working directory and its source passes the analysis in src/node_safety.rs |
 
 ### `npm`, `npx`, `yarn`, `pnpm`, `bun`
+
+Rows are written with `npm`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
@@ -716,6 +743,8 @@ Delegates only — approves nothing directly.
 
 ### `python`, `python3`, `python3.8`, `python3.9`, `python3.10`, `python3.11`, `python3.12`, `python3.13`, `python3.14`
 
+Rows are written with `python`; unless a row says otherwise they apply the same way to every command name in this heading.
+
 | Approved invocation | Condition |
 | --- | --- |
 | `python --version\|-V\|-VV\|--help\|-h` | sole argument |
@@ -727,6 +756,8 @@ Delegates only — approves nothing directly.
 | `python <script>` | script readable from the working directory and its source passes the analysis in src/python_safety.rs |
 
 ### `ruby`, `irb`
+
+Rows are written with `ruby`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
@@ -792,6 +823,8 @@ Delegates only — approves nothing directly.
 
 ### `unzip`, `7z`, `7za`, `7zr`, `7zz`
 
+Rows are written with `unzip`; unless a row says otherwise they apply the same way to every command name in this heading.
+
 | Approved invocation | Condition |
 | --- | --- |
 | `unzip l` | — |
@@ -799,6 +832,8 @@ Delegates only — approves nothing directly.
 | `unzip --help\|-h\|--version\|-V` | sole argument |
 
 ### `uv`, `uvx`
+
+Rows are written with `uv`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |

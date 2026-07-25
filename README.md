@@ -204,7 +204,7 @@ rippy has **130+ commands** in its safe allowlist (read-only tools like `cat`, `
 
 **Default for unknown commands: Ask** (fail-safe).
 
-The complete, generated list — every allowlist, handler surface and rule that can auto-approve — is in [docs/allow-catalog.md](docs/allow-catalog.md). CI fails if it drifts from the code, so any change to the approved set shows up there as a diff.
+The complete, generated list — every allowlist, handler surface and rule that can auto-approve — is in [docs/allow-catalog.md](docs/allow-catalog.md). The handler sections are the surface each handler *declares*; CI fails when the file drifts from those declarations, when a listed surface is not actually approved, and when a handler approves a probed sibling verb it never declared. So a widening shows up there as a diff.
 
 ## Configuration
 

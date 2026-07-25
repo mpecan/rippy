@@ -22,8 +22,15 @@ const BANNER: &str = "\
 # rippy allow catalog
 
 Every way rippy can decide `allow` without asking you, grouped by why.
-`tests/allow_catalog.rs` fails when this file drifts from the code, so a pull
-request that widens the approved set shows up here as a diff.
+
+**How far the guarantee goes.** The handler sections are what each handler
+*declares* as its allow surface, not a proof about its code.
+`tests/allow_catalog.rs` fails when this file drifts from those declarations,
+and it checks both directions: every literal surface listed here must really be
+approved by the analyzer, and each declared namespace is probed with a set of
+mutation verbs so an approval a handler grants without declaring it also fails.
+The probe vocabulary is finite, so treat a missing row as *not declared* rather
+than as a proof that nothing else is approved.
 
 **What this file is not.** Handlers that judge *content* — inline `python -c`
 code, a `sed` script, the SQL behind `psql -c` — are listed by the invocation
@@ -62,6 +69,22 @@ pub fn literal_surfaces() -> Vec<String> {
             e.guard.is_empty() && !e.surface.contains(['<', '*', '|', '[']) && !e.surface.is_empty()
         })
         .map(|e| e.surface)
+        .collect()
+}
+
+/// Every invocation shape a handler declares, including the guarded and
+/// placeholder ones [`literal_surfaces`] filters out.
+///
+/// `tests/allow_catalog.rs` probes sibling verbs against this list, so a
+/// handler that approves an invocation it never declared fails CI. That is the
+/// direction [`literal_surfaces`] cannot check.
+#[must_use]
+pub fn declared_surfaces() -> Vec<String> {
+    handlers::all_handler_surfaces()
+        .into_iter()
+        .flat_map(|(_, entries)| entries)
+        .map(|e| e.surface)
+        .filter(|s| !s.is_empty())
         .collect()
 }
 
@@ -159,6 +182,15 @@ fn render_handlers(out: &mut String) {
     );
     for (cmds, entries) in groups {
         let _ = writeln!(out, "### `{}`\n", cmds.join("`, `"));
+        // One handler serves every name in the heading, but the rows can only
+        // spell one of them.
+        if let Some(first) = cmds.first().filter(|_| cmds.len() > 1) {
+            let _ = writeln!(
+                out,
+                "Rows are written with `{first}`; unless a row says otherwise they apply the \
+                 same way to every command name in this heading.\n"
+            );
+        }
         if entries.is_empty() {
             let _ = writeln!(out, "Delegates only — approves nothing directly.\n");
             continue;
