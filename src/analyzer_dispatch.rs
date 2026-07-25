@@ -15,7 +15,7 @@ use crate::verdict::{AllowReason, Decision, Verdict};
 
 impl Analyzer {
     pub(super) fn analyze_redirects(
-        &self,
+        &mut self,
         redirects: &[Node],
         cwd: &Path,
         _depth: usize,
@@ -111,7 +111,7 @@ impl Analyzer {
     /// (most-restrictive wins), so an allow rule / safe command cannot bypass the
     /// redirect safety pipeline (self-protect, safe-dir, deny rules).
     pub(super) fn with_redirects(
-        &self,
+        &mut self,
         verdict: Verdict,
         redirects: &[Node],
         cwd: &Path,
@@ -127,12 +127,22 @@ impl Analyzer {
         Verdict::combine(&all)
     }
 
+    /// Run one redirect target through the write pipeline, recording the gate's
+    /// own verdict so the trace explains a decision the command word cannot.
     pub(super) fn analyze_redirect(
-        &self,
+        &mut self,
         op: ast::RedirectOp,
         target: &str,
         cwd: &Path,
     ) -> Verdict {
+        let verdict = self.redirect_verdict(op, target, cwd);
+        self.trace(Stage::Redirect, true, || {
+            format!("{}: {}", verdict.decision.as_str(), verdict.reason)
+        });
+        verdict
+    }
+
+    fn redirect_verdict(&self, op: ast::RedirectOp, target: &str, cwd: &Path) -> Verdict {
         if op == ast::RedirectOp::Read {
             return Verdict::allow(AllowReason::InputRedirect);
         }
@@ -326,14 +336,23 @@ impl Analyzer {
     /// (`mount`/`stty`) — are excluded, as is any handler command (`rm`,
     /// `git`, ...), because a set-but-unknown value could otherwise hide an
     /// injected dangerous flag or path.
-    pub(super) fn dynamic_arg_verdict(&self, words: &[Node]) -> Verdict {
+    pub(super) fn dynamic_arg_verdict(&mut self, words: &[Node]) -> Verdict {
         let Some(raw_name) = ast::command_name_from_words(words) else {
+            self.trace(Stage::Expansion, false, || {
+                "ask: dynamic argument on a command with no name".to_owned()
+            });
             return Verdict::ask("shell expansion ($VAR dynamic)");
         };
-        let name = self.config.resolve_alias(raw_name);
-        if allowlists::is_dynamic_arg_safe(name) {
-            Verdict::allow(AllowReason::DynamicArgSafe(name.to_owned()))
+        let name = self.config.resolve_alias(raw_name).to_owned();
+        if allowlists::is_dynamic_arg_safe(&name) {
+            self.trace(Stage::Expansion, true, || {
+                format!("allow: {name} is safe with a set-but-unknown argument")
+            });
+            Verdict::allow(AllowReason::DynamicArgSafe(name))
         } else {
+            self.trace(Stage::Expansion, false, || {
+                format!("ask: {name} is not safe with a set-but-unknown argument")
+            });
             Verdict::ask("shell expansion ($VAR dynamic)")
         }
     }

@@ -223,7 +223,7 @@ impl Analyzer {
             return None;
         };
         let applies = decision != Decision::Allow || plain;
-        self.trace(Stage::CcRule, true, || {
+        self.trace(Stage::CcRule, applies, || {
             string_rule_detail(decision.as_str(), match_str, applies)
         });
         applies.then(|| cc_decision_to_verdict(decision, match_str))
@@ -239,7 +239,7 @@ impl Analyzer {
             return None;
         };
         let applies = verdict.decision != Decision::Allow || plain;
-        self.trace(Stage::ConfigRule, true, || {
+        self.trace(Stage::ConfigRule, applies, || {
             string_rule_detail(verdict.decision.as_str(), &verdict.reason, applies)
         });
         applies.then_some(verdict)
@@ -434,9 +434,15 @@ impl Analyzer {
             return Verdict::ask("internal: non-command node in analyze_command");
         };
         if Self::assignment_has_expansion(assignments) {
+            self.trace(Stage::EnvPrefix, true, || {
+                "ask: assignment value contains a shell expansion".to_owned()
+            });
             return Verdict::ask("assignment with expansion");
         }
-        if Self::assignment_is_dangerous(assignments) {
+        if let Some(name) = Self::dangerous_assignment_name(assignments) {
+            self.trace(Stage::EnvPrefix, true, || {
+                format!("ask: {name} is a code-influencing variable")
+            });
             return Verdict::ask("dangerous env-var assignment");
         }
         // Per-leaf string-rule match (expansions resolved downstream first).
@@ -467,18 +473,18 @@ impl Analyzer {
         assignments.iter().any(ast::has_expansions)
     }
 
-    /// Returns `true` if any assignment on a simple command sets a
+    /// Returns the name of the first assignment on a simple command that sets a
     /// code-influencing variable (`LD_PRELOAD`, `GIT_SSH_COMMAND`,
     /// `GIT_CONFIG_*`, ...). Such a literal prefix turns an otherwise-safe
     /// command into arbitrary code execution, so the analyzer Asks before the
     /// safe-command fast path or any handler can approve it.
     /// See docs/security-invariants.md#dangerous-env-name.
-    fn assignment_is_dangerous(assignments: &[Node]) -> bool {
-        assignments.iter().any(|a| {
+    fn dangerous_assignment_name(assignments: &[Node]) -> Option<String> {
+        assignments.iter().find_map(|a| {
             ast::literal_assignment(a)
                 .map(|(n, _)| n)
                 .or_else(|| ast::append_assignment_name(a))
-                .is_some_and(|n| ast::is_dangerous_env_name(&n))
+                .filter(|n| ast::is_dangerous_env_name(n))
         })
     }
 
@@ -557,7 +563,9 @@ mod control_flow;
 mod dispatch;
 
 /// Trace detail for a whole-string rule match, disclosing when a matching ALLOW
-/// was withheld. see docs/security-invariants.md#string-rule-chokepoint
+/// was withheld. A withheld rule is recorded as a non-match (`matched = false`)
+/// because no consumer may read it as "this layer decided".
+/// see docs/security-invariants.md#string-rule-chokepoint
 fn string_rule_detail(decision: &str, subject: &str, applies: bool) -> String {
     if applies {
         format!("{decision}: {subject}")

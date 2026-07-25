@@ -23,7 +23,7 @@ Refusing to *strip* a code-influencing env prefix is not enough on its own: the
 un-stripped command still lands on the analyzer, and if the command itself is
 safe-listed (`cat`, `git fetch`, `bash -c :`, `perl`, `node`) the fast path would
 Allow it with the dangerous assignment intact (issue #157). So `analyze_command`
-enforces the gate directly — `Analyzer::assignment_is_dangerous` Asks on any
+enforces the gate directly — `Analyzer::dangerous_assignment_name` Asks on any
 simple command carrying a literal assignment whose name matches
 `ast::is_dangerous_env_name`, before the safe-command path or any handler runs.
 The `env` handler applies the same check to the `NAME=VALUE` args it sets, since
@@ -196,3 +196,13 @@ each of which reported `allow` while the hook did not:
 #137 (inspect/debug disagreeing with the hook on compound commands) is the
 historical form of the same failure. `src/inspect_tests.rs` and
 `tests/inspect_delegation.rs` pin the invariant at the library and binary level.
+
+Delegating the decision is only half of it: every gate that can *produce* a
+decision must also emit an event, or the trace ends on an affirmative step that
+contradicts the printed verdict (`echo x > /etc/passwd` once closed on
+`Allowlist ✓ echo is in the simple-safe list` and then printed `ASK`). The
+redirect pipeline (`Stage::Redirect`), the dangerous / expanding env prefix
+(`Stage::EnvPrefix`) and the dynamic-argument allow (`Stage::Expansion`)
+therefore each record their own verdict. `matched` means *this layer decided*,
+so a whole-string ALLOW withheld by #string-rule-chokepoint is recorded as a
+non-match with a "not applied" detail — never as a hit.

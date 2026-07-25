@@ -14,7 +14,8 @@ const MAX_TRACE_EVENTS: usize = 1024;
 /// A stage of the decision pipeline that a trace event belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
-    /// A leading `NAME=VALUE` prefix was stripped before string matching.
+    /// A leading `NAME=VALUE` prefix was stripped before string matching, or
+    /// gated because its name or value is unsafe.
     EnvPrefix,
     /// A Claude Code `permissions` entry was consulted.
     CcRule,
@@ -30,6 +31,8 @@ pub enum Stage {
     Expansion,
     /// A command-specific handler classified the invocation.
     Handler,
+    /// A redirect target was run through the write pipeline.
+    Redirect,
     /// The configured `default-action` decided the verdict.
     Default,
     /// The event cap was reached; later events were dropped.
@@ -49,6 +52,7 @@ impl Stage {
             Self::Allowlist => "allowlist",
             Self::Expansion => "resolved",
             Self::Handler => "handler",
+            Self::Redirect => "redirect",
             Self::Default => "default",
             Self::Truncated => "truncated",
         }
@@ -58,7 +62,7 @@ impl Stage {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::EnvPrefix => "Normalize env prefix",
+            Self::EnvPrefix => "Env prefix",
             Self::CcRule => "CC permissions",
             Self::ConfigRule => "Config rules",
             Self::Parse => "Parse",
@@ -66,6 +70,7 @@ impl Stage {
             Self::Allowlist => "Allowlist",
             Self::Expansion => "Expansion",
             Self::Handler => "Handler",
+            Self::Redirect => "Redirect",
             Self::Default => "Default",
             Self::Truncated => "Truncated",
         }
@@ -154,7 +159,7 @@ impl Trace {
 mod tests {
     use super::*;
 
-    const ALL_STAGES: [Stage; 10] = [
+    const ALL_STAGES: [Stage; 11] = [
         Stage::EnvPrefix,
         Stage::CcRule,
         Stage::ConfigRule,
@@ -163,6 +168,7 @@ mod tests {
         Stage::Allowlist,
         Stage::Expansion,
         Stage::Handler,
+        Stage::Redirect,
         Stage::Default,
         Stage::Truncated,
     ];

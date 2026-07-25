@@ -22,6 +22,8 @@ const SPREAD: &[&str] = &[
     "ls; echo done",
     "ls && rm -rf /",
     "echo secret > .env",
+    "echo x > /etc/passwd",
+    "ls | tee /etc/hosts",
     "echo hi > /dev/null",
     "echo hi > /tmp/rippy-inspect-out",
     "cat < /etc/hosts",
@@ -178,13 +180,17 @@ fn trace_env_prefix_matches_config_rule() {
         output
             .steps
             .iter()
-            .any(|s| s.stage == "Normalize env prefix" && s.matched)
+            .any(|s| s.stage == "Env prefix" && s.matched)
     );
 }
 
+/// #133 (env prefix on the first command of a pipeline strips correctly) crossed
+/// with #155: the stripped form is what the whole-string rule sees, but a
+/// pipeline is not a single plain command, so the matching ALLOW is *withheld* —
+/// the approval comes from the per-leaf allowlist instead. The trace must say so
+/// rather than credit the rule.
 #[test]
-fn trace_env_prefix_pipeline_matches_config_rule() {
-    // #133: env prefix on the first command of a pipeline strips correctly.
+fn trace_env_prefix_pipeline_records_withheld_allow_rule() {
     let dir = tempfile::TempDir::new().unwrap();
     let config_path = dir.path().join("test.toml");
     std::fs::write(
@@ -199,8 +205,25 @@ fn trace_env_prefix_pipeline_matches_config_rule() {
         output
             .steps
             .iter()
-            .any(|s| s.stage == "Config rules" && s.matched)
+            .any(|s| s.stage == "Env prefix" && s.matched),
+        "the stripped form was not disclosed"
     );
+    let rule_step = output
+        .steps
+        .iter()
+        .find(|s| s.stage == "Config rules")
+        .unwrap();
+    assert!(
+        rule_step.detail.contains("echo hi | cat"),
+        "the rule was matched against the un-stripped command: {}",
+        rule_step.detail
+    );
+    assert!(
+        !rule_step.matched,
+        "a withheld allow rule must not be recorded as the deciding layer"
+    );
+    assert!(rule_step.detail.contains("not applied"));
+    assert_eq!(output.provenance.as_deref(), Some("simple-safe"));
 }
 
 #[test]
@@ -511,6 +534,94 @@ fn trace_records_stage_events() {
         assert!(
             short_circuited || output.steps.iter().any(|s| s.stage == "Parse"),
             "no Parse step for {command:?}"
+        );
+    }
+}
+
+/// Regression for the three gates that decided without leaving a trace event:
+/// the redirect pipeline, the dangerous/expanding env prefix, and the
+/// dynamic-argument allow. Each used to terminate on an affirmative
+/// `Allowlist ✓ <cmd> is in the simple-safe list` that contradicted the verdict.
+/// Details transcribed from observed `trace_test_analyzer` output.
+#[test]
+fn trace_records_the_deciding_gate() {
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "echo x > /etc/passwd",
+            "Redirect",
+            "ask: redirect to /etc/passwd",
+        ),
+        ("echo secret > .env", "Redirect", "ask: redirect to .env"),
+        (
+            "ls | tee /etc/hosts",
+            "Redirect",
+            "ask: redirect to /etc/hosts",
+        ),
+        (
+            "echo hi > /dev/null",
+            "Redirect",
+            "allow: redirect to /dev/null",
+        ),
+        (
+            "LD_PRELOAD=/tmp/x ls",
+            "Env prefix",
+            "ask: LD_PRELOAD is a code-influencing variable",
+        ),
+        (
+            "FOO=$(id) ls",
+            "Env prefix",
+            "ask: assignment value contains a shell expansion",
+        ),
+        (
+            "for f in *.txt; do cat $f; done",
+            "Expansion",
+            "allow: cat is safe with a set-but-unknown argument",
+        ),
+    ];
+    for (command, stage, detail) in cases {
+        let output = trace_with_analyzer(&mut trace_test_analyzer(), command).unwrap();
+        let last = output.steps.last().unwrap();
+        assert_eq!(&last.stage, stage, "{command:?} ends on the wrong stage");
+        assert_eq!(&last.detail, detail, "{command:?}");
+        assert!(
+            last.detail.starts_with(&format!("{}: ", output.decision)),
+            "{command:?}: deciding step claims {:?} but the verdict is {:?}",
+            last.detail,
+            output.decision
+        );
+    }
+}
+
+/// A step whose detail opens with a decision word claims that decision.
+fn claimed_decision(step: &TraceStep) -> Option<&'static str> {
+    ["allow", "ask", "deny"]
+        .into_iter()
+        .find(|d| step.detail.starts_with(&format!("{d}: ")))
+}
+
+/// Every non-approving verdict must be explained by a step, so `rippy inspect`
+/// never prints a decision the trace does not account for. "Explains" means a
+/// step that claims the reached decision, or a miss at a stage that can decide
+/// on its own (a parse failure, an unresolvable expansion, an allowlist/handler
+/// miss). The CC- and config-rule misses every command records are deliberately
+/// not enough — before the redirect/env/dynamic-arg gates were instrumented,
+/// `echo x > /etc/passwd` and `LD_PRELOAD=/tmp/x ls` had nothing else.
+#[test]
+fn trace_explains_every_non_allow_verdict() {
+    const DECIDING_ON_MISS: [&str; 4] = ["Parse", "Expansion", "Allowlist", "Handler"];
+    for command in SPREAD {
+        let output = trace_with_analyzer(&mut trace_test_analyzer(), command).unwrap();
+        if output.decision == "allow" {
+            continue;
+        }
+        assert!(
+            output.steps.iter().any(|s| {
+                claimed_decision(s) == Some(output.decision.as_str())
+                    || (!s.matched && DECIDING_ON_MISS.contains(&s.stage.as_str()))
+            }),
+            "no step explains the {:?} verdict for {command:?}: {:#?}",
+            output.decision,
+            output.steps
         );
     }
 }
