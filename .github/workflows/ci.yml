@@ -37,11 +37,17 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
 
       - name: cargo-lint-extra
+        # `--force`: rust-cache restores ~/.cargo/.crates.toml but not
+        # ~/.cargo/bin, so on a cache hit binstall sees "already installed" and
+        # no-ops while the binary is absent — `cargo lint-extra` then fails with
+        # "no such command". Reinstalling unconditionally is a prebuilt-binary
+        # download, so the cost is negligible.
+        #
         # Plain invocation, not `-W`: in cargo-lint-extra 0.1.4 (latest) the
         # `-W` flag exits 1 unconditionally (even on an empty tree). All rules
         # are at `deny`, so a plain run already fails on any finding and passes
         # only when clean — the behavior `-W` was meant to provide.
-        run: cargo binstall -y cargo-lint-extra && cargo lint-extra
+        run: cargo binstall -y --force cargo-lint-extra && cargo lint-extra
 
   test:
     name: Test
