@@ -71,8 +71,8 @@ Rows are written with `ansible`; unless a row says otherwise they apply the same
 
 | Approved invocation | Condition |
 | --- | --- |
-| `ansible-doc` | — |
-| `ansible-lint` | — |
+| `ansible-doc` | neither -M nor --module-path present |
+| `ansible-lint` | neither --fix nor --write present |
 | `ansible` | one of --check/-C/--list-hosts present |
 | `ansible-playbook` | one of --check/-C/--syntax-check/--list-hosts/--list-tasks/--list-tags present |
 | `ansible-vault view` | — |
@@ -569,8 +569,6 @@ Rows are written with `gzip`; unless a row says otherwise they apply the same wa
 | `helm uninstall` | --dry-run present |
 | `helm rollback` | --dry-run present |
 | `helm dependency list` | — |
-| `helm dependency update` | — |
-| `helm dependency build` | — |
 | `helm repo list` | — |
 | `helm plugin list` | — |
 | `helm --help\|-h\|--version` | sole argument |
@@ -615,7 +613,6 @@ Rows are written with `kubectl`; unless a row says otherwise they apply the same
 | `kubectl version` | — |
 | `kubectl api-resources` | — |
 | `kubectl api-versions` | — |
-| `kubectl auth` | — |
 | `kubectl wait` | — |
 | `kubectl diff` | — |
 | `kubectl plugin` | — |
@@ -627,6 +624,8 @@ Rows are written with `kubectl`; unless a row says otherwise they apply the same
 | `kubectl config get-clusters` | — |
 | `kubectl config get-users` | — |
 | `kubectl config get-context` | — |
+| `kubectl auth can-i` | — |
+| `kubectl auth whoami` | — |
 | `kubectl --help\|-h\|--version` | sole argument |
 
 ### `mise`

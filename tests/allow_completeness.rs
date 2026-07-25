@@ -57,18 +57,7 @@ const SURFACES_NEEDING_INJECTED_STATE: &[(&str, &str)] = &[
 /// Command names a handler approves unconditionally, so no invocation of them
 /// can Ask and no contrast case can exist. An entry is a blanket approval on
 /// record, not a gap to be quietly tolerated.
-const GROUPS_WITHOUT_A_BOUNDARY: &[(&str, &str)] = &[
-    (
-        "ansible-doc",
-        "handler returns Allow(\"ansible-doc (read-only)\") for every argv, including \
-         `-M <dir>`",
-    ),
-    (
-        "ansible-lint",
-        "handler returns Allow(\"ansible-lint (read-only)\") for every argv, including \
-         `--fix` and `--write`",
-    ),
-];
+const GROUPS_WITHOUT_A_BOUNDARY: &[(&str, &str)] = &[];
 
 /// Approved prefixes knowingly shipped without a dangerous neighbor. Empty is
 /// the only healthy state; an entry here is a boundary nobody has pinned.
