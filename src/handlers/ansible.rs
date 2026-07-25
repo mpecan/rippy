@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use crate::verdict::AllowReason;
 
 /// Extensions that indicate a static inventory file rather than a dynamic
 /// (executable) inventory script.
@@ -24,8 +25,10 @@ impl Handler for AnsibleHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         match ctx.command_name {
-            "ansible-doc" => Classification::Allow("ansible-doc (read-only)".into()),
-            "ansible-lint" => Classification::Allow("ansible-lint (read-only)".into()),
+            "ansible-doc" => Classification::Allow(AllowReason::handler("ansible-doc (read-only)")),
+            "ansible-lint" => {
+                Classification::Allow(AllowReason::handler("ansible-lint (read-only)"))
+            }
             "ansible" => classify_ansible(ctx),
             "ansible-playbook" => classify_playbook(ctx),
             "ansible-vault" => classify_vault(ctx),
@@ -39,7 +42,7 @@ impl Handler for AnsibleHandler {
 
 fn classify_ansible(ctx: &HandlerContext) -> Classification {
     if has_flag(ctx.args, &["--check", "-C", "--list-hosts"]) {
-        Classification::Allow("ansible dry-run/inspection".into())
+        Classification::Allow(AllowReason::handler("ansible dry-run/inspection"))
     } else {
         Classification::Ask("ansible (may modify targets)".into())
     }
@@ -57,7 +60,7 @@ fn classify_playbook(ctx: &HandlerContext) -> Classification {
             "--list-tags",
         ],
     ) {
-        Classification::Allow("ansible-playbook dry-run/inspection".into())
+        Classification::Allow(AllowReason::handler("ansible-playbook dry-run/inspection"))
     } else {
         Classification::Ask("ansible-playbook (may modify targets)".into())
     }
@@ -65,7 +68,7 @@ fn classify_playbook(ctx: &HandlerContext) -> Classification {
 
 fn classify_vault(ctx: &HandlerContext) -> Classification {
     if ctx.subcommand() == "view" {
-        Classification::Allow("ansible-vault view (read-only)".into())
+        Classification::Allow(AllowReason::handler("ansible-vault view (read-only)"))
     } else {
         Classification::Ask(format!(
             "ansible-vault {} (may modify vault)",
@@ -76,18 +79,20 @@ fn classify_vault(ctx: &HandlerContext) -> Classification {
 
 fn classify_galaxy(ctx: &HandlerContext) -> Classification {
     match ctx.subcommand() {
-        "list" | "search" | "info" => {
-            Classification::Allow(format!("ansible-galaxy {} (read-only)", ctx.subcommand()))
-        }
+        "list" | "search" | "info" => Classification::Allow(AllowReason::handler(format!(
+            "ansible-galaxy {} (read-only)",
+            ctx.subcommand()
+        ))),
         sub => Classification::Ask(format!("ansible-galaxy {sub} (may modify roles)")),
     }
 }
 
 fn classify_config(ctx: &HandlerContext) -> Classification {
     match ctx.subcommand() {
-        "list" | "dump" | "view" => {
-            Classification::Allow(format!("ansible-config {} (read-only)", ctx.subcommand()))
-        }
+        "list" | "dump" | "view" => Classification::Allow(AllowReason::handler(format!(
+            "ansible-config {} (read-only)",
+            ctx.subcommand()
+        ))),
         sub => Classification::Ask(format!("ansible-config {sub}")),
     }
 }
@@ -104,13 +109,13 @@ fn classify_inventory(ctx: &HandlerContext) -> Classification {
                 .iter()
                 .any(|ext| inv.ends_with(ext)) =>
         {
-            Classification::Allow("ansible-inventory (read-only query)".into())
+            Classification::Allow(AllowReason::handler("ansible-inventory (read-only query)"))
         }
         Some(_) => Classification::Ask("ansible-inventory (dynamic inventory script)".into()),
         None if has_flag(ctx.args, &["-i", "--inventory"]) => {
             Classification::Ask("ansible-inventory (inventory target not extractable)".into())
         }
-        None => Classification::Allow("ansible-inventory (read-only query)".into()),
+        None => Classification::Allow(AllowReason::handler("ansible-inventory (read-only query)")),
     }
 }
 

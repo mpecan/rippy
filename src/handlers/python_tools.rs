@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
+use crate::verdict::AllowReason;
 
 // uv
 
@@ -24,7 +25,7 @@ impl Handler for UvHandler {
         let sub = ctx.args.first().map_or("", String::as_str);
 
         if UV_SAFE.contains(&sub) {
-            return Classification::Allow(format!("uv {sub}"));
+            return Classification::Allow(AllowReason::handler(format!("uv {sub}")));
         }
 
         if sub == "run" {
@@ -44,7 +45,7 @@ impl Handler for UvHandler {
             let pip_sub = ctx.args.get(1).map_or("", String::as_str);
             return match pip_sub {
                 "list" | "freeze" | "show" | "check" | "tree" => {
-                    Classification::Allow(format!("uv pip {pip_sub}"))
+                    Classification::Allow(AllowReason::handler(format!("uv pip {pip_sub}")))
                 }
                 _ => Classification::Ask(format!("uv pip {pip_sub}")),
             };
@@ -53,7 +54,9 @@ impl Handler for UvHandler {
         if sub == "python" {
             let py_sub = ctx.args.get(1).map_or("", String::as_str);
             return match py_sub {
-                "list" | "find" | "dir" => Classification::Allow(format!("uv python {py_sub}")),
+                "list" | "find" | "dir" => {
+                    Classification::Allow(AllowReason::handler(format!("uv python {py_sub}")))
+                }
                 _ => Classification::Ask(format!("uv python {py_sub}")),
             };
         }
@@ -61,7 +64,7 @@ impl Handler for UvHandler {
         if sub == "cache" {
             let cache_sub = ctx.args.get(1).map_or("", String::as_str);
             return match cache_sub {
-                "dir" => Classification::Allow("uv cache dir".into()),
+                "dir" => Classification::Allow(AllowReason::handler("uv cache dir")),
                 _ => Classification::Ask(format!("uv cache {cache_sub}")),
             };
         }
@@ -86,7 +89,7 @@ impl Handler for RuffHandler {
         if sub == "format" || sub == "clean" || has_flag(ctx.args, &["--fix", "--fix-only"]) {
             return Classification::Ask(format!("ruff {sub} (modifying)"));
         }
-        Classification::Allow(format!("ruff {sub}"))
+        Classification::Allow(AllowReason::handler(format!("ruff {sub}")))
     }
 }
 
@@ -103,7 +106,7 @@ impl Handler for BlackHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if has_flag(ctx.args, &["--check", "--diff"]) {
-            return Classification::Allow("black (check only)".into());
+            return Classification::Allow(AllowReason::handler("black (check only)"));
         }
         Classification::Ask("black (format)".into())
     }

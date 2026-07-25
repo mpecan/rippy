@@ -1,6 +1,7 @@
 use super::{
     Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, positional_args,
 };
+use crate::verdict::AllowReason;
 
 /// Verbs across gcloud/az resource trees that mutate state, checked against
 /// the command-path (positional tokens before the first flag). Any match in
@@ -63,7 +64,7 @@ impl Handler for KubectlHandler {
         let desc = format!("kubectl {sub}");
 
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
-            return Classification::Allow("kubectl help/version".into());
+            return Classification::Allow(AllowReason::handler("kubectl help/version"));
         }
 
         if sub == "exec" {
@@ -75,7 +76,7 @@ impl Handler for KubectlHandler {
         }
 
         if KUBECTL_SAFE.contains(&sub) {
-            Classification::Allow(desc)
+            Classification::Allow(AllowReason::handler(desc))
         } else {
             Classification::Ask(desc)
         }
@@ -94,7 +95,7 @@ const KUBECTL_CONFIG_SAFE: &[&str] = &[
 fn classify_kubectl_config(ctx: &HandlerContext) -> Classification {
     let child = ctx.arg(1);
     if KUBECTL_CONFIG_SAFE.contains(&child) {
-        Classification::Allow(format!("kubectl config {child}"))
+        Classification::Allow(AllowReason::handler(format!("kubectl config {child}")))
     } else {
         Classification::Ask(format!("kubectl config {child}"))
     }
@@ -169,7 +170,7 @@ impl Handler for AwsHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "--version"]) {
-            return Classification::Allow("aws help/version".into());
+            return Classification::Allow(AllowReason::handler("aws help/version"));
         }
 
         if let Some(endpoint) = get_flag_value(ctx.args, &["--endpoint-url"])
@@ -190,7 +191,7 @@ impl Handler for AwsHandler {
 
         if service == "configure" {
             return if matches!(action, "list" | "list-profiles" | "get" | "") {
-                Classification::Allow(format!("aws configure {action}"))
+                Classification::Allow(AllowReason::handler(format!("aws configure {action}")))
             } else {
                 Classification::Ask(format!("aws configure {action}"))
             };
@@ -204,16 +205,16 @@ impl Handler for AwsHandler {
                 "decode-authorization-message",
             ];
             if sts_safe.contains(&action) {
-                return Classification::Allow(format!("aws sts {action}"));
+                return Classification::Allow(AllowReason::handler(format!("aws sts {action}")));
             }
         }
 
         if AWS_SAFE_ACTIONS.contains(&action) {
-            return Classification::Allow(format!("aws {service} {action}"));
+            return Classification::Allow(AllowReason::handler(format!("aws {service} {action}")));
         }
 
         if AWS_SAFE_PREFIXES.iter().any(|p| action.starts_with(p)) {
-            return Classification::Allow(format!("aws {service} {action}"));
+            return Classification::Allow(AllowReason::handler(format!("aws {service} {action}")));
         }
 
         Classification::Ask(format!("aws {service} {action}"))
@@ -247,14 +248,17 @@ impl Handler for GcloudHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
-            return Classification::Allow(format!("{} help/version", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} help/version",
+                ctx.command_name
+            )));
         }
 
         if ctx.command_name == "gsutil" {
             let sub = ctx.args.first().map_or("", String::as_str);
             return match sub {
                 "ls" | "cat" | "stat" | "du" | "hash" | "version" | "help" => {
-                    Classification::Allow(format!("gsutil {sub}"))
+                    Classification::Allow(AllowReason::handler(format!("gsutil {sub}")))
                 }
                 _ => Classification::Ask(format!("gsutil {sub}")),
             };
@@ -276,7 +280,7 @@ impl Handler for GcloudHandler {
 
         let action = path.last().copied().unwrap_or_default();
         if GCLOUD_SAFE_KEYWORDS.contains(&action) {
-            Classification::Allow(format!("gcloud ... {action}"))
+            Classification::Allow(AllowReason::handler(format!("gcloud ... {action}")))
         } else {
             Classification::Ask(format!("gcloud {}", ctx.args.join(" ")))
         }
@@ -308,7 +312,7 @@ impl Handler for AzHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
-            return Classification::Allow("az help/version".into());
+            return Classification::Allow(AllowReason::handler("az help/version"));
         }
 
         let path = command_path(ctx.args);
@@ -324,7 +328,7 @@ impl Handler for AzHandler {
             || action.starts_with("show-")
             || action.starts_with("get-")
         {
-            Classification::Allow(format!("az ... {action}"))
+            Classification::Allow(AllowReason::handler(format!("az ... {action}")))
         } else {
             Classification::Ask(format!("az {}", ctx.args.join(" ")))
         }

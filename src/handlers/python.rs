@@ -3,6 +3,7 @@ use super::{
     is_sole_help_flag,
 };
 use crate::python_safety::is_python_source_safe;
+use crate::verdict::AllowReason;
 
 pub(crate) static PYTHON_HANDLER: PythonHandler = PythonHandler;
 
@@ -25,13 +26,13 @@ impl Handler for PythonHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--version", "-V", "-VV", "--help", "-h"]) {
-            return Classification::Allow("python version/help".into());
+            return Classification::Allow(AllowReason::handler("python version/help"));
         }
 
         // -c inline code — analyze source for dangerous patterns
         if let Some(source) = get_flag_value(ctx.args, &["-c"]) {
             return if is_python_source_safe(&source) {
-                Classification::Allow("python -c (safe inline code)".into())
+                Classification::Allow(AllowReason::handler("python -c (safe inline code)"))
             } else {
                 Classification::Ask("python -c (potentially dangerous code)".into())
             };
@@ -47,7 +48,7 @@ impl Handler for PythonHandler {
                 .map_or("", String::as_str);
             return match module {
                 "calendar" | "json.tool" | "this" | "antigravity" => {
-                    Classification::Allow(format!("python -m {module}"))
+                    Classification::Allow(AllowReason::handler(format!("python -m {module}")))
                 }
                 _ => Classification::Ask(format!("python -m {module}")),
             };
@@ -67,7 +68,9 @@ impl Handler for PythonHandler {
         let script = first_positional(ctx.args).unwrap_or("");
         if let Some(source) = ctx.read_file(script) {
             return if is_python_source_safe(&source) {
-                Classification::Allow(format!("python {script} (safe script)"))
+                Classification::Allow(AllowReason::handler(format!(
+                    "python {script} (safe script)"
+                )))
             } else {
                 Classification::Ask(format!("python {script} (potentially dangerous)"))
             };

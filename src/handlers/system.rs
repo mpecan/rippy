@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
+use crate::verdict::AllowReason;
 
 // fd
 
@@ -26,7 +27,7 @@ impl Handler for FdHandler {
                 return Classification::Recurse(inner.join(" "));
             }
         }
-        Classification::Allow("fd (search only)".into())
+        Classification::Allow(AllowReason::handler("fd (search only)"))
     }
 }
 
@@ -45,7 +46,7 @@ impl Handler for DmesgHandler {
         if has_flag(ctx.args, &["-c", "-C", "--clear"]) {
             return Classification::Ask("dmesg (clear kernel ring buffer)".into());
         }
-        Classification::Allow("dmesg (read)".into())
+        Classification::Allow(AllowReason::handler("dmesg (read)"))
     }
 }
 
@@ -89,7 +90,10 @@ impl Handler for IpHandler {
                 positionals.first().unwrap_or(&"")
             ))
         } else {
-            Classification::Allow(format!("ip {} (read)", positionals.first().unwrap_or(&"")))
+            Classification::Allow(AllowReason::handler(format!(
+                "ip {} (read)",
+                positionals.first().unwrap_or(&"")
+            )))
         }
     }
 }
@@ -109,7 +113,7 @@ impl Handler for IfconfigHandler {
         // >1 positional arg (beyond an interface name) means a config change.
         let positional_count = ctx.args.iter().filter(|a| !a.starts_with('-')).count();
         if positional_count <= 1 {
-            Classification::Allow("ifconfig (view)".into())
+            Classification::Allow(AllowReason::handler("ifconfig (view)"))
         } else {
             Classification::Ask("ifconfig (modify interface)".into())
         }

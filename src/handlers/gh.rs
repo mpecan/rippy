@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
+use crate::verdict::AllowReason;
 
 pub(crate) static GH_HANDLER: GhHandler = GhHandler;
 
@@ -18,7 +19,7 @@ impl Handler for GhHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
-            return Classification::Allow("gh help/version".into());
+            return Classification::Allow(AllowReason::handler("gh help/version"));
         }
 
         let sub = ctx.subcommand();
@@ -27,7 +28,7 @@ impl Handler for GhHandler {
             "api" => classify_api(ctx),
             // Top-level safe commands
             "status" | "browse" | "search" | "completion" | "help" => {
-                Classification::Allow(format!("gh {sub}"))
+                Classification::Allow(AllowReason::handler(format!("gh {sub}")))
             }
             // Resource commands — classify by action (second arg)
             "pr" | "issue" | "release" | "repo" | "run" | "workflow" | "gist" | "project"
@@ -104,13 +105,13 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
             return if is_graphql_mutation(&content) {
                 Classification::Ask("gh api --input (GraphQL mutation)".into())
             } else {
-                Classification::Allow("gh api --input (query)".into())
+                Classification::Allow(AllowReason::handler("gh api --input (query)"))
             };
         }
         return Classification::Ask("gh api (--input, cannot verify contents)".into());
     }
 
-    Classification::Allow("gh api (GET)".into())
+    Classification::Allow(AllowReason::handler("gh api (GET)"))
 }
 
 /// Check if a GraphQL document contains a mutation operation.
@@ -129,7 +130,7 @@ fn classify_resource(ctx: &HandlerContext, resource: &str) -> Classification {
     }
 
     if SAFE_ACTIONS.contains(&action) {
-        Classification::Allow(format!("gh {resource} {action}"))
+        Classification::Allow(AllowReason::handler(format!("gh {resource} {action}")))
     } else {
         Classification::Ask(format!("gh {resource} {action}"))
     }

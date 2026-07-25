@@ -4,7 +4,7 @@ use super::{
     Classification, Handler, HandlerContext, has_flag, is_within_scope, normalize_path,
     positional_args,
 };
-use crate::verdict::Decision;
+use crate::verdict::AllowReason;
 
 pub(crate) static GIT_HANDLER: GitHandler = GitHandler;
 
@@ -140,7 +140,7 @@ impl Handler for GitHandler {
         let desc = format!("git {sub}");
 
         if sub.is_empty() {
-            return Classification::Allow("git (no subcommand)".into());
+            return Classification::Allow(AllowReason::handler("git (no subcommand)"));
         }
 
         if SAFE_SUBCOMMANDS.contains(&sub.as_str()) {
@@ -303,7 +303,7 @@ fn classify_safe_subcommand(sub: &str, args: &[String], desc: &str) -> Classific
         "grep" => classify_grep(args, desc),
         "difftool" => classify_difftool(args, desc),
         "fetch" => classify_fetch(args, desc),
-        _ => Classification::Allow(desc.into()),
+        _ => Classification::Allow(AllowReason::handler(desc)),
     }
 }
 
@@ -324,9 +324,9 @@ fn classify_output_path(
     desc: &str,
 ) -> Classification {
     if let Some(path) = flag_path_value(args, eq_flags, space_flags) {
-        return Classification::WithRedirects(Decision::Allow, desc.into(), vec![path]);
+        return Classification::WithRedirects(AllowReason::handler(desc), vec![path]);
     }
-    Classification::Allow(desc.into())
+    Classification::Allow(AllowReason::handler(desc))
 }
 
 fn flag_path_value(args: &[String], eq_flags: &[&str], space_flags: &[&str]) -> Option<String> {
@@ -370,7 +370,7 @@ fn classify_grep(args: &[String], desc: &str) -> Classification {
             "git grep --open-files-in-pager (launches external pager/command)".into(),
         )
     } else {
-        Classification::Allow(desc.into())
+        Classification::Allow(AllowReason::handler(desc))
     }
 }
 
@@ -381,7 +381,7 @@ fn classify_difftool(args: &[String], desc: &str) -> Classification {
     if extcmd_flag {
         Classification::Ask("git difftool --extcmd (launches external command)".into())
     } else {
-        Classification::Allow(desc.into())
+        Classification::Allow(AllowReason::handler(desc))
     }
 }
 
@@ -409,7 +409,7 @@ fn classify_fetch(args: &[String], desc: &str) -> Classification {
     if let Some(remote) = positionals.first().filter(|r| is_scp_like_remote(r)) {
         return Classification::Ask(format!("git fetch (remote URL: {remote})"));
     }
-    Classification::Allow(desc.into())
+    Classification::Allow(AllowReason::handler(desc))
 }
 
 fn extract_subcommand(args: &[String]) -> (String, Vec<String>) {
@@ -440,7 +440,7 @@ fn classify_branch(args: &[String]) -> Classification {
     ) {
         Classification::Ask("git branch (modify)".into())
     } else {
-        Classification::Allow("git branch (list)".into())
+        Classification::Allow(AllowReason::handler("git branch (list)"))
     }
 }
 
@@ -450,15 +450,15 @@ fn classify_tag(args: &[String]) -> Classification {
     } else if args.iter().any(|a| !a.starts_with('-')) {
         Classification::Ask("git tag (create)".into())
     } else {
-        Classification::Allow("git tag (list)".into())
+        Classification::Allow(AllowReason::handler("git tag (list)"))
     }
 }
 
 fn classify_remote(args: &[String]) -> Classification {
     let sub = args.first().map_or("", String::as_str);
     match sub {
-        "show" | "" => Classification::Allow("git remote (view)".into()),
-        "get-url" => Classification::Allow("git remote get-url".into()),
+        "show" | "" => Classification::Allow(AllowReason::handler("git remote (view)")),
+        "get-url" => Classification::Allow(AllowReason::handler("git remote get-url")),
         _ => Classification::Ask(format!("git remote {sub}")),
     }
 }
@@ -466,7 +466,7 @@ fn classify_remote(args: &[String]) -> Classification {
 fn classify_stash(args: &[String]) -> Classification {
     let sub = args.first().map_or("", String::as_str);
     match sub {
-        "list" | "show" => Classification::Allow(format!("git stash {sub}")),
+        "list" | "show" => Classification::Allow(AllowReason::handler(format!("git stash {sub}"))),
         "" => Classification::Ask("git stash".into()),
         _ => Classification::Ask(format!("git stash {sub}")),
     }
@@ -477,12 +477,12 @@ fn classify_config(args: &[String]) -> Classification {
         args,
         &["--get", "--get-all", "--list", "-l", "--get-regexp"],
     ) {
-        Classification::Allow("git config (read)".into())
+        Classification::Allow(AllowReason::handler("git config (read)"))
     } else if has_flag(args, &["--unset", "--add", "--edit", "--replace-all"]) {
         Classification::Ask("git config (write)".into())
     } else if args.len() <= 1 {
         // Single key read
-        Classification::Allow("git config (read)".into())
+        Classification::Allow(AllowReason::handler("git config (read)"))
     } else {
         Classification::Ask("git config (write)".into())
     }
@@ -491,7 +491,9 @@ fn classify_config(args: &[String]) -> Classification {
 fn classify_notes(args: &[String]) -> Classification {
     let sub = args.first().map_or("", String::as_str);
     match sub {
-        "list" | "show" | "" => Classification::Allow(format!("git notes {sub}")),
+        "list" | "show" | "" => {
+            Classification::Allow(AllowReason::handler(format!("git notes {sub}")))
+        }
         _ => Classification::Ask(format!("git notes {sub}")),
     }
 }
@@ -499,7 +501,9 @@ fn classify_notes(args: &[String]) -> Classification {
 fn classify_bisect(args: &[String]) -> Classification {
     let sub = args.first().map_or("", String::as_str);
     match sub {
-        "log" | "visualize" | "view" => Classification::Allow(format!("git bisect {sub}")),
+        "log" | "visualize" | "view" => {
+            Classification::Allow(AllowReason::handler(format!("git bisect {sub}")))
+        }
         _ => Classification::Ask(format!("git bisect {sub}")),
     }
 }
@@ -508,7 +512,7 @@ fn classify_lfs(args: &[String]) -> Classification {
     let sub = args.first().map_or("", String::as_str);
     match sub {
         "fetch" | "ls-files" | "status" | "env" | "version" => {
-            Classification::Allow(format!("git lfs {sub}"))
+            Classification::Allow(AllowReason::handler(format!("git lfs {sub}")))
         }
         _ => Classification::Ask(format!("git lfs {sub}")),
     }

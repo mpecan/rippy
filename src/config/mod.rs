@@ -24,7 +24,7 @@ use std::path::Path;
 use crate::condition::{MatchContext, evaluate_all};
 use crate::error::RippyError;
 use crate::pattern::Pattern;
-use crate::verdict::{AutoMode, Decision, Verdict};
+use crate::verdict::{AutoMode, Decision, RuleSource, Verdict};
 
 // Config
 
@@ -252,11 +252,12 @@ impl Config {
                 reason.push_str(&self.project_weakening_suffix);
             }
 
-            result = Some(Verdict {
-                decision: rule.decision,
-                reason,
-                resolved_command: None,
-            });
+            let source = if is_project_rule {
+                RuleSource::Project
+            } else {
+                RuleSource::Baseline
+            };
+            result = Some(Verdict::from_rule(rule.decision, reason, source));
         }
         result
     }

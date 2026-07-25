@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, has_flag, is_sole_help_flag};
+use crate::verdict::AllowReason;
 
 pub(crate) static NPM_HANDLER: NpmHandler = NpmHandler;
 
@@ -43,7 +44,10 @@ impl Handler for NpmHandler {
         let desc = format!("{} {sub}", ctx.command_name);
 
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-v"]) {
-            return Classification::Allow(format!("{} help/version", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} help/version",
+                ctx.command_name
+            )));
         }
 
         // npx always asks (runs arbitrary packages)
@@ -54,7 +58,10 @@ impl Handler for NpmHandler {
         if sub == "run" {
             // npm run with no script name or --list is safe
             if ctx.args.len() <= 1 || has_flag(ctx.args, &["--list"]) {
-                return Classification::Allow(format!("{} run (list)", ctx.command_name));
+                return Classification::Allow(AllowReason::handler(format!(
+                    "{} run (list)",
+                    ctx.command_name
+                )));
             }
             return Classification::Ask(desc);
         }
@@ -71,11 +78,14 @@ impl Handler for NpmHandler {
             if has_flag(&ctx.args[1..], &["fix"]) {
                 return Classification::Ask(format!("{} audit fix", ctx.command_name));
             }
-            return Classification::Allow(format!("{} audit", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} audit",
+                ctx.command_name
+            )));
         }
 
         if SAFE.contains(&sub) {
-            Classification::Allow(desc)
+            Classification::Allow(AllowReason::handler(desc))
         } else {
             Classification::Ask(desc)
         }
@@ -85,9 +95,10 @@ impl Handler for NpmHandler {
 fn classify_config(ctx: &HandlerContext) -> Classification {
     let sub = ctx.args.get(1).map_or("", String::as_str);
     match sub {
-        "list" | "ls" | "get" => {
-            Classification::Allow(format!("{} config {sub}", ctx.command_name))
-        }
+        "list" | "ls" | "get" => Classification::Allow(AllowReason::handler(format!(
+            "{} config {sub}",
+            ctx.command_name
+        ))),
         _ => Classification::Ask(format!("{} config {sub}", ctx.command_name)),
     }
 }
@@ -95,7 +106,10 @@ fn classify_config(ctx: &HandlerContext) -> Classification {
 fn classify_cache(ctx: &HandlerContext) -> Classification {
     let sub = ctx.args.get(1).map_or("", String::as_str);
     match sub {
-        "ls" | "list" => Classification::Allow(format!("{} cache {sub}", ctx.command_name)),
+        "ls" | "list" => Classification::Allow(AllowReason::handler(format!(
+            "{} cache {sub}",
+            ctx.command_name
+        ))),
         _ => Classification::Ask(format!("{} cache {sub}", ctx.command_name)),
     }
 }

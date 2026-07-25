@@ -1,5 +1,6 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
 use crate::ast;
+use crate::verdict::AllowReason;
 
 // env
 
@@ -43,7 +44,7 @@ impl Handler for EnvHandler {
             .collect();
 
         if positionals.is_empty() {
-            return Classification::Allow("env (print environment)".into());
+            return Classification::Allow(AllowReason::handler("env (print environment)"));
         }
 
         // Delegate inner command

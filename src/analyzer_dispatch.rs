@@ -10,7 +10,7 @@ use crate::allowlists;
 use crate::ast;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::resolve;
-use crate::verdict::{Decision, Verdict};
+use crate::verdict::{AllowReason, Decision, Verdict};
 
 impl Analyzer {
     pub(super) fn analyze_redirects(
@@ -125,20 +125,20 @@ impl Analyzer {
         cwd: &Path,
     ) -> Verdict {
         if op == ast::RedirectOp::Read {
-            return Verdict::allow("input redirect");
+            return Verdict::allow(AllowReason::InputRedirect);
         }
         // `&>`/`>&` parse as `FdDup`; a path target is a real file write and must
         // run the write pipeline. see docs/security-invariants.md#fd-dup-remap
         let op = if op == ast::RedirectOp::FdDup {
             if ast::is_fd_dup_target(target) {
-                return Verdict::allow("fd redirect");
+                return Verdict::allow(AllowReason::FdRedirect);
             }
             ast::RedirectOp::Write
         } else {
             op
         };
         if ast::is_safe_redirect_target(target) {
-            return Verdict::allow(format!("redirect to {target}"));
+            return Verdict::allow(AllowReason::DeviceRedirect(target.to_owned()));
         }
         if self.config.self_protect && crate::self_protect::is_protected_path(target) {
             return Verdict::deny(crate::self_protect::PROTECTION_MESSAGE);
@@ -151,7 +151,7 @@ impl Analyzer {
         if matches!(op, ast::RedirectOp::Write | ast::RedirectOp::Append)
             && self.is_safe_write_target(target, cwd)
         {
-            return Verdict::allow(format!("redirect to {target} (safe dir)"));
+            return Verdict::allow(AllowReason::SafeDirWrite(target.to_owned()));
         }
         Verdict::ask(format!("redirect to {target}"))
     }
@@ -209,14 +209,14 @@ impl Analyzer {
 
     pub(super) fn analyze_heredoc_node(quoted: bool, content: Option<&str>) -> Verdict {
         if quoted {
-            return Verdict::allow("heredoc");
+            return Verdict::allow(AllowReason::Heredoc);
         }
         if let Some(body) = content
             && ast::has_shell_expansion_pattern(body)
         {
             return Verdict::ask("heredoc with expansion");
         }
-        Verdict::allow("heredoc")
+        Verdict::allow(AllowReason::Heredoc)
     }
 
     pub(super) fn analyze_inner_command(
@@ -315,7 +315,7 @@ impl Analyzer {
         };
         let name = self.config.resolve_alias(raw_name);
         if allowlists::is_dynamic_arg_safe(name) {
-            Verdict::allow(format!("{name} is safe (dynamic arg)"))
+            Verdict::allow(AllowReason::DynamicArgSafe(name.to_owned()))
         } else {
             Verdict::ask("shell expansion ($VAR dynamic)")
         }
@@ -328,7 +328,7 @@ impl Analyzer {
         depth: usize,
     ) -> Verdict {
         match class {
-            Classification::Allow(desc) => Verdict::allow(desc),
+            Classification::Allow(reason) => Verdict::allow(reason),
             Classification::Ask(desc) => Verdict::ask(desc),
             Classification::Deny(desc) => Verdict::deny(desc),
             Classification::Recurse(inner) => {
@@ -347,12 +347,8 @@ impl Analyzer {
                 self.remote = prev_remote;
                 v
             }
-            Classification::WithRedirects(decision, desc, targets) => {
-                let mut verdicts = vec![Verdict {
-                    decision,
-                    reason: desc,
-                    resolved_command: None,
-                }];
+            Classification::WithRedirects(reason, targets) => {
+                let mut verdicts = vec![Verdict::allow(reason)];
                 for target in &targets {
                     verdicts.push(self.analyze_redirect(ast::RedirectOp::Write, target, cwd));
                 }
@@ -364,16 +360,13 @@ impl Analyzer {
     pub(super) fn default_verdict(&self, cmd_name: &str) -> Verdict {
         self.config.default_action.map_or_else(
             || Verdict::ask(format!("{cmd_name} (unknown command)")),
-            |action| {
-                let mut reason = format!("{cmd_name} (default action)");
-                if action == Decision::Allow {
-                    reason.push_str(self.config.weakening_suffix());
-                }
-                Verdict {
-                    decision: action,
-                    reason,
-                    resolved_command: None,
-                }
+            |action| match action {
+                Decision::Allow => Verdict::allow(AllowReason::DefaultAction {
+                    cmd: cmd_name.to_owned(),
+                    weakening: self.config.weakening_suffix().to_owned(),
+                }),
+                Decision::Ask => Verdict::ask(format!("{cmd_name} (default action)")),
+                Decision::Deny => Verdict::deny(format!("{cmd_name} (default action)")),
             },
         )
     }

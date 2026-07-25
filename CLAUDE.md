@@ -34,6 +34,7 @@
 | `src/handlers/` | 85+ CLI-specific command handlers (git, docker, etc.) |
 | `src/payload.rs` | JSON input deserialization (4 AI tool formats) |
 | `src/verdict.rs` | Decision (Allow/Ask/Deny), per-mode JSON serialization |
+| `src/allow_reason.rs` | Typed Allow provenance (`AllowReason`) + `Display` that reproduces the wire strings |
 | `src/mode.rs` | Mode (Claude/Gemini/Cursor/Codex) and HookType enums |
 | `src/error.rs` | RippyError via thiserror |
 | `src/sql.rs` | SQL read-only classifier for database handlers |
@@ -137,6 +138,11 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
   security tool — a mis-transcribed `decision = "allow"` silently passes while
   asserting the wrong thing, so keep contrast pairs and never migrate an
   `ask`/`deny` case you have not observed.
+- **Assert Allow provenance by category, not by reason substring.** Use
+  `Verdict::allow_reason()` and match the `AllowReason` variant
+  (`tests/allow_provenance.rs`). Reason strings themselves are pinned wholesale
+  by `tests/data/reason_snapshot.txt` — they are part of the JSON hook output,
+  so a change there is a wire-format change and must be deliberate.
 - Property-based tests in `tests/proptest_robustness.rs` — proptest covers
   the four parsing/analysis surfaces (`Payload::parse`, `BashParser` +
   `Analyzer`, `Pattern::matches`, `Config::load_from_str`) against random
