@@ -58,6 +58,17 @@ decision = "ask"
 command = "ruby -e 'puts %w[a b]'"
 decision = "allow"
 
+# #182: the word scan sliced the source at raw byte offsets, so a multi-byte
+# character anywhere in `-e` crashed the hook (a crash is a fail-open — the
+# caller sees a non-blocking error, not a verdict).
+[[case]]
+command = "ruby -e '%x+їd/'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'puts їx'"
+decision = "allow"
+
 [[case]]
 command = "ruby"
 decision = "ask"
@@ -131,6 +142,15 @@ decision = "ask"
 [[case]]
 command = "perl -e 'system\"id\"'"
 decision = "ask"
+
+# #182: same raw-byte slicing crash as ruby, in perl's word scan.
+[[case]]
+command = "perl -e 'system їid'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 'print їx'"
+decision = "allow"
 
 # #159: only the first -e fragment was analyzed; a dangerous call in a later
 # fragment (which Perl concatenates with the first at runtime) was missed.

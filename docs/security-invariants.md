@@ -53,6 +53,8 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#heredoc-rable-26` | The safe-substitution conditions hold: `SIMPLE_SAFE` command, all redirects quoted heredocs, no word expansions | `src/analyzer_tests2.rs::safe_heredoc_in_command_substitution_allows`, `src/analyzer_tests2.rs::unquoted_heredoc_in_command_substitution_asks`, `src/analyzer_tests2.rs::unsafe_command_heredoc_in_substitution_asks`, `src/analyzer_tests2.rs::pipeline_in_heredoc_substitution_asks` |
 | `#git-undeclared-repo` | A read-only git invocation against a repository outside every declared scope still Asks | `tests/scopes.rs::git_read_outside_any_scope_still_asks` |
 | `#git-undeclared-repo` | A git write inside a declared scope still Asks | `tests/scopes.rs::git_write_in_declared_scope_still_asks` |
+| `#non-ascii-inline-code` | Multi-byte inline source is classified instead of crashing the scanner, and a dangerous call inside it still Asks | `src/ruby_safety.rs::non_ascii_source_is_classified_without_panicking`, `src/perl_safety.rs::non_ascii_source_is_classified_without_panicking`, `tests/data/catalog/handlers_interpreters.toml` |
+| `#non-ascii-inline-code` | The CTE skipper derives byte offsets, so multi-byte SQL is classified by its real main statement | `src/sql.rs::cte_with_non_ascii_body_is_classified_without_panicking`, `tests/data/catalog/handlers_text_system.toml` |
 | `#word-parts-trust` | A `Word` whose parts are all literal contains no expansion, even when its raw value has metacharacters | `tests/ast_invariants.rs::single_quoted_expansion_text_is_not_an_expansion`, `tests/data/catalog/safe_quoting.toml` |
 | `#word-parts-trust` | Real expansions still produce expansion nodes, and the textual scan agrees on parts-less inputs | `tests/ast_invariants.rs::every_source_level_expansion_produces_expansion_node`, `tests/ast_invariants.rs::has_expansions_agrees_on_simple_inputs` |
 | `#string-rule-chokepoint` | The whole-string check may only short-circuit an Allow for exactly one plain simple command | `tests/ast_invariants.rs::is_single_plain_command_matches_only_bare_simple_commands` |
@@ -212,6 +214,19 @@ A read-only git invocation against a repository outside every declared safe scop
 carry `core.fsmonitor`, alias, or hook directives that execute code on an
 otherwise "read-only" command, so scope-widening must not silently approve it.
 Tested by `tests/scopes.rs::git_read_outside_any_scope_still_asks`.
+
+## non-ascii-inline-code
+
+The inline-code scanners (`ruby_safety`, `perl_safety`) and the SQL CTE skipper
+locate ASCII keywords by scanning `str::as_bytes()`. Every offset they derive
+that way is a *byte* offset, and slicing a `str` at a byte offset that lands
+inside a multi-byte UTF-8 sequence panics. A panic is a fail-open: the hook exits
+without a verdict and the caller treats that as a non-blocking error, so
+`ruby -e '%x+їd/'` executed unreviewed (#182). Keep these scanners byte-only
+(compare `&bytes[..]` against `word.as_bytes()`), and where a byte offset must be
+produced from a character walk, use `char_indices()` rather than
+`chars().enumerate()`. Regression cases live in
+`tests/data/catalog/handlers_interpreters.toml` and `handlers_text_system.toml`.
 
 ## word-parts-trust
 

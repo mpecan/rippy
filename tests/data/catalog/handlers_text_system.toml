@@ -614,6 +614,16 @@ decision = "ask"
 command = "psql -l"
 decision = "allow"
 
+# #182: the CTE skipper indexed the statement by char position but sliced it by
+# byte position, crashing the hook on multi-byte SQL.
+[[case]]
+command = "psql -c \"WITH x AS (SELECT її) DELETE FROM t\""
+decision = "ask"
+
+[[case]]
+command = "psql -c \"WITH x AS (SELECT її) SELECT 1\""
+decision = "allow"
+
 [[case]]
 command = "mysql -e 'SELECT 1'"
 decision = "allow"

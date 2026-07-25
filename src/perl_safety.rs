@@ -71,14 +71,14 @@ fn has_dangerous_open(source: &str) -> bool {
         return false;
     }
     for start in 0..=(bytes.len() - wlen) {
-        if &source[start..start + wlen] != "open" {
+        if &bytes[start..start + wlen] != b"open" {
             continue;
         }
         let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
         let after_ok = start + wlen == bytes.len() || !is_word_byte(bytes[start + wlen]);
         if before_ok && after_ok {
-            let after = &source[start + wlen..];
-            if after.contains('>') || after.contains('|') {
+            let after = &bytes[start + wlen..];
+            if after.contains(&b'>') || after.contains(&b'|') {
                 return true;
             }
         }
@@ -96,7 +96,9 @@ const fn is_word_byte(b: u8) -> bool {
 /// inside `$systematic`). Perl allows calling `system`/`exec`/`qx`/etc. with
 /// or without parens/spaces (`system"id"`, `system(...)`, `system;`), so only
 /// the boundary before and after the match is checked, not any particular
-/// following delimiter.
+/// following delimiter. Comparison is byte-wise because the words are ASCII and
+/// slicing the `str` at raw offsets panics on multi-byte input (see
+/// docs/security-invariants.md#non-ascii-inline-code).
 fn contains_word(source: &str, word: &str) -> bool {
     let bytes = source.as_bytes();
     let wlen = word.len();
@@ -104,7 +106,7 @@ fn contains_word(source: &str, word: &str) -> bool {
         return false;
     }
     for start in 0..=(bytes.len() - wlen) {
-        if &source[start..start + wlen] != word {
+        if &bytes[start..start + wlen] != word.as_bytes() {
             continue;
         }
         let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
@@ -343,5 +345,12 @@ mod tests {
     #[test]
     fn multi_e_concatenation_dangerous() {
         assert!(!is_perl_source_safe("1\nsystem(\"id\")"));
+    }
+
+    #[test]
+    fn non_ascii_source_is_classified_without_panicking() {
+        assert!(!is_perl_source_safe("їx; system \"id\""));
+        assert!(!is_perl_source_safe("open FH, \">/tmp/їx\""));
+        assert!(is_perl_source_safe("print їx"));
     }
 }
