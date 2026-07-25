@@ -40,6 +40,7 @@ pub mod stats;
 pub mod stdlib;
 pub mod suggest;
 pub(crate) mod toml_config;
+pub mod trace;
 pub mod tracking;
 pub mod trust;
 pub mod trust_cmd;

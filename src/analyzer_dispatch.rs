@@ -10,11 +10,12 @@ use crate::allowlists;
 use crate::ast;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::resolve;
+use crate::trace::Stage;
 use crate::verdict::{AllowReason, Decision, Verdict};
 
 impl Analyzer {
     pub(super) fn analyze_redirects(
-        &self,
+        &mut self,
         redirects: &[Node],
         cwd: &Path,
         _depth: usize,
@@ -55,15 +56,15 @@ impl Analyzer {
                 safe_scopes: &self.config.safe_scopes,
             };
             let classification = handler.classify(&ctx);
-            if self.verbose {
-                eprintln!("[rippy] handler: {cmd_name} -> {classification:?}");
-            }
+            self.trace(Stage::Handler, true, || {
+                format!("{cmd_name} -> {classification:?}")
+            });
             return self.apply_classification(classification, cwd, depth);
         }
 
-        if self.verbose {
-            eprintln!("[rippy] no handler for: {cmd_name}");
-        }
+        self.trace(Stage::Handler, false, || {
+            format!("no handler registered for {cmd_name}")
+        });
         self.default_verdict(cmd_name)
     }
 
@@ -77,7 +78,7 @@ impl Analyzer {
     /// per leaf (not on the raw chained string) so a trailing payload can never
     /// ride along on a leading allow-ruled command.
     pub(super) fn leaf_string_rule(
-        &self,
+        &mut self,
         name: &str,
         args: &[String],
         redirects: &[Node],
@@ -89,20 +90,28 @@ impl Analyzer {
             format!("{name} {}", args.join(" "))
         };
         if let Some(decision) = self.cc_rules.check(&leaf) {
+            self.trace(Stage::CcRule, true, || {
+                format!("{}: {leaf}", decision.as_str())
+            });
             let v = super::cc_decision_to_verdict(decision, &leaf);
             return Some(self.with_redirects(v, redirects, cwd));
         }
-        let ctx = self.match_ctx();
-        self.config
-            .match_command(&leaf, Some(&ctx))
-            .map(|v| self.with_redirects(v, redirects, cwd))
+        let matched = {
+            let ctx = self.match_ctx();
+            self.config.match_command(&leaf, Some(&ctx))
+        };
+        let verdict = matched?;
+        self.trace(Stage::ConfigRule, true, || {
+            format!("{}: {}", verdict.decision.as_str(), verdict.reason)
+        });
+        Some(self.with_redirects(verdict, redirects, cwd))
     }
 
     /// Combine a command-level verdict with the verdicts of its redirects
     /// (most-restrictive wins), so an allow rule / safe command cannot bypass the
     /// redirect safety pipeline (self-protect, safe-dir, deny rules).
     pub(super) fn with_redirects(
-        &self,
+        &mut self,
         verdict: Verdict,
         redirects: &[Node],
         cwd: &Path,
@@ -118,12 +127,22 @@ impl Analyzer {
         Verdict::combine(&all)
     }
 
+    /// Run one redirect target through the write pipeline, recording the gate's
+    /// own verdict so the trace explains a decision the command word cannot.
     pub(super) fn analyze_redirect(
-        &self,
+        &mut self,
         op: ast::RedirectOp,
         target: &str,
         cwd: &Path,
     ) -> Verdict {
+        let verdict = self.redirect_verdict(op, target, cwd);
+        self.trace(Stage::Redirect, true, || {
+            format!("{}: {}", verdict.decision.as_str(), verdict.reason)
+        });
+        verdict
+    }
+
+    fn redirect_verdict(&self, op: ast::RedirectOp, target: &str, cwd: &Path) -> Verdict {
         if op == ast::RedirectOp::Read {
             return Verdict::allow(AllowReason::InputRedirect);
         }
@@ -253,6 +272,9 @@ impl Analyzer {
         }
         // Bail out on runaway resolution (also catches cycles like `A=$B; B=$A`).
         if self.resolution_depth >= MAX_RESOLUTION_DEPTH {
+            self.trace(Stage::Expansion, false, || {
+                format!("resolution depth exceeded ({MAX_RESOLUTION_DEPTH})")
+            });
             return Some(Verdict::ask("shell expansion (resolution depth exceeded)"));
         }
         let resolved = {
@@ -273,19 +295,24 @@ impl Analyzer {
                 || "shell expansion".to_string(),
                 |r| format!("shell expansion ({r})"),
             );
+            self.trace(Stage::Expansion, false, || reason.clone());
             return Some(Verdict::ask(reason));
         };
         let resolved_command = resolve::shell_join(&args);
         // Refuse to materialize pathologically large resolved commands.
         if resolved_command.len() > MAX_RESOLVED_LEN {
+            self.trace(Stage::Expansion, false, || {
+                format!("resolved command exceeds {MAX_RESOLVED_LEN}-byte limit")
+            });
             return Some(Verdict::ask(format!(
                 "shell expansion (resolved command exceeds {MAX_RESOLVED_LEN}-byte limit)"
             )));
         }
-        if self.verbose {
-            eprintln!("[rippy] resolved: {resolved_command}");
-        }
+        self.trace(Stage::Expansion, true, || resolved_command.clone());
         if resolved.command_position_dynamic {
+            self.trace(Stage::Expansion, false, || {
+                "command name comes from an expansion".to_owned()
+            });
             return Some(
                 Verdict::ask(format!("dynamic command (resolved: {resolved_command})"))
                     .with_resolution(resolved_command),
@@ -309,14 +336,23 @@ impl Analyzer {
     /// (`mount`/`stty`) — are excluded, as is any handler command (`rm`,
     /// `git`, ...), because a set-but-unknown value could otherwise hide an
     /// injected dangerous flag or path.
-    pub(super) fn dynamic_arg_verdict(&self, words: &[Node]) -> Verdict {
+    pub(super) fn dynamic_arg_verdict(&mut self, words: &[Node]) -> Verdict {
         let Some(raw_name) = ast::command_name_from_words(words) else {
+            self.trace(Stage::Expansion, false, || {
+                "ask: dynamic argument on a command with no name".to_owned()
+            });
             return Verdict::ask("shell expansion ($VAR dynamic)");
         };
-        let name = self.config.resolve_alias(raw_name);
-        if allowlists::is_dynamic_arg_safe(name) {
-            Verdict::allow(AllowReason::DynamicArgSafe(name.to_owned()))
+        let name = self.config.resolve_alias(raw_name).to_owned();
+        if allowlists::is_dynamic_arg_safe(&name) {
+            self.trace(Stage::Expansion, true, || {
+                format!("allow: {name} is safe with a set-but-unknown argument")
+            });
+            Verdict::allow(AllowReason::DynamicArgSafe(name))
         } else {
+            self.trace(Stage::Expansion, false, || {
+                format!("ask: {name} is not safe with a set-but-unknown argument")
+            });
             Verdict::ask("shell expansion ($VAR dynamic)")
         }
     }
@@ -332,15 +368,13 @@ impl Analyzer {
             Classification::Ask(desc) => Verdict::ask(desc),
             Classification::Deny(desc) => Verdict::deny(desc),
             Classification::Recurse(inner) => {
-                if self.verbose {
-                    eprintln!("[rippy] recurse: {inner}");
-                }
+                self.trace(Stage::Command, true, || format!("recurse: {inner}"));
                 self.analyze_inner_command(&inner, cwd, depth)
             }
             Classification::RecurseRemote(inner) => {
-                if self.verbose {
-                    eprintln!("[rippy] recurse (remote): {inner}");
-                }
+                self.trace(Stage::Command, true, || {
+                    format!("recurse (remote): {inner}")
+                });
                 let prev_remote = self.remote;
                 self.remote = true;
                 let v = self.analyze_inner_command(&inner, cwd, depth);
@@ -357,7 +391,14 @@ impl Analyzer {
         }
     }
 
-    pub(super) fn default_verdict(&self, cmd_name: &str) -> Verdict {
+    pub(super) fn default_verdict(&mut self, cmd_name: &str) -> Verdict {
+        let action = self.config.default_action;
+        self.trace(Stage::Default, true, || {
+            action.map_or_else(
+                || format!("{cmd_name} is an unknown command"),
+                |a| format!("default action: {}", a.as_str()),
+            )
+        });
         self.config.default_action.map_or_else(
             || Verdict::ask(format!("{cmd_name} (unknown command)")),
             |action| match action {

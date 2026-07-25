@@ -23,7 +23,7 @@ Refusing to *strip* a code-influencing env prefix is not enough on its own: the
 un-stripped command still lands on the analyzer, and if the command itself is
 safe-listed (`cat`, `git fetch`, `bash -c :`, `perl`, `node`) the fast path would
 Allow it with the dangerous assignment intact (issue #157). So `analyze_command`
-enforces the gate directly — `Analyzer::assignment_is_dangerous` Asks on any
+enforces the gate directly — `Analyzer::dangerous_assignment_name` Asks on any
 simple command carrying a literal assignment whose name matches
 `ast::is_dangerous_env_name`, before the safe-command path or any handler runs.
 The `env` handler applies the same check to the `NAME=VALUE` args it sets, since
@@ -170,3 +170,39 @@ Per-leaf matching is sound because the laundering vectors are closed:
 - **Expansions.** A leaf with a word expansion skips the string match and is
   resolved first (`try_resolve`); its re-analysis re-enters `analyze_command` on
   the literal form, so `cargo $X` cannot match a `cargo` rule before `$X` is known.
+
+## inspect-delegation
+
+The explain path (`rippy inspect <cmd>`, `rippy debug <cmd>`) must obtain its
+decision **only** from `Analyzer::analyze`. It renders the trace events the
+analyzer emits (`src/trace.rs`); it may never re-run CC/config matching,
+re-classify parse shape, or short-circuit on the allowlist itself. A reviewer
+reads `inspect` to understand what the hook did, so an explain path with its own
+routing is a correctness bug, not a cosmetic one.
+
+Before #167 `inspect` re-derived the routing and diverged on three live cases,
+each of which reported `allow` while the hook did not:
+
+- `LD_PRELOAD=/tmp/x ls` — the parallel `is_safe && !has_expansions`
+  short-circuit approved on the command name, missing the dangerous-env gate
+  (#dangerous-env-name); the hook Asks.
+- `ls && rm -rf /` under an `allow "ls*"` rule — `inspect` applied the
+  whole-string allow to a compound command, missing the single-plain-command
+  gate (#string-rule-chokepoint); the hook Asks.
+- Any rule with a `[rules.when.*]` condition — `inspect` called
+  `Config::match_command` with a null `MatchContext`, so conditional rules never
+  fired; the hook Denies.
+
+#137 (inspect/debug disagreeing with the hook on compound commands) is the
+historical form of the same failure. `src/inspect_tests.rs` and
+`tests/inspect_delegation.rs` pin the invariant at the library and binary level.
+
+Delegating the decision is only half of it: every gate that can *produce* a
+decision must also emit an event, or the trace ends on an affirmative step that
+contradicts the printed verdict (`echo x > /etc/passwd` once closed on
+`Allowlist ✓ echo is in the simple-safe list` and then printed `ASK`). The
+redirect pipeline (`Stage::Redirect`), the dangerous / expanding env prefix
+(`Stage::EnvPrefix`) and the dynamic-argument allow (`Stage::Expansion`)
+therefore each record their own verdict. `matched` means *this layer decided*,
+so a whole-string ALLOW withheld by #string-rule-chokepoint is recorded as a
+non-match with a "not applied" detail — never as a hit.

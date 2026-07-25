@@ -353,16 +353,6 @@ pub fn is_safe_redirect_target(target: &str) -> bool {
     SAFE_REDIRECT_TARGETS.contains(&target)
 }
 
-/// Whether a `Command` node carries any redirects at all.
-///
-/// Used to route a single simple command that has redirects (e.g.
-/// `echo x > .env`) through the full analyzer, since the redirect target may be
-/// protected and cannot be judged safe on the command name alone.
-#[must_use]
-pub const fn command_has_redirects(node: &Node) -> bool {
-    matches!(&node.kind, NodeKind::Command { redirects, .. } if !redirects.is_empty())
-}
-
 /// Whether the parsed tree is one plain simple command (no redirects, no word
 /// expansions) — the only shape a whole-string allow rule may be trusted on.
 ///
