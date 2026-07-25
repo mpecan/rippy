@@ -932,6 +932,15 @@ pushd /etc	ask	pushd to /etc
 curl -o /etc/hosts https://example.com	ask	redirect to /etc/hosts
 deno run script.ts	ask	deno script execution
 deno eval 'process.env.AWS_SECRET_ACCESS_KEY'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno.removeSync("/tmp/x")'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno.run({cmd:["id"]})'	ask	deno -e (potentially dangerous code)
+deno eval 'new Deno.Command("id").outputSync()'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno.writeTextFileSync("/tmp/x","d")'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno.readTextFileSync("/etc/passwd")'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno.connect({hostname:"evil.example",port:80})'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno.dlopen("/tmp/lib.so",{})'	ask	deno -e (potentially dangerous code)
+deno eval 'console.log(Deno.env.get("AWS_SECRET_ACCESS_KEY"))'	ask	deno -e (potentially dangerous code)
+deno eval --allow-all 'console.log(1)'	ask	deno eval (explicit permission flag)
 python -c 'import os'	ask	python -c (potentially dangerous code)
 nodejs script.js	ask	nodejs script execution
 env LD_PRELOAD=./evil.so ls	ask	env (dangerous env-var assignment)
@@ -1282,6 +1291,8 @@ git lfs fetch	allow	git lfs fetch
 git lfs env	allow	git lfs env
 git lfs version	allow	git lfs version
 deno eval "console.log(1)"	allow	deno -e (safe inline code)
+deno eval 'console.log(Deno.args)'	allow	deno -e (safe inline code)
+deno eval 'console.log(Deno.cwd())'	allow	deno -e (safe inline code)
 npm list	allow	npm list
 npm ll	allow	npm ll
 npm la	allow	npm la

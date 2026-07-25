@@ -673,7 +673,7 @@ Rows are written with `node`; unless a row says otherwise they apply the same wa
 | --- | --- |
 | `node\|nodejs\|deno --version\|-v\|-V\|--help\|-h` | sole argument |
 | `node -e\|--eval\|-p\|--print <code>` | source passes the analysis in src/node_safety.rs |
-| `deno eval <code>` | source passes the analysis in src/node_safety.rs |
+| `deno eval <code>` | no explicit permission flag and source passes the analysis in src/node_safety.rs |
 | `node <script>` | script readable from the working directory and its source passes the analysis in src/node_safety.rs |
 
 ### `npm`, `npx`, `yarn`, `pnpm`, `bun`

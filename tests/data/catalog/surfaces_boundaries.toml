@@ -176,6 +176,59 @@ decision = "ask"
 command = "deno eval 'process.env.AWS_SECRET_ACCESS_KEY'"
 decision = "ask"
 
+# bounds `deno eval <code>` -- Deno.* filesystem removal is invisible to Node-idiom
+# denylists (#186) -- observed reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'Deno.removeSync(\"/tmp/x\")'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- Deno.run is process execution -- observed reason:
+# deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'Deno.run({cmd:[\"id\"]})'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- Deno.Command is the modern process-execution API --
+# observed reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'new Deno.Command(\"id\").outputSync()'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- observed reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'Deno.writeTextFileSync(\"/tmp/x\",\"d\")'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- observed reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'Deno.readTextFileSync(\"/etc/passwd\")'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- network egress parity with fetch/WebSocket --
+# observed reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'Deno.connect({hostname:\"evil.example\",port:80})'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- Deno.dlopen loads native code via FFI -- observed
+# reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'Deno.dlopen(\"/tmp/lib.so\",{})'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- Deno.env parity with Node's process.env -- observed
+# reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'console.log(Deno.env.get(\"AWS_SECRET_ACCESS_KEY\"))'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- an explicit permission flag forces Ask regardless of
+# content, even when the code itself is inert -- observed reason: deno eval
+# (explicit permission flag)
+[[case]]
+command = "deno eval --allow-all 'console.log(1)'"
+decision = "ask"
+
 # bounds `python -c <code>` -- observed reason: python -c (potentially dangerous code)
 [[case]]
 command = "python -c 'import os'"
