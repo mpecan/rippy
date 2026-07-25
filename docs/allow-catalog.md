@@ -33,11 +33,11 @@ For those, the `Condition` column names the module that decides.
 
 Commands approved on their name alone, regardless of arguments.
 
-### `SIMPLE_SAFE` — 131 commands
+### `SIMPLE_SAFE` — 129 commands
 
 Approved on the command name alone, whatever the arguments.
 
-`:`, `[`, `ag`, `apropos`, `arch`, `base32`, `base64`, `basename`, `bat`, `bc`, `blkid`, `bzcat`, `cat`, `cksum`, `cloc`, `column`, `comm`, `cut`, `date`, `df`, `diff`, `dig`, `dirname`, `dos2unix`, `du`, `echo`, `exa`, `expand`, `expr`, `eza`, `false`, `file`, `findmnt`, `fmt`, `fold`, `free`, `fzf`, `getconf`, `getent`, `grep`, `groups`, `head`, `help`, `hexdump`, `host`, `hostname`, `htop`, `hyperfine`, `iconv`, `id`, `info`, `iostat`, `join`, `jq`, `ldd`, `less`, `locale`, `locate`, `ls`, `lsb_release`, `lsblk`, `lsd`, `lsof`, `man`, `md5sum`, `more`, `mount`, `netstat`, `nl`, `nm`, `nproc`, `nslookup`, `objdump`, `od`, `otool`, `paste`, `pgrep`, `ping`, `printenv`, `printf`, `ps`, `pwd`, `readelf`, `readlink`, `realpath`, `rev`, `rg`, `scc`, `seq`, `sha1sum`, `sha256sum`, `sha512sum`, `shuf`, `size`, `sleep`, `ss`, `stat`, `strings`, `stty`, `sum`, `tac`, `tail`, `test`, `tldr`, `tokei`, `top`, `tput`, `tr`, `tracepath`, `traceroute`, `tree`, `true`, `tty`, `type`, `uname`, `unexpand`, `uniq`, `unix2dos`, `uptime`, `vmstat`, `wc`, `whatis`, `whence`, `whereis`, `which`, `whoami`, `xxd`, `xzcat`, `yes`, `zcat`, `zstdcat`
+`:`, `[`, `ag`, `apropos`, `arch`, `base32`, `base64`, `basename`, `bat`, `bc`, `blkid`, `bzcat`, `cat`, `cksum`, `cloc`, `column`, `comm`, `cut`, `date`, `df`, `diff`, `dig`, `dirname`, `du`, `echo`, `exa`, `expand`, `expr`, `eza`, `false`, `file`, `findmnt`, `fmt`, `fold`, `free`, `fzf`, `getconf`, `getent`, `grep`, `groups`, `head`, `help`, `hexdump`, `host`, `hostname`, `htop`, `hyperfine`, `iconv`, `id`, `info`, `iostat`, `join`, `jq`, `ldd`, `less`, `locale`, `locate`, `ls`, `lsb_release`, `lsblk`, `lsd`, `lsof`, `man`, `md5sum`, `more`, `mount`, `netstat`, `nl`, `nm`, `nproc`, `nslookup`, `objdump`, `od`, `otool`, `paste`, `pgrep`, `ping`, `printenv`, `printf`, `ps`, `pwd`, `readelf`, `readlink`, `realpath`, `rev`, `rg`, `scc`, `seq`, `sha1sum`, `sha256sum`, `sha512sum`, `shuf`, `size`, `sleep`, `ss`, `stat`, `strings`, `stty`, `sum`, `tac`, `tail`, `test`, `tldr`, `tokei`, `top`, `tput`, `tr`, `tracepath`, `traceroute`, `tree`, `true`, `tty`, `type`, `uname`, `unexpand`, `uniq`, `uptime`, `vmstat`, `wc`, `whatis`, `whence`, `whereis`, `which`, `whoami`, `xxd`, `xzcat`, `yes`, `zcat`, `zstdcat`
 
 ### Wrappers — 8 commands
 
@@ -63,7 +63,17 @@ With a *literal* argument these are still approved by the allowlist above.
 
 Per-command handlers: the exact invocations each one auto-approves.
 
-45 handlers. A handler that only re-analyzes an inner command or asks declares an empty surface, which is itself listed below.
+47 handlers. A handler that only re-analyzes an inner command or asks declares an empty surface, which is itself listed below.
+
+### `7z`, `7za`, `7zr`, `7zz`
+
+Rows are written with `7z`; unless a row says otherwise they apply the same way to every command name in this heading.
+
+| Approved invocation | Condition |
+| --- | --- |
+| `7z l` | — |
+| `7z t` | — |
+| `7z --help\|-h\|--version\|-V` | sole argument |
 
 ### `ansible`, `ansible-playbook`, `ansible-vault`, `ansible-galaxy`, `ansible-config`, `ansible-inventory`, `ansible-doc`, `ansible-lint`
 
@@ -90,8 +100,8 @@ Rows are written with `awk`; unless a row says otherwise they apply the same way
 
 | Approved invocation | Condition |
 | --- | --- |
-| `awk <program> [<file>...]` | no system() call, pipe-to-command or file redirect in the program |
-| `awk -f <script>` | script readable from the working directory; no system() call, pipe-to-command or file redirect in the program |
+| `awk <program> [<file>...]` | no system() call, pipe-to-command or file redirect in the program, and no -i/--include flag |
+| `awk -f <script>` | script readable from the working directory; no system() call, pipe-to-command or file redirect in the program, and no -i/--include flag |
 
 ### `aws`
 
@@ -274,6 +284,17 @@ Rows are written with `docker`; unless a row says otherwise they apply the same 
 | `docker export` | no -o/--output; with one, the target runs the redirect pipeline |
 | `docker save` | no -o/--output; with one, the target runs the redirect pipeline |
 | `docker --help\|-h\|--version` | sole argument |
+
+### `dos2unix`, `unix2dos`
+
+Rows are written with `dos2unix`; unless a row says otherwise they apply the same way to every command name in this heading.
+
+| Approved invocation | Condition |
+| --- | --- |
+| `dos2unix --help\|-h\|--version\|-V` | sole argument |
+| `dos2unix --info` | — |
+| `dos2unix -n <in> <out>` | even number of file operands (in/out pairs); each output path runs the redirect pipeline |
+| `dos2unix` | no file operand (stdin/stdout filter) |
 
 ### `env`
 
@@ -820,15 +841,14 @@ Rows are written with `ruby`; unless a row says otherwise they apply the same wa
 | `tokf completions` | — |
 | `tokf rewrite` | — |
 
-### `unzip`, `7z`, `7za`, `7zr`, `7zz`
-
-Rows are written with `unzip`; unless a row says otherwise they apply the same way to every command name in this heading.
+### `unzip`
 
 | Approved invocation | Condition |
 | --- | --- |
-| `unzip l` | — |
-| `unzip t` | — |
 | `unzip --help\|-h\|--version\|-V` | sole argument |
+| `unzip -l` | — |
+| `unzip -t` | — |
+| `unzip -v` | — |
 
 ### `uv`, `uvx`
 

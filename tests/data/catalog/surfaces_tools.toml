@@ -138,15 +138,31 @@ command = 'tokf completions'
 decision = "allow"
 
 [[case]]
-command = 'unzip l archive.zip'
+command = 'unzip -l archive.zip'
 decision = "allow"
 
 [[case]]
-command = 'unzip t archive.zip'
+command = 'unzip -t archive.zip'
+decision = "allow"
+
+[[case]]
+command = 'unzip -v archive.zip'
 decision = "allow"
 
 [[case]]
 command = 'unzip --help'
+decision = "allow"
+
+[[case]]
+command = '7z l archive.7z'
+decision = "allow"
+
+[[case]]
+command = '7z t archive.7z'
+decision = "allow"
+
+[[case]]
+command = '7z --help'
 decision = "allow"
 
 [[case]]
