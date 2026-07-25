@@ -37,6 +37,9 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#append-assignment-shadow` | An append prefix on a safe command still allows | `src/analyzer_tests2.rs::append_assignment_env_prefix_safe_command_allows` |
 | `#fd-dup-remap` | Bare-descriptor and close targets stay real fd operations | `src/ast_tests.rs::fd_dup_target_recognizes_descriptors_but_not_paths`, `src/analyzer_tests.rs::fd_dup_to_descriptor_allows`, `src/analyzer_tests.rs::fd_dup_to_dev_null_allows` |
 | `#fd-dup-remap` | A path target is re-mapped to `Write` and runs the full write pipeline (safe-dir check and self-protection) | `src/analyzer_tests.rs::fd_dup_to_unsafe_file_asks`, `src/analyzer_tests.rs::fd_dup_to_safe_dir_allows`, `src/analyzer_tests.rs::fd_dup_to_self_protected_denies` |
+| `#wrapper-redirects` | A wrapper prefix never launders a redirect or heredoc past the write pipeline, including nested wrappers, chained lists, and the no-inner-command form | `tests/data/catalog/injection_wrappers.toml`, `tests/proptest_metamorphic.rs::wrapper_must_not_drop_the_redirect_guard`, `tests/metamorphic/invariants.rs::redirect_inject` |
+| `#wrapper-redirects` | A safe wrapped redirect still Allows, so the guard is not a blanket Ask | `tests/data/catalog/injection_wrappers.toml` |
+| `#wrapper-redirects` | `timeout`'s options and DURATION are skipped so the inner command is analyzed, and an argv that does not match that grammar is left unchanged | `src/allowlists.rs::timeout_duration_and_options_are_skipped`, `src/allowlists.rs::unparseable_timeout_argv_falls_back_to_the_whole_slice`, `src/allowlists.rs::non_timeout_wrappers_keep_their_whole_argv` |
 | `#tmp-symlink` | Targets whose runtime value is not statically known (expansions, `~`, globs) are rejected | `src/analyzer_tests.rs::redirect_dynamic_target_asks`, `src/analyzer_tests.rs::redirect_glob_target_asks` |
 | `#tmp-symlink` | `..` escapes and prefix-not-component matches are rejected | `src/analyzer_tests.rs::redirect_dotdot_escape_asks`, `src/analyzer_tests.rs::redirect_component_boundary_asks` |
 | `#tmp-symlink` | cwd exclusion: a target inside the working-directory subtree keeps asking even when cwd lives under a safe dir | `src/analyzer_tests.rs::redirect_into_cwd_under_safe_dir_asks` |
@@ -137,6 +140,29 @@ targets (`2>&1`, `>&2`, `>&-`) are true fd operations. A path target
 (`&> out.log`) is a *file write* and must run the same safety pipeline as `>`,
 otherwise it would bypass self-protection, deny rules, and the safe-dir check. We
 re-map such targets to `Write`.
+
+## wrapper-redirects
+
+`analyze_command_node`: unwrapping a `WRAPPER_COMMANDS` entry re-analyzes only
+the inner *words*, and `analyze_inner_command` re-parses that joined string on
+its own. The `>` target and any heredoc live on the OUTER `NodeKind::Command`'s
+`redirects` slice, which the inner parse never sees. The whole write pipeline —
+self-protection, deny rules, the safe-dir check, heredoc expansion — hangs off
+`analyze_redirects`, so the branch must end in `with_redirects` or a wrapper
+prefix strips all of it (#181: `ls > /etc/passwd` asked, `nice ls > /etc/passwd`
+was approved). The no-inner-command path needs the same treatment: `nice >
+/etc/passwd` is a write with no command at all.
+
+`time` never had the bug because rable parses it as a keyword, leaving the
+redirect on the outer node.
+
+`wrapper_inner_args` strips a wrapper's own options before the unwrap. It is
+`timeout`-only on purpose: `timeout` is the one wrapper with a mandatory
+DURATION operand, and a generic "skip leading flags" rule would swallow the
+path in `strace -o /etc/passwd ls`. An argv that does not match GNU timeout's
+grammar (`timeout 1m30s ls`, `timeout --bogus 5 ls`) is deliberately analyzed
+unchanged rather than guessed at, which keeps the fail-closed path where the
+stray word reads as an unknown command.
 
 ## tmp-symlink
 

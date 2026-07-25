@@ -655,6 +655,37 @@ cargo build > /etc/cron.d/payload	ask	redirect to /etc/cron.d/payload
 cargo build > ~/.rippy/config.toml	deny	rippy configuration files are protected from modification. To disable self-protection, manually add `set self-protect off` to your config.
 git status	allow	git status
 git status && rm -rf /	ask	matched rule: command=rm
+nice ls > /etc/passwd	ask	redirect to /etc/passwd
+nice ls > /tmp/rippy-out.txt	allow	redirect to /tmp/rippy-out.txt (safe dir)
+nice cat x > ~/.ssh/authorized_keys	ask	redirect to ~/.ssh/authorized_keys
+nohup ls > /etc/passwd	ask	redirect to /etc/passwd
+nohup echo hello	allow	echo is safe
+strace ls > /etc/passwd	ask	redirect to /etc/passwd
+strace ls	allow	ls is safe
+ltrace ls > /etc/passwd	ask	redirect to /etc/passwd
+ltrace ls > /dev/null	allow	redirect to /dev/null
+command echo pwned > /etc/sudoers	ask	redirect to /etc/sudoers
+command echo pwned > /tmp/note.txt	allow	redirect to /tmp/note.txt (safe dir)
+builtin echo x >> /etc/hosts	ask	redirect to /etc/hosts
+builtin echo x >> /tmp/output.txt	allow	redirect to /tmp/output.txt (safe dir)
+timeout ls > /etc/passwd	ask	redirect to /etc/passwd
+timeout ls	allow	ls is safe
+timeout 5 ls > /etc/passwd	ask	redirect to /etc/passwd
+timeout 5 ls	allow	ls is safe
+timeout -s KILL 5 ls > /etc/passwd	ask	redirect to /etc/passwd
+timeout -s KILL 5 ls	allow	ls is safe
+timeout 5 rm -rf /	ask	matched rule: command=rm
+timeout 5 git status	allow	git status
+timeout --bogus 5 ls	ask	--bogus (unknown command)
+timeout 5s ls	allow	ls is safe
+nice nohup ls > /etc/passwd	ask	redirect to /etc/passwd
+nice nohup ls > /tmp/nested.txt	allow	redirect to /tmp/nested.txt (safe dir)
+nice > /etc/passwd	ask	redirect to /etc/passwd
+nice > /tmp/nice.txt	allow	redirect to /tmp/nice.txt (safe dir)
+nice cat <<EOF $(id) EOF	ask	heredoc with expansion
+nice cat <<'EOF' rm -rf / EOF	allow	heredoc
+nice ls > /etc/passwd; echo done	ask	redirect to /etc/passwd
+nice ls > /tmp/x; echo done	allow	echo is safe
 INSTA_UPDATE=always cargo test	allow	matched rule: command=cargo subcommands=[help,version,search,info,tree,metadata,read-manifest,locate-project,pkgid,verify-project,build,test,bench,check,clippy,fmt,doc,clean,nextest,fetch,generate-lockfile,update,vendor,login,logout,owner,audit,deny,expand,outdated,bloat,machete,llvm-lines,udeps,depgraph,msrv]
 RUST_LOG=debug cargo build	allow	matched rule: command=cargo subcommands=[help,version,search,info,tree,metadata,read-manifest,locate-project,pkgid,verify-project,build,test,bench,check,clippy,fmt,doc,clean,nextest,fetch,generate-lockfile,update,vendor,login,logout,owner,audit,deny,expand,outdated,bloat,machete,llvm-lines,udeps,depgraph,msrv]
 A=1 B=2 cargo test	allow	matched rule: command=cargo subcommands=[help,version,search,info,tree,metadata,read-manifest,locate-project,pkgid,verify-project,build,test,bench,check,clippy,fmt,doc,clean,nextest,fetch,generate-lockfile,update,vendor,login,logout,owner,audit,deny,expand,outdated,bloat,machete,llvm-lines,udeps,depgraph,msrv]

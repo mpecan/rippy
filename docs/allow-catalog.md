@@ -41,7 +41,7 @@ Approved on the command name alone, whatever the arguments.
 
 ### Wrappers — 8 commands
 
-Approved only with no inner command; otherwise the inner command is analyzed in their place.
+Approved only with no inner command; otherwise the inner command is analyzed in their place. The wrapper's own redirects and heredocs are still evaluated, so `nice ls > /etc/passwd` asks. For `timeout`, its options and the mandatory DURATION are skipped first; an argv that does not match that grammar is analyzed unchanged, so the stray word reads as an unknown command.
 
 `builtin`, `command`, `ltrace`, `nice`, `nohup`, `strace`, `time`, `timeout`
 

@@ -71,7 +71,8 @@ is a single plain command. That is the base being conservative, not the wrapped
 form failing open. The harness therefore applies invariant 6 to single-stage
 specs, where prefixing a wrapper really does wrap the whole command. An
 exhaustive sweep of every `SIMPLE_SAFE` leaf times every wrapper in that shape
-found exactly one violation, recorded below.
+found one violation, the dropped redirect guard fixed in
+[#181](https://github.com/mpecan/rippy/issues/181), and none since.
 
 ### Invariant 7
 
@@ -86,33 +87,6 @@ dominates, so the resolved string can omit the redirect that drove the decision.
 Only the monotone direction expresses "never fail open".
 
 ## Known fail-opens
-
-### Wrapper commands drop the redirect guard — [#181](https://github.com/mpecan/rippy/issues/181)
-
-Found by invariant 3.
-
-```
-ls > /etc/passwd                    => Ask   | redirect to /etc/passwd
-nice ls > /etc/passwd               => Allow | ls is safe
-command echo pwned > /etc/sudoers   => Allow | echo is safe
-timeout ls > /etc/passwd            => Allow | ls is safe
-nice ls > /etc/passwd; echo done    => Allow | echo is safe
-```
-
-`analyze_command_node` returns the wrapper's inner verdict directly instead of
-funnelling it through `with_redirects`, so `nice`, `nohup`, `strace`, `ltrace`,
-`command`, `builtin` and bare `timeout` all discard the node's redirects.
-`time` is unaffected because rable parses it as a keyword.
-
-Until it is fixed:
-
-- `invariants::redirect_guard_lost_by_wrapper` skips exactly this shape during
-  generation. The invariant itself is unchanged.
-- `tests/proptest_metamorphic.rs::wrapper_must_not_drop_the_redirect_guard`
-  pins the reproducers as an `#[ignore]`d failing test, including the bare
-  `timeout` and compound forms the generator cannot reach.
-
-Fixing #181 means deleting both.
 
 ### Non-ASCII in a ruby/perl inline script panics the hook — [#182](https://github.com/mpecan/rippy/issues/182)
 
@@ -192,15 +166,16 @@ The two paths differ because proptest's `SourceParallel` cannot find a
 sibling file and the repo-root `proptest-regressions/` never receives anything
 from `tests/`.
 
-Both counterexamples found so far ([#181](https://github.com/mpecan/rippy/issues/181),
-[#182](https://github.com/mpecan/rippy/issues/182)) are pinned as `#[ignore]`d
+The counterexamples found so far ([#181](https://github.com/mpecan/rippy/issues/181),
+[#182](https://github.com/mpecan/rippy/issues/182)) were pinned as `#[ignore]`d
 reproducers plus tracked issues rather than as committed seed files, so
 `proptest-regressions/` is still empty. A seed only replays one shrunk input and
 says nothing about why it is accepted; the named carve-out predicate plus the
 `#[ignore]`d test states the exact command, keeps it in the file a reader of the
-invariant will open, and fails loudly the day the fail-open is closed. Prefer
-that shape for a *known* fail-open, and commit the seed file for a genuine
-regression that the invariants are meant to catch.
+invariant will open, and fails loudly the day the fail-open is closed — which is
+how #181's pin became an un-`#[ignore]`d regression test. Prefer that shape for
+a *known* fail-open, and commit the seed file for a genuine regression that the
+invariants are meant to catch.
 
 ## Authoring catalog cases
 
