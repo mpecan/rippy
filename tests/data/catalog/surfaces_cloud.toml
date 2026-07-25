@@ -1,12 +1,17 @@
 [meta]
 description = "Declared aws / az / gcloud / gsutil / kubectl / helm allow surfaces, one observed allow case each"
 
+# Most rows here exercise a wildcard surface (`aws <service> admin-get-*`,
+# `az <group>... show-*`): rippy approves the shape, not the exact subcommand.
+# The service/group word is chosen to be the one that really owns the verb, so
+# a reader is not left thinking `aws s3 admin-get-user` is a command.
+
 [[case]]
 command = 'aws --help'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 wait'
+command = 'aws cloudformation wait'
 decision = "allow"
 
 [[case]]
@@ -14,63 +19,63 @@ command = 'aws s3 help'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 query'
+command = 'aws dynamodb query'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 scan'
+command = 'aws dynamodb scan'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 tail'
+command = 'aws logs tail'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 receive-message'
+command = 'aws sqs receive-message'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 batch-get-item'
+command = 'aws dynamodb batch-get-item'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 transact-get-items'
+command = 'aws dynamodb transact-get-items'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 list-buckets'
+command = 'aws s3api list-buckets'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 get-object'
+command = 'aws s3api get-object'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 show-dashboard'
+command = 'aws cloudwatch show-dashboard'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 head-object'
+command = 'aws s3api head-object'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 lookup-events'
+command = 'aws cloudtrail lookup-events'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 filter-log-events'
+command = 'aws logs filter-log-events'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 validate-template'
+command = 'aws cloudformation validate-template'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 estimate-template-cost'
+command = 'aws cloudformation estimate-template-cost'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 simulate-principal-policy'
+command = 'aws iam simulate-principal-policy'
 decision = "allow"
 
 [[case]]
@@ -78,27 +83,27 @@ command = 'aws s3 generate-presigned-url'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 download-db-log-file-portion'
+command = 'aws rds download-db-log-file-portion'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 detect-stack-drift'
+command = 'aws cloudformation detect-stack-drift'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 test-event-pattern'
+command = 'aws events test-event-pattern'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 check-if-phone-number-is-opted-out'
+command = 'aws sns check-if-phone-number-is-opted-out'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 admin-get-user'
+command = 'aws cognito-idp admin-get-user'
 decision = "allow"
 
 [[case]]
-command = 'aws s3 admin-list-groups-for-user'
+command = 'aws cognito-idp admin-list-groups-for-user'
 decision = "allow"
 
 [[case]]
@@ -142,7 +147,7 @@ command = 'az vm get'
 decision = "allow"
 
 [[case]]
-command = 'az vm exists'
+command = 'az storage container exists'
 decision = "allow"
 
 [[case]]
@@ -150,7 +155,7 @@ command = 'az vm query'
 decision = "allow"
 
 [[case]]
-command = 'az vm logs'
+command = 'az container logs'
 decision = "allow"
 
 [[case]]
@@ -158,11 +163,11 @@ command = 'az vm check-health'
 decision = "allow"
 
 [[case]]
-command = 'az vm download'
+command = 'az storage blob download'
 decision = "allow"
 
 [[case]]
-command = 'az vm tail'
+command = 'az webapp log tail'
 decision = "allow"
 
 [[case]]
@@ -170,7 +175,7 @@ command = 'az vm list-sizes'
 decision = "allow"
 
 [[case]]
-command = 'az vm show-connection-string'
+command = 'az storage account show-connection-string'
 decision = "allow"
 
 [[case]]
@@ -190,7 +195,7 @@ command = 'gcloud compute instances describe'
 decision = "allow"
 
 [[case]]
-command = 'gcloud compute instances get'
+command = 'gcloud config get'
 decision = "allow"
 
 [[case]]
@@ -210,7 +215,7 @@ command = 'gcloud compute instances version'
 decision = "allow"
 
 [[case]]
-command = 'gcloud compute instances get-credentials'
+command = 'gcloud container clusters get-credentials'
 decision = "allow"
 
 [[case]]
@@ -218,11 +223,11 @@ command = 'gcloud compute instances list-tags'
 decision = "allow"
 
 [[case]]
-command = 'gcloud compute instances read'
+command = 'gcloud logging read'
 decision = "allow"
 
 [[case]]
-command = 'gcloud compute instances configurations'
+command = 'gcloud config configurations'
 decision = "allow"
 
 [[case]]
@@ -309,6 +314,8 @@ decision = "allow"
 command = 'helm uninstall myrelease --dry-run'
 decision = "allow"
 
+# KNOWN GAP: `dependency update`/`build` fetch chart tarballs over the
+# network and write them into charts/. Pinned as observed, not endorsed.
 [[case]]
 command = 'helm dependency update'
 decision = "allow"
@@ -349,6 +356,9 @@ decision = "allow"
 command = 'kubectl api-versions'
 decision = "allow"
 
+# KNOWN GAP: the surface is the bare verb, so every argv rides along -- and
+# `kubectl auth reconcile -f rbac.yaml` writes RBAC objects to the live
+# cluster. Pinned as observed, not endorsed.
 [[case]]
 command = 'kubectl auth'
 decision = "allow"

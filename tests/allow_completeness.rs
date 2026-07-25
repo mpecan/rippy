@@ -2,16 +2,26 @@
 //!
 //! `tests/allow_catalog.rs` proves the declaration and the analyzer agree.
 //! This file proves the catalog exercises them: a new safe verb ships with a
-//! `decision = "allow"` case, and the namespace it lives in ships with a
+//! `decision = "allow"` case, and the prefix it hangs off ships with a
 //! dangerous neighbor that must Ask or Deny. Adding an approval with neither
 //! fails CI, which is the gap behind #155–#162.
 //!
-//! The neighbor requirement is enforced per declared *namespace* and per
-//! handler group, not per surface entry. A neighbor is only meaningful at the
-//! granularity where siblings share one: `gh pr list`, `view` and `diff` are
-//! all bounded by `gh pr merge`. It is also the granularity
-//! `tests/allow_catalog.rs::sibling_verb_probes` already probes, so the two
-//! checks describe the same boundary from opposite sides.
+//! The neighbor requirement is enforced per *approved prefix* — every declared
+//! namespace, every guarded surface's literal prefix, and every handler command
+//! name — not per surface entry. That is a deliberate limit, not an oversight:
+//! a neighbor has to be a command someone can actually write, and most approved
+//! verbs have no dangerous form at all. 430 of the 451 fully-spelled surfaces
+//! (`docker version`, `aws sts get-caller-identity`, `ansible-config view`)
+//! admit none, and a per-entry rule would answer that with 430 exemptions,
+//! which is a weaker gate than the one below. Probing does not rescue it
+//! either: crossing every declared surface with `--output=/etc/x`,
+//! `--exec=id` and `--use-compress-program=sh` leaves 1227 of 1233 probes
+//! approved, because an unknown flag is simply not dangerous for most tools —
+//! which flag is dangerous is knowledge only the handler has.
+//!
+//! What the allow half still guarantees is per entry: `git bugreport` added to
+//! `SAFE_SUBCOMMANDS` fails `every_declared_surface_has_an_allow_case` until an
+//! observed case is written for it.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -23,7 +33,7 @@ use rippy_cli::{allow_catalog, allowlists};
 mod common;
 
 use common::catalog::CatalogCase;
-use common::surfaces::{declared_namespaces, exercises, segments};
+use common::surfaces::{declared_namespaces, exercises, guarded_prefixes, segments};
 
 /// Surfaces whose approval depends on file content the command string only
 /// names, so a catalog case reaches the Ask branch instead. Each is pinned by
@@ -59,9 +69,9 @@ const GROUPS_WITHOUT_A_BOUNDARY: &[(&str, &str)] = &[
     ),
 ];
 
-/// Namespaces knowingly shipped without a dangerous neighbor. Empty is the
-/// only healthy state; an entry here is a boundary nobody has pinned.
-const NAMESPACES_WITHOUT_A_NEIGHBOR: &[(&str, &str)] = &[];
+/// Approved prefixes knowingly shipped without a dangerous neighbor. Empty is
+/// the only healthy state; an entry here is a boundary nobody has pinned.
+const PREFIXES_WITHOUT_A_NEIGHBOR: &[(&str, &str)] = &[];
 
 const HOWTO: &str = "add an observed case to tests/data/catalog/ — run the command through \
                      the analyzer first and transcribe the decision it actually returns";
@@ -141,9 +151,21 @@ fn declared_groups(declared: &[String]) -> BTreeSet<&str> {
         .collect()
 }
 
-/// Does `probe` extend `namespace` with at least one further word?
-fn extends(namespace: &[&str], probe: &[&str]) -> bool {
-    probe.len() > namespace.len() && probe.starts_with(namespace)
+/// Does `probe` extend `prefix` with at least one further word?
+fn extends(prefix: &[&str], probe: &[&str]) -> bool {
+    probe.len() > prefix.len() && probe.starts_with(prefix)
+}
+
+/// Every prefix an approval hangs off: the namespaces of fully-spelled surfaces
+/// and the literal head of every guarded one.
+fn approved_prefixes(declared: &[String]) -> Vec<Vec<&str>> {
+    let mut prefixes = declared_namespaces(declared);
+    for prefix in guarded_prefixes(declared) {
+        if !prefixes.contains(&prefix) {
+            prefixes.push(prefix);
+        }
+    }
+    prefixes
 }
 
 #[test]
@@ -191,35 +213,35 @@ fn every_declared_surface_has_an_allow_case() {
 }
 
 #[test]
-fn every_declared_namespace_has_a_dangerous_neighbor() {
+fn every_approved_prefix_has_a_dangerous_neighbor() {
     let declared = allow_catalog::declared_surfaces();
     let literals = allow_catalog::literal_surfaces();
     let cases = common::catalog::load();
     let neighbors = neighbor_invocations(&cases);
 
-    let missing: Vec<String> = declared_namespaces(&declared)
+    let missing: Vec<String> = approved_prefixes(&declared)
         .into_iter()
-        .filter(|ns| {
-            let joined = ns.join(" ");
-            !NAMESPACES_WITHOUT_A_NEIGHBOR
+        .filter(|prefix| {
+            let joined = prefix.join(" ");
+            !PREFIXES_WITHOUT_A_NEIGHBOR
                 .iter()
                 .any(|(exempt, _)| *exempt == joined)
         })
-        .filter(|ns| {
+        .filter(|prefix| {
             !neighbors.iter().any(|words| {
                 let probe = as_refs(words);
-                extends(ns, &probe) && !is_unconditionally_declared(&literals, &probe)
+                extends(prefix, &probe) && !is_unconditionally_declared(&literals, &probe)
             })
         })
-        .map(|ns| {
+        .map(|prefix| {
             format!(
                 "`{}` has approved verbs but no ask/deny case marking where they stop",
-                ns.join(" ")
+                prefix.join(" ")
             )
         })
         .collect();
 
-    report(&missing, "declared namespaces with no dangerous neighbor:");
+    report(&missing, "approved prefixes with no dangerous neighbor:");
 }
 
 /// Catches handlers whose surfaces are all single-word, guarded or
@@ -262,14 +284,14 @@ fn exemptions_are_still_real() {
             "`{surface}` is exempted but is no longer a declared surface"
         );
     }
-    let namespaces: Vec<String> = declared_namespaces(&declared)
+    let prefixes: Vec<String> = approved_prefixes(&declared)
         .iter()
-        .map(|ns| ns.join(" "))
+        .map(|prefix| prefix.join(" "))
         .collect();
-    for (namespace, _) in NAMESPACES_WITHOUT_A_NEIGHBOR {
+    for (prefix, _) in PREFIXES_WITHOUT_A_NEIGHBOR {
         assert!(
-            namespaces.contains(&(*namespace).to_owned()),
-            "`{namespace}` is exempted but is no longer a declared namespace"
+            prefixes.contains(&(*prefix).to_owned()),
+            "`{prefix}` is exempted but is no longer an approved prefix"
         );
     }
     let groups = declared_groups(&declared);
@@ -289,6 +311,8 @@ fn completeness_inputs_are_not_vacuous() {
     assert!(declared.len() > 500, "{} declared surfaces", declared.len());
     assert!(allowlists::all_simple_safe().len() > 120);
     assert!(declared_namespaces(&declared).len() > 50);
+    assert!(guarded_prefixes(&declared).len() > 30);
+    assert!(approved_prefixes(&declared).len() > 80);
     assert!(declared_groups(&declared).len() > 40);
 
     let cases = common::catalog::load();
@@ -302,7 +326,7 @@ fn completeness_inputs_are_not_vacuous() {
     // skip, so cap them: growth has to be argued for, not merged.
     assert!(SURFACES_NEEDING_INJECTED_STATE.len() <= 5);
     assert!(GROUPS_WITHOUT_A_BOUNDARY.len() <= 5);
-    assert!(NAMESPACES_WITHOUT_A_NEIGHBOR.len() <= 5);
+    assert!(PREFIXES_WITHOUT_A_NEIGHBOR.len() <= 5);
 
     assert!(exercises("git log", &["git", "log", "--oneline"]));
     assert!(!exercises("git log", &["git", "commit"]));

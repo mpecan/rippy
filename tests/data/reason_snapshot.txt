@@ -926,8 +926,12 @@ cd /etc	ask	cd to /etc
 pushd /etc	ask	pushd to /etc
 curl -o /etc/hosts https://example.com	ask	redirect to /etc/hosts
 deno run script.ts	ask	deno script execution
+deno eval 'process.env.AWS_SECRET_ACCESS_KEY'	ask	deno -e (potentially dangerous code)
+python -c 'import os'	ask	python -c (potentially dangerous code)
 nodejs script.js	ask	nodejs script execution
+env LD_PRELOAD=./evil.so ls	ask	env (dangerous env-var assignment)
 env FOO=bar rm -rf /tmp/x	ask	matched rule: command=rm
+fd --exec	ask	fd exec (no command)
 fd -x rm {}	ask	matched rule: command=rm
 find /tmp -delete	ask	find -delete
 ifconfig en0 down	ask	ifconfig (modify interface)
@@ -939,30 +943,30 @@ sqlite3 db.sqlite 'DROP TABLE t'	ask	sqlite3 (write SQL)
 tee /etc/hosts	ask	redirect to /etc/hosts
 yq -i '.a = 1' config.yaml	ask	yq -i (in-place)
 aws --help	allow	aws help/version
-aws s3 wait	allow	aws s3 wait
+aws cloudformation wait	allow	aws cloudformation wait
 aws s3 help	allow	aws s3 help
-aws s3 query	allow	aws s3 query
-aws s3 scan	allow	aws s3 scan
-aws s3 tail	allow	aws s3 tail
-aws s3 receive-message	allow	aws s3 receive-message
-aws s3 batch-get-item	allow	aws s3 batch-get-item
-aws s3 transact-get-items	allow	aws s3 transact-get-items
-aws s3 list-buckets	allow	aws s3 list-buckets
-aws s3 get-object	allow	aws s3 get-object
-aws s3 show-dashboard	allow	aws s3 show-dashboard
-aws s3 head-object	allow	aws s3 head-object
-aws s3 lookup-events	allow	aws s3 lookup-events
-aws s3 filter-log-events	allow	aws s3 filter-log-events
-aws s3 validate-template	allow	aws s3 validate-template
-aws s3 estimate-template-cost	allow	aws s3 estimate-template-cost
-aws s3 simulate-principal-policy	allow	aws s3 simulate-principal-policy
+aws dynamodb query	allow	aws dynamodb query
+aws dynamodb scan	allow	aws dynamodb scan
+aws logs tail	allow	aws logs tail
+aws sqs receive-message	allow	aws sqs receive-message
+aws dynamodb batch-get-item	allow	aws dynamodb batch-get-item
+aws dynamodb transact-get-items	allow	aws dynamodb transact-get-items
+aws s3api list-buckets	allow	aws s3api list-buckets
+aws s3api get-object	allow	aws s3api get-object
+aws cloudwatch show-dashboard	allow	aws cloudwatch show-dashboard
+aws s3api head-object	allow	aws s3api head-object
+aws cloudtrail lookup-events	allow	aws cloudtrail lookup-events
+aws logs filter-log-events	allow	aws logs filter-log-events
+aws cloudformation validate-template	allow	aws cloudformation validate-template
+aws cloudformation estimate-template-cost	allow	aws cloudformation estimate-template-cost
+aws iam simulate-principal-policy	allow	aws iam simulate-principal-policy
 aws s3 generate-presigned-url	allow	aws s3 generate-presigned-url
-aws s3 download-db-log-file-portion	allow	aws s3 download-db-log-file-portion
-aws s3 detect-stack-drift	allow	aws s3 detect-stack-drift
-aws s3 test-event-pattern	allow	aws s3 test-event-pattern
-aws s3 check-if-phone-number-is-opted-out	allow	aws s3 check-if-phone-number-is-opted-out
-aws s3 admin-get-user	allow	aws s3 admin-get-user
-aws s3 admin-list-groups-for-user	allow	aws s3 admin-list-groups-for-user
+aws rds download-db-log-file-portion	allow	aws rds download-db-log-file-portion
+aws cloudformation detect-stack-drift	allow	aws cloudformation detect-stack-drift
+aws events test-event-pattern	allow	aws events test-event-pattern
+aws sns check-if-phone-number-is-opted-out	allow	aws sns check-if-phone-number-is-opted-out
+aws cognito-idp admin-get-user	allow	aws cognito-idp admin-get-user
+aws cognito-idp admin-list-groups-for-user	allow	aws cognito-idp admin-list-groups-for-user
 aws configure list	allow	aws configure list
 aws configure list-profiles	allow	aws configure list-profiles
 aws configure get	allow	aws configure get
@@ -973,27 +977,27 @@ aws sts get-access-key-info	allow	aws sts get-access-key-info
 aws sts decode-authorization-message	allow	aws sts decode-authorization-message
 az --help	allow	az help/version
 az vm get	allow	az ... get
-az vm exists	allow	az ... exists
+az storage container exists	allow	az ... exists
 az vm query	allow	az ... query
-az vm logs	allow	az ... logs
+az container logs	allow	az ... logs
 az vm check-health	allow	az ... check-health
-az vm download	allow	az ... download
-az vm tail	allow	az ... tail
+az storage blob download	allow	az ... download
+az webapp log tail	allow	az ... tail
 az vm list-sizes	allow	az ... list-sizes
-az vm show-connection-string	allow	az ... show-connection-string
+az storage account show-connection-string	allow	az ... show-connection-string
 az vm get-instance-view	allow	az ... get-instance-view
 gcloud --help	allow	gcloud help/version
 gsutil --help	allow	gsutil help/version
 gcloud compute instances describe	allow	gcloud ... describe
-gcloud compute instances get	allow	gcloud ... get
+gcloud config get	allow	gcloud ... get
 gcloud compute instances show	allow	gcloud ... show
 gcloud compute instances info	allow	gcloud ... info
 gcloud compute instances status	allow	gcloud ... status
 gcloud compute instances version	allow	gcloud ... version
-gcloud compute instances get-credentials	allow	gcloud ... get-credentials
+gcloud container clusters get-credentials	allow	gcloud ... get-credentials
 gcloud compute instances list-tags	allow	gcloud ... list-tags
-gcloud compute instances read	allow	gcloud ... read
-gcloud compute instances configurations	allow	gcloud ... configurations
+gcloud logging read	allow	gcloud ... read
+gcloud config configurations	allow	gcloud ... configurations
 gsutil cat	allow	gsutil cat
 gsutil stat	allow	gsutil stat
 gsutil du	allow	gsutil du

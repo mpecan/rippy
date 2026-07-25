@@ -129,6 +129,29 @@ pub fn declared_namespaces(declared: &[String]) -> Vec<Vec<&str>> {
     namespaces
 }
 
+/// The literal words a guarded surface hangs its guard off, e.g. `npm run` from
+/// `npm run <script>` or `deno eval` from `deno eval <code>`.
+///
+/// A placeholder swallows the verb, so these produce no namespace and
+/// [`declared_namespaces`] never sees them — yet the guard is the whole
+/// approval, and the neighbor is what shows the guard actually holds.
+pub fn guarded_prefixes(declared: &[String]) -> Vec<Vec<&str>> {
+    let mut prefixes: Vec<Vec<&str>> = Vec::new();
+    for surface in declared {
+        if !surface.contains(['<', '[', '*', '|']) {
+            continue;
+        }
+        let prefix: Vec<&str> = surface
+            .split_whitespace()
+            .take_while(|w| !w.contains(['<', '[', '*', '|']))
+            .collect();
+        if !prefix.is_empty() && !prefixes.contains(&prefix) {
+            prefixes.push(prefix);
+        }
+    }
+    prefixes
+}
+
 /// Accumulating state for [`segments`].
 #[derive(Default)]
 struct Split {

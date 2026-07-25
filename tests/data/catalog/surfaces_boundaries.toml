@@ -171,17 +171,40 @@ decision = "ask"
 command = 'deno run script.ts'
 decision = "ask"
 
+# bounds `deno eval <code>` itself -- observed reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'process.env.AWS_SECRET_ACCESS_KEY'"
+decision = "ask"
+
+# bounds `python -c <code>` -- observed reason: python -c (potentially dangerous code)
+[[case]]
+command = "python -c 'import os'"
+decision = "ask"
+
 # bounds `node -e <safe code>` -- observed reason: nodejs script execution
 [[case]]
 command = 'nodejs script.js'
 decision = "ask"
 
-# bounds `env with assignments only` -- observed reason: matched rule: command=rm
+# bounds `env <assignments> <command>` -- observed reason: env (dangerous env-var assignment)
+[[case]]
+command = 'env LD_PRELOAD=./evil.so ls'
+decision = "ask"
+
+# `env` strips its assignments and hands the rest to the analyzer, so this
+# boundary is delegated: the verdict is the wrapped command's, not env's.
+# observed reason: matched rule: command=rm
 [[case]]
 command = 'env FOO=bar rm -rf /tmp/x'
 decision = "ask"
 
-# bounds `fd <pattern>` -- observed reason: matched rule: command=rm
+# bounds `fd <pattern>` -- observed reason: fd exec (no command)
+[[case]]
+command = 'fd --exec'
+decision = "ask"
+
+# `-x` breaks fd's guard and recurses into the inner command, so this boundary
+# is delegated too. observed reason: matched rule: command=rm
 [[case]]
 command = 'fd -x rm {}'
 decision = "ask"
