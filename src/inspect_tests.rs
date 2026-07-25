@@ -1,6 +1,58 @@
 use crate::config::RuleTarget;
+use crate::environment::Environment;
+use crate::verdict::Decision;
 
 use super::*;
+
+/// Fixed, non-existent cwd so safe-dir and path decisions are machine-independent.
+const TRACE_CWD: &str = "/tmp/rippy-inspect-trace";
+
+/// Commands whose traced decision must equal the analyzer's, spanning every
+/// routing shape the old parallel implementation got wrong: compound forms
+/// (#137), redirects, env prefixes and each `AllowReason` provenance (#163).
+const SPREAD: &[&str] = &[
+    "ls -la",
+    "git status",
+    "git push origin main",
+    "some_unknown_tool --flag",
+    "cargo build",
+    "ls -la | head",
+    "git log --oneline && git status",
+    "git log --oneline || echo fail",
+    "ls; echo done",
+    "ls && rm -rf /",
+    "echo secret > .env",
+    "echo hi > /dev/null",
+    "echo hi > /tmp/rippy-inspect-out",
+    "cat < /etc/hosts",
+    "ls 2>&1",
+    "VAR=x echo hi",
+    "LD_PRELOAD=/tmp/x ls",
+    "FOO=$(id) ls",
+    "x=$(ls); echo $x",
+    "for i in 1 2 3; do echo $i; done",
+    "for f in *.txt; do cat $f; done",
+    "cat <<'EOF'\nhello\nEOF",
+    "nohup",
+    "env ls",
+    "tar --help",
+    "case x in y) ;; esac",
+    "FOO=bar",
+    "if",
+];
+
+/// An analyzer isolated from the developer's `~/.rippy` and `~/.claude`, so the
+/// spread below is deterministic on every machine.
+fn trace_test_analyzer() -> crate::analyzer::Analyzer {
+    let cwd = PathBuf::from(TRACE_CWD);
+    let config = Config::load_with_home(&cwd, None, None).unwrap();
+    crate::analyzer::Analyzer::from_env(config, Environment::for_test(cwd)).unwrap()
+}
+
+fn analyzer_at(dir: &Path, config_path: &Path) -> crate::analyzer::Analyzer {
+    let config = Config::load_with_home(dir, Some(config_path), None).unwrap();
+    crate::analyzer::Analyzer::from_env(config, Environment::for_test(dir.to_path_buf())).unwrap()
+}
 
 #[test]
 fn rule_to_display_command() {
@@ -295,7 +347,10 @@ fn trace_truly_unparseable_still_asks() {
     // A bare `if` keyword is an incomplete construct rable rejects with Err.
     let output = collect_trace_data("if", &cwd, None).unwrap();
     assert_eq!(output.decision, "ask");
-    assert_eq!(output.reason, "could not parse command");
+    assert_eq!(
+        output.reason,
+        "rippy could not parse this command; approve manually"
+    );
 }
 
 #[test]
@@ -305,6 +360,7 @@ fn trace_json_output_parses() {
         decision: "allow".to_string(),
         reason: "git is safe".to_string(),
         resolved: None,
+        provenance: Some("handler".to_string()),
         steps: vec![TraceStep {
             stage: "Allowlist".to_string(),
             matched: true,
@@ -314,4 +370,147 @@ fn trace_json_output_parses() {
     let json = serde_json::to_string(&output).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed["decision"], "allow");
+    assert_eq!(parsed["provenance"], "handler");
+}
+
+/// The core anti-regression test for #167: the explain path reports exactly what
+/// the hook path decided, for every routing shape.
+#[test]
+fn trace_decision_matches_analyzer_across_spread() {
+    for command in SPREAD {
+        let output = trace_with_analyzer(&mut trace_test_analyzer(), command).unwrap();
+        let verdict = trace_test_analyzer().analyze(command).unwrap();
+        assert_eq!(
+            output.decision,
+            verdict.decision.as_str(),
+            "decision diverged for {command:?}"
+        );
+        assert_eq!(
+            output.reason, verdict.reason,
+            "reason diverged for {command:?}"
+        );
+        assert_eq!(
+            output.resolved, verdict.resolved_command,
+            "resolution diverged for {command:?}"
+        );
+    }
+}
+
+#[test]
+fn trace_provenance_matches_allow_reason() {
+    for command in SPREAD {
+        let output = trace_with_analyzer(&mut trace_test_analyzer(), command).unwrap();
+        let verdict = trace_test_analyzer().analyze(command).unwrap();
+        let expected = verdict
+            .allow_reason()
+            .map(|r| AllowReason::variant_name(r).to_string());
+        assert_eq!(output.provenance, expected, "provenance for {command:?}");
+        if output.decision != "allow" {
+            assert!(
+                output.provenance.is_none(),
+                "{command:?} reported provenance without allowing"
+            );
+        }
+    }
+}
+
+/// Pins the provenance label per approval route, so a future refactor that
+/// re-routes an approval (say, allowlist → handler) is visible in the trace.
+#[test]
+fn trace_provenance_names_the_approval_route() {
+    let cases: &[(&str, &str)] = &[
+        ("ls -la", "simple-safe"),
+        ("nohup", "wrapper"),
+        ("tar --help", "help-flag"),
+        ("for f in *.txt; do cat $f; done", "dynamic-arg-safe"),
+        ("cat < /etc/hosts", "input-redirect"),
+        ("ls 2>&1", "fd-redirect"),
+        ("echo hi > /dev/null", "device-redirect"),
+        ("echo hi > /tmp/rippy-inspect-out", "safe-dir-write"),
+        ("cat <<'EOF'\nhello\nEOF", "heredoc"),
+        ("git status", "handler"),
+        ("cargo build", "config-rule"),
+        ("FOO=bar", "empty-command"),
+        ("case x in y) ;; esac", "empty"),
+    ];
+    for (command, expected) in cases {
+        let output = trace_with_analyzer(&mut trace_test_analyzer(), command).unwrap();
+        assert_eq!(output.decision, "allow", "{command:?}: {}", output.reason);
+        assert_eq!(output.provenance.as_deref(), Some(*expected), "{command:?}");
+    }
+}
+
+/// Regression: a dangerous env prefix used to be invisible to the explain path,
+/// which short-circuited on the allowlisted command name alone.
+#[test]
+fn trace_dangerous_env_prefix_is_not_allowed() {
+    let output = trace_with_analyzer(&mut trace_test_analyzer(), "LD_PRELOAD=/tmp/x ls").unwrap();
+    let verdict = trace_test_analyzer()
+        .analyze("LD_PRELOAD=/tmp/x ls")
+        .unwrap();
+    assert_eq!(output.decision, verdict.decision.as_str());
+    assert_ne!(output.decision, "allow");
+}
+
+/// Regression for #155: a whole-string allow rule only covers a single plain
+/// command, and the explain path must apply the same gate.
+#[test]
+fn trace_whole_string_allow_does_not_cover_compound() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join("allow-ls.toml");
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"allow\"\npattern = \"ls*\"\n",
+    )
+    .unwrap();
+
+    let mut analyzer = analyzer_at(dir.path(), &config_path);
+    let output = trace_with_analyzer(&mut analyzer, "ls && rm -rf /").unwrap();
+    let verdict = analyzer_at(dir.path(), &config_path)
+        .analyze("ls && rm -rf /")
+        .unwrap();
+    assert_eq!(output.decision, verdict.decision.as_str());
+    assert_ne!(output.decision, "allow");
+}
+
+/// Regression: the explain path used to match rules with a null `MatchContext`,
+/// so every conditional rule silently failed to fire.
+#[test]
+fn trace_evaluates_rule_conditions() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let config_path = dir.path().join("conditional.toml");
+    std::fs::write(
+        &config_path,
+        "[[rules]]\naction = \"deny\"\npattern = \"ls*\"\nmessage = \"denied here\"\n\n\
+         [rules.when.cwd]\nunder = \"/\"\n",
+    )
+    .unwrap();
+
+    let mut analyzer = analyzer_at(dir.path(), &config_path);
+    let output = trace_with_analyzer(&mut analyzer, "ls -la").unwrap();
+    assert_eq!(output.decision, "deny");
+    assert_eq!(output.reason, "denied here");
+}
+
+/// Guards against a future refactor silently dropping the events and leaving
+/// `rippy inspect` showing a bare verdict with no explanation.
+#[test]
+fn trace_records_stage_events() {
+    for command in SPREAD {
+        let output = trace_with_analyzer(&mut trace_test_analyzer(), command).unwrap();
+        assert!(
+            output.steps.iter().any(|s| s.stage == "CC permissions"),
+            "trace for {command:?} omits the first layer consulted"
+        );
+        // A whole-string rule decides before the parser runs; everything else
+        // must show the parse step.
+        let short_circuited = output
+            .steps
+            .iter()
+            .any(|s| s.matched && matches!(s.stage.as_str(), "CC permissions" | "Config rules"));
+        assert!(
+            short_circuited || output.steps.iter().any(|s| s.stage == "Parse"),
+            "no Parse step for {command:?}"
+        );
+    }
 }

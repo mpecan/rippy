@@ -71,6 +71,33 @@ impl AllowReason {
     pub fn handler(detail: impl Into<String>) -> Self {
         Self::Handler(detail.into())
     }
+
+    /// Stable label for this variant, used by `rippy inspect` to name the
+    /// approval's provenance. Diagnostic only — [`Display`] remains the wire
+    /// string that goes into the hook's `reason` field.
+    ///
+    /// [`Display`]: std::fmt::Display
+    #[must_use]
+    pub const fn variant_name(&self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::EmptyCommand => "empty-command",
+            Self::SimpleSafe(_) => "simple-safe",
+            Self::Wrapper(_) => "wrapper",
+            Self::HelpFlag(_) => "help-flag",
+            Self::DynamicArgSafe(_) => "dynamic-arg-safe",
+            Self::InputRedirect => "input-redirect",
+            Self::FdRedirect => "fd-redirect",
+            Self::DeviceRedirect(_) => "device-redirect",
+            Self::SafeDirWrite(_) => "safe-dir-write",
+            Self::Heredoc => "heredoc",
+            Self::Handler(_) => "handler",
+            Self::ConfigRule { .. } => "config-rule",
+            Self::CcPermission(_) => "cc-permission",
+            Self::DefaultAction { .. } => "default-action",
+            Self::AfterRule(_) => "after-rule",
+        }
+    }
 }
 
 impl fmt::Display for AllowReason {
@@ -167,6 +194,40 @@ mod tests {
         for (reason, expected) in cases {
             assert_eq!(reason.to_string(), expected, "Display for {reason:?}");
         }
+    }
+
+    #[test]
+    fn variant_names_are_distinct_and_non_empty() {
+        let variants = vec![
+            AllowReason::Empty,
+            AllowReason::EmptyCommand,
+            AllowReason::SimpleSafe("ls".into()),
+            AllowReason::Wrapper("env".into()),
+            AllowReason::HelpFlag("tar".into()),
+            AllowReason::DynamicArgSafe("cat".into()),
+            AllowReason::InputRedirect,
+            AllowReason::FdRedirect,
+            AllowReason::DeviceRedirect("/dev/null".into()),
+            AllowReason::SafeDirWrite("/tmp/x".into()),
+            AllowReason::Heredoc,
+            AllowReason::handler("git status"),
+            AllowReason::ConfigRule {
+                source: RuleSource::Baseline,
+                detail: "matched rule: command=ls".into(),
+            },
+            AllowReason::CcPermission("ls".into()),
+            AllowReason::DefaultAction {
+                cmd: "foo".into(),
+                weakening: String::new(),
+            },
+            AllowReason::AfterRule("ran linter".into()),
+        ];
+        let mut names: Vec<&str> = variants.iter().map(AllowReason::variant_name).collect();
+        assert!(names.iter().all(|n| !n.is_empty()));
+        let total = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), total, "variant names collide: {names:?}");
     }
 
     #[test]

@@ -33,6 +33,9 @@ pub fn run(args: &DebugArgs) -> Result<ExitCode, RippyError> {
         if let Some(resolved) = &trace.resolved {
             json_output["resolved"] = serde_json::Value::String(resolved.clone());
         }
+        if let Some(provenance) = &trace.provenance {
+            json_output["provenance"] = serde_json::Value::String(provenance.clone());
+        }
         let json = serde_json::to_string_pretty(&json_output)
             .map_err(|e| RippyError::Setup(format!("JSON serialization failed: {e}")))?;
         println!("{json}");
@@ -67,4 +70,7 @@ fn print_debug_text(trace: &inspect::TraceOutput, sources: &[ConfigSourceInfo]) 
 
     println!("\nVerdict: {}", trace.decision.to_uppercase());
     println!("  Reason: {}", trace.reason);
+    if let Some(provenance) = &trace.provenance {
+        println!("  Provenance: {provenance}");
+    }
 }

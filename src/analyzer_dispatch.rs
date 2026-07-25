@@ -10,6 +10,7 @@ use crate::allowlists;
 use crate::ast;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::resolve;
+use crate::trace::Stage;
 use crate::verdict::{AllowReason, Decision, Verdict};
 
 impl Analyzer {
@@ -55,15 +56,15 @@ impl Analyzer {
                 safe_scopes: &self.config.safe_scopes,
             };
             let classification = handler.classify(&ctx);
-            if self.verbose {
-                eprintln!("[rippy] handler: {cmd_name} -> {classification:?}");
-            }
+            self.trace(Stage::Handler, true, || {
+                format!("{cmd_name} -> {classification:?}")
+            });
             return self.apply_classification(classification, cwd, depth);
         }
 
-        if self.verbose {
-            eprintln!("[rippy] no handler for: {cmd_name}");
-        }
+        self.trace(Stage::Handler, false, || {
+            format!("no handler registered for {cmd_name}")
+        });
         self.default_verdict(cmd_name)
     }
 
@@ -77,7 +78,7 @@ impl Analyzer {
     /// per leaf (not on the raw chained string) so a trailing payload can never
     /// ride along on a leading allow-ruled command.
     pub(super) fn leaf_string_rule(
-        &self,
+        &mut self,
         name: &str,
         args: &[String],
         redirects: &[Node],
@@ -89,13 +90,21 @@ impl Analyzer {
             format!("{name} {}", args.join(" "))
         };
         if let Some(decision) = self.cc_rules.check(&leaf) {
+            self.trace(Stage::CcRule, true, || {
+                format!("{}: {leaf}", decision.as_str())
+            });
             let v = super::cc_decision_to_verdict(decision, &leaf);
             return Some(self.with_redirects(v, redirects, cwd));
         }
-        let ctx = self.match_ctx();
-        self.config
-            .match_command(&leaf, Some(&ctx))
-            .map(|v| self.with_redirects(v, redirects, cwd))
+        let matched = {
+            let ctx = self.match_ctx();
+            self.config.match_command(&leaf, Some(&ctx))
+        };
+        let verdict = matched?;
+        self.trace(Stage::ConfigRule, true, || {
+            format!("{}: {}", verdict.decision.as_str(), verdict.reason)
+        });
+        Some(self.with_redirects(verdict, redirects, cwd))
     }
 
     /// Combine a command-level verdict with the verdicts of its redirects
@@ -253,6 +262,9 @@ impl Analyzer {
         }
         // Bail out on runaway resolution (also catches cycles like `A=$B; B=$A`).
         if self.resolution_depth >= MAX_RESOLUTION_DEPTH {
+            self.trace(Stage::Expansion, false, || {
+                format!("resolution depth exceeded ({MAX_RESOLUTION_DEPTH})")
+            });
             return Some(Verdict::ask("shell expansion (resolution depth exceeded)"));
         }
         let resolved = {
@@ -273,19 +285,24 @@ impl Analyzer {
                 || "shell expansion".to_string(),
                 |r| format!("shell expansion ({r})"),
             );
+            self.trace(Stage::Expansion, false, || reason.clone());
             return Some(Verdict::ask(reason));
         };
         let resolved_command = resolve::shell_join(&args);
         // Refuse to materialize pathologically large resolved commands.
         if resolved_command.len() > MAX_RESOLVED_LEN {
+            self.trace(Stage::Expansion, false, || {
+                format!("resolved command exceeds {MAX_RESOLVED_LEN}-byte limit")
+            });
             return Some(Verdict::ask(format!(
                 "shell expansion (resolved command exceeds {MAX_RESOLVED_LEN}-byte limit)"
             )));
         }
-        if self.verbose {
-            eprintln!("[rippy] resolved: {resolved_command}");
-        }
+        self.trace(Stage::Expansion, true, || resolved_command.clone());
         if resolved.command_position_dynamic {
+            self.trace(Stage::Expansion, false, || {
+                "command name comes from an expansion".to_owned()
+            });
             return Some(
                 Verdict::ask(format!("dynamic command (resolved: {resolved_command})"))
                     .with_resolution(resolved_command),
@@ -332,15 +349,13 @@ impl Analyzer {
             Classification::Ask(desc) => Verdict::ask(desc),
             Classification::Deny(desc) => Verdict::deny(desc),
             Classification::Recurse(inner) => {
-                if self.verbose {
-                    eprintln!("[rippy] recurse: {inner}");
-                }
+                self.trace(Stage::Command, true, || format!("recurse: {inner}"));
                 self.analyze_inner_command(&inner, cwd, depth)
             }
             Classification::RecurseRemote(inner) => {
-                if self.verbose {
-                    eprintln!("[rippy] recurse (remote): {inner}");
-                }
+                self.trace(Stage::Command, true, || {
+                    format!("recurse (remote): {inner}")
+                });
                 let prev_remote = self.remote;
                 self.remote = true;
                 let v = self.analyze_inner_command(&inner, cwd, depth);
@@ -357,7 +372,14 @@ impl Analyzer {
         }
     }
 
-    pub(super) fn default_verdict(&self, cmd_name: &str) -> Verdict {
+    pub(super) fn default_verdict(&mut self, cmd_name: &str) -> Verdict {
+        let action = self.config.default_action;
+        self.trace(Stage::Default, true, || {
+            action.map_or_else(
+                || format!("{cmd_name} is an unknown command"),
+                |a| format!("default action: {}", a.as_str()),
+            )
+        });
         self.config.default_action.map_or_else(
             || Verdict::ask(format!("{cmd_name} (unknown command)")),
             |action| match action {

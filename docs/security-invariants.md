@@ -170,3 +170,29 @@ Per-leaf matching is sound because the laundering vectors are closed:
 - **Expansions.** A leaf with a word expansion skips the string match and is
   resolved first (`try_resolve`); its re-analysis re-enters `analyze_command` on
   the literal form, so `cargo $X` cannot match a `cargo` rule before `$X` is known.
+
+## inspect-delegation
+
+The explain path (`rippy inspect <cmd>`, `rippy debug <cmd>`) must obtain its
+decision **only** from `Analyzer::analyze`. It renders the trace events the
+analyzer emits (`src/trace.rs`); it may never re-run CC/config matching,
+re-classify parse shape, or short-circuit on the allowlist itself. A reviewer
+reads `inspect` to understand what the hook did, so an explain path with its own
+routing is a correctness bug, not a cosmetic one.
+
+Before #167 `inspect` re-derived the routing and diverged on three live cases,
+each of which reported `allow` while the hook did not:
+
+- `LD_PRELOAD=/tmp/x ls` — the parallel `is_safe && !has_expansions`
+  short-circuit approved on the command name, missing the dangerous-env gate
+  (#dangerous-env-name); the hook Asks.
+- `ls && rm -rf /` under an `allow "ls*"` rule — `inspect` applied the
+  whole-string allow to a compound command, missing the single-plain-command
+  gate (#string-rule-chokepoint); the hook Asks.
+- Any rule with a `[rules.when.*]` condition — `inspect` called
+  `Config::match_command` with a null `MatchContext`, so conditional rules never
+  fired; the hook Denies.
+
+#137 (inspect/debug disagreeing with the hook on compound commands) is the
+historical form of the same failure. `src/inspect_tests.rs` and
+`tests/inspect_delegation.rs` pin the invariant at the library and binary level.
