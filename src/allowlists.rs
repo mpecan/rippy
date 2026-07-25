@@ -153,8 +153,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "hyperfine",
         // Encoding
         "iconv",
-        "dos2unix",
-        "unix2dos",
+        // dos2unix/unix2dos have a dedicated handler (rewrite the named file in place by default)
         // Disk/fs info
         "mount",
         "findmnt",

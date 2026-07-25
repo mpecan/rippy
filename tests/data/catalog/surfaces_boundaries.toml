@@ -141,9 +141,14 @@ decision = "ask"
 command = 'gzip -d archive.gz'
 decision = "ask"
 
-# bounds `unzip l archive.zip` -- observed reason: archive archive.zip
+# bounds `unzip -l|-t|-v archive.zip` -- observed reason: unzip (extract)
 [[case]]
 command = 'unzip archive.zip'
+decision = "ask"
+
+# bounds `7z l archive.7z` / `7z t archive.7z` -- observed reason: 7z a
+[[case]]
+command = '7z a archive.7z file.txt'
 decision = "ask"
 
 # bounds `awk <program> as an inline program rippy can read` -- observed reason: awk -f (script file)

@@ -1,6 +1,6 @@
 use super::{
     AllowEntry, Classification, Handler, HandlerContext, SubcommandHandler, has_flag,
-    has_flag_or_prefixed, has_glued_short_flag, is_sole_help_flag,
+    has_flag_or_prefixed, has_glued_short_flag, is_sole_help_flag, positional_args,
 };
 use crate::verdict::AllowReason;
 
@@ -87,7 +87,7 @@ impl Handler for WgetHandler {
     }
 }
 
-// gzip / unzip
+// gzip
 
 pub(crate) static GZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     &["gzip", "gunzip"],
@@ -96,11 +96,47 @@ pub(crate) static GZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
     "gzip",
 );
 
-pub(crate) static UNZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
-    &["unzip", "7z", "7za", "7zr", "7zz"],
+// unzip
+//
+// Unlike 7z, unzip takes its mode as a FLAG (`-l` list, `-t` test), not a bare
+// subcommand verb — `unzip l archive.zip` is not a real invocation. See #190.
+
+pub(crate) static UNZIP_HANDLER: UnzipHandler = UnzipHandler;
+
+pub(crate) struct UnzipHandler;
+
+impl Handler for UnzipHandler {
+    fn commands(&self) -> &[&str] {
+        &["unzip"]
+    }
+
+    fn classify(&self, ctx: &HandlerContext) -> Classification {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
+            return Classification::Allow(AllowReason::handler("unzip help/version"));
+        }
+        if has_flag(ctx.args, &["-l", "-t", "-v"]) {
+            return Classification::Allow(AllowReason::handler("unzip (list/test)"));
+        }
+        Classification::Ask("unzip (extract)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("unzip --help|-h|--version|-V", "sole argument"),
+            AllowEntry::new("unzip -l"),
+            AllowEntry::new("unzip -t"),
+            AllowEntry::new("unzip -v"),
+        ]
+    }
+}
+
+// 7z / 7za / 7zr / 7zz — bare subcommand verbs (`7z l archive.7z`), unlike unzip.
+
+pub(crate) static SEVENZIP_HANDLER: SubcommandHandler = SubcommandHandler::new(
+    &["7z", "7za", "7zr", "7zz"],
     &["l", "t"],                // list and test
     &["x", "e", "a", "d", "u"], // extract, add, delete, update
-    "archive",
+    "7z",
 );
 
 // mktemp
@@ -259,7 +295,82 @@ impl Handler for YqHandler {
     }
 }
 
-// Behavioral coverage (tar list/extract, wget, mktemp, open, yq) lives in
+// dos2unix / unix2dos
+//
+// Both rewrite the named file in place by default; #187. The genuinely
+// read-only forms are info mode, help/version, and `-n` new-file mode, whose
+// output path is routed through the redirect safety pipeline rather than
+// trusted outright.
+
+pub(crate) static DOS2UNIX_HANDLER: Dos2UnixHandler = Dos2UnixHandler;
+
+pub(crate) struct Dos2UnixHandler;
+
+impl Handler for Dos2UnixHandler {
+    fn commands(&self) -> &[&str] {
+        &["dos2unix", "unix2dos"]
+    }
+
+    fn classify(&self, ctx: &HandlerContext) -> Classification {
+        if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} help/version",
+                ctx.command_name
+            )));
+        }
+        if has_flag_or_prefixed(ctx.args, &["-i", "--info"]) {
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} --info (no conversion)",
+                ctx.command_name
+            )));
+        }
+        if has_flag(ctx.args, &["-n", "--newfile"]) {
+            return classify_newfile(ctx);
+        }
+        if positional_args(ctx.args).is_empty() {
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} (stdin/stdout filter)",
+                ctx.command_name
+            )));
+        }
+        Classification::Ask(format!("{} (in-place conversion)", ctx.command_name))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("dos2unix --help|-h|--version|-V", "sole argument"),
+            AllowEntry::new("dos2unix --info"),
+            AllowEntry::guarded(
+                "dos2unix -n <in> <out>",
+                "even number of file operands (in/out pairs); each output path runs the \
+                 redirect pipeline",
+            ),
+            AllowEntry::guarded("dos2unix", "no file operand (stdin/stdout filter)"),
+        ]
+    }
+}
+
+/// Classify `-n`/`--newfile` mode: positional operands must form (in, out)
+/// pairs. Each output path is routed through the redirect safety pipeline
+/// rather than trusted outright.
+fn classify_newfile(ctx: &HandlerContext) -> Classification {
+    let files = positional_args(ctx.args);
+    if files.is_empty() || !files.len().is_multiple_of(2) {
+        return Classification::Ask(format!("{} -n (unpaired file operands)", ctx.command_name));
+    }
+    let outputs: Vec<String> = files
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .map(|f| (*f).to_owned())
+        .collect();
+    Classification::WithRedirects(
+        AllowReason::handler(format!("{} -n (new-file mode)", ctx.command_name)),
+        outputs,
+    )
+}
+
+// Behavioral coverage (tar list/extract, wget, mktemp, open, yq, unzip, dos2unix) lives in
 // tests/data/catalog/handlers_text_system.toml — pure command->decision mappings
 // exercised through the real parse+analyze pipeline. The tee/sort `-o` redirect
 // paths return WithRedirects and are covered by redirect integration tests.

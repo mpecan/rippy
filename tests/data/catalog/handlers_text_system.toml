@@ -172,6 +172,28 @@ command = "awk '/foo|bar/ {print $0 | \"sort\"}' file.txt"
 decision = "ask"
 reason_contains = "pipe"
 
+# #184: gawk's -i/--include loads an arbitrary awk source file (same
+# capability as -f) and `-i inplace` specifically rewrites the input file.
+[[case]]
+command = "awk -i inplace '{print}' file.txt"
+decision = "ask"
+reason_contains = "inplace"
+
+[[case]]
+command = "awk -i /tmp/lib.awk '{print}' file.txt"
+decision = "ask"
+reason_contains = "include file"
+
+[[case]]
+command = "awk -iinplace '{print}' file.txt"
+decision = "ask"
+reason_contains = "inplace"
+
+[[case]]
+command = "awk --include=inplace '{print}' file.txt"
+decision = "ask"
+reason_contains = "inplace"
+
 # ---- find ----
 [[case]]
 command = "find . -name '*.tmp' -delete"
@@ -310,6 +332,43 @@ decision = "ask"
 
 [[case]]
 command = "tar -t -f a.tar -Fscript"
+decision = "ask"
+
+# ---- dos2unix / unix2dos ----
+# #187: both rewrite the named file in place by default; SIMPLE_SAFE approved
+# them on the command name alone with no argv inspection at all.
+[[case]]
+command = "dos2unix notes.txt"
+decision = "ask"
+
+[[case]]
+command = "unix2dos notes.txt"
+decision = "ask"
+
+[[case]]
+command = "dos2unix --info notes.txt"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -V"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -h"
+decision = "allow"
+
+# -n new-file mode: output path runs the redirect pipeline. Target in a safe
+# dir allows; target outside one is this guarded surface's dangerous neighbor.
+[[case]]
+command = "dos2unix -n old.txt /tmp/new.txt"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -n old.txt new.txt"
+decision = "ask"
+
+[[case]]
+command = "dos2unix -n onlyone.txt"
 decision = "ask"
 
 # ---- sort ----

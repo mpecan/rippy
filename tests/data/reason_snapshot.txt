@@ -28,6 +28,8 @@ cat file | sort | head -20	allow	head is safe
 cat file | sort | bash	ask	bash (interactive)
 sed 's/old/new/g' file.txt	allow	sed (filter)
 sed -i 's/old/new/g' file.txt	ask	sed -i (in-place edit)
+awk '{print}' file.txt	allow	awk (filter)
+awk -i inplace '{print}' file.txt	ask	awk -i inplace (rewrites file)
 git status	allow	git status
 git log --oneline -20	allow	git log
 git diff	allow	git diff
@@ -347,6 +349,10 @@ awk '$1 ~ /a|b/ {print}' file.txt	allow	awk (filter)
 awk '{gsub(/x|y/,"z")}' file.txt	allow	awk (filter)
 awk 'BEGIN{print "a|b"}' file.txt	allow	awk (filter)
 awk '/foo|bar/ {print $0 | "sort"}' file.txt	ask	awk pipe to command
+awk -i inplace '{print}' file.txt	ask	awk -i inplace (rewrites file)
+awk -i /tmp/lib.awk '{print}' file.txt	ask	awk -i (include file)
+awk -iinplace '{print}' file.txt	ask	awk -i inplace (rewrites file)
+awk --include=inplace '{print}' file.txt	ask	awk -i inplace (rewrites file)
 find . -name '*.tmp' -delete	ask	find -delete
 find . -ok rm {} ;	ask	find -ok (interactive)
 find . -name '*.rs' -exec wc -l {} ;	allow	wc is safe
@@ -378,6 +384,14 @@ tar --list --checkpoint=1 --checkpoint-action=exec=sh -f a.tar	ask	tar (runs ext
 tar -t -f a.tar -Ish	ask	tar (runs external program)
 tar -t -f a.tar -I/bin/sh	ask	tar (runs external program)
 tar -t -f a.tar -Fscript	ask	tar (runs external program)
+dos2unix notes.txt	ask	dos2unix (in-place conversion)
+unix2dos notes.txt	ask	unix2dos (in-place conversion)
+dos2unix --info notes.txt	allow	dos2unix --info (no conversion)
+dos2unix -V	allow	dos2unix help/version
+dos2unix -h	allow	dos2unix help/version
+dos2unix -n old.txt /tmp/new.txt	allow	redirect to /tmp/new.txt (safe dir)
+dos2unix -n old.txt new.txt	ask	redirect to new.txt
+dos2unix -n onlyone.txt	ask	dos2unix -n (unpaired file operands)
 sort input	allow	sort
 sort -o /tmp/x input	allow	redirect to /tmp/x (safe dir)
 sort -oout.txt input	ask	redirect to out.txt
@@ -802,7 +816,6 @@ cut -d, -f1 data.csv	allow	cut is safe
 df -h	allow	df is safe
 dig example.com	allow	dig is safe
 dirname /tmp/file.txt	allow	dirname is safe
-dos2unix notes.txt	allow	dos2unix is safe
 du -sh src	allow	du is safe
 exa -l	allow	exa is safe
 expand notes.txt	allow	expand is safe
@@ -885,7 +898,6 @@ tty	allow	tty is safe
 type ls	allow	type is safe
 uname -a	allow	uname is safe
 unexpand notes.txt	allow	unexpand is safe
-unix2dos notes.txt	allow	unix2dos is safe
 uptime	allow	uptime is safe
 vmstat 1 1	allow	vmstat is safe
 whatis ls	allow	whatis is safe
@@ -925,7 +937,8 @@ uv python install 3.12	ask	uv python install
 uv cache clean	ask	uv cache clean
 mktemp -p /etc	ask	mktemp
 gzip -d archive.gz	ask	gzip -d
-unzip archive.zip	ask	archive archive.zip
+unzip archive.zip	ask	unzip (extract)
+7z a archive.7z file.txt	ask	7z a
 awk -f /tmp/script.awk notes.txt	ask	awk -f (script file)
 cd /etc	ask	cd to /etc
 pushd /etc	ask	pushd to /etc
@@ -1348,9 +1361,13 @@ tokf verify	allow	tokf verify
 tokf discover	allow	tokf discover
 tokf doctor	allow	tokf doctor
 tokf completions	allow	tokf completions
-unzip l archive.zip	allow	archive l
-unzip t archive.zip	allow	archive t
+unzip -l archive.zip	allow	unzip (list/test)
+unzip -t archive.zip	allow	unzip (list/test)
+unzip -v archive.zip	allow	unzip (list/test)
 unzip --help	allow	unzip help/version
+7z l archive.7z	allow	7z l
+7z t archive.7z	allow	7z t
+7z --help	allow	7z help/version
 uv lock	allow	uv lock
 uv tree	allow	uv tree
 uv version	allow	uv version

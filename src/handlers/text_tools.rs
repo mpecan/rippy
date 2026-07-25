@@ -143,6 +143,10 @@ impl Handler for AwkHandler {
             return Classification::Ask(format!("{} -f (script file)", ctx.command_name));
         }
 
+        if let Some(reason) = check_awk_include(ctx.args, ctx.command_name) {
+            return Classification::Ask(reason);
+        }
+
         if let Some(reason) = check_awk_program(ctx.args, ctx.command_name) {
             return Classification::Ask(reason);
         }
@@ -154,7 +158,8 @@ impl Handler for AwkHandler {
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
-        let guard = "no system() call, pipe-to-command or file redirect in the program";
+        let guard = "no system() call, pipe-to-command or file redirect in the program, and no \
+                     -i/--include flag";
         vec![
             AllowEntry::guarded("awk <program> [<file>...]", guard),
             AllowEntry::guarded(
@@ -163,6 +168,36 @@ impl Handler for AwkHandler {
             ),
         ]
     }
+}
+
+/// Check for gawk's `-i`/`--include`, which either rewrites the input file in
+/// place (`-i inplace`) or loads an arbitrary awk source file. Unlike `-f`'s
+/// plain relative path, `-i` searches `AWKPATH`, so a same-named local file is
+/// not trustworthy evidence of what gawk actually loads — always Ask.
+fn check_awk_include(args: &[String], cmd_name: &str) -> Option<String> {
+    let value =
+        get_flag_value(args, &["-i", "--include"]).or_else(|| attached_include_value(args))?;
+    if value == "inplace" || value.starts_with("inplace:") {
+        Some(format!("{cmd_name} -i inplace (rewrites file)"))
+    } else {
+        Some(format!("{cmd_name} -i (include file)"))
+    }
+}
+
+/// Extract the value from an attached `-i`/`--include` flag: `-iinplace` (glued
+/// short form) or `--include=inplace` (long form).
+fn attached_include_value(args: &[String]) -> Option<String> {
+    for arg in args {
+        if let Some(value) = arg.strip_prefix("--include=") {
+            return Some(value.to_owned());
+        }
+        if let Some(value) = arg.strip_prefix("-i")
+            && !value.is_empty()
+        {
+            return Some(value.to_owned());
+        }
+    }
+    None
 }
 
 /// Check an awk source string for dangerous patterns.
