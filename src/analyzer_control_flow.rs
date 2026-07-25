@@ -4,7 +4,7 @@ use rable::{Node, NodeKind};
 
 use super::Analyzer;
 use crate::resolve::{self, LocalBinding};
-use crate::verdict::{AllowReason, Verdict};
+use crate::verdict::Verdict;
 
 impl Analyzer {
     pub(super) fn analyze_control_flow(
@@ -58,7 +58,10 @@ impl Analyzer {
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
                 Verdict::combine(&verdicts)
             }
-            _ => Verdict::allow(AllowReason::Empty),
+            // Unreachable today: `analyze_node` routes only the eight kinds
+            // matched above. Ask keeps a kind added to that dispatch without an
+            // arm here fail-closed rather than approved unanalyzed.
+            _ => Verdict::ask("unhandled control-flow construct"),
         }
     }
 
@@ -128,5 +131,31 @@ impl Analyzer {
             .collect();
         verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
         Verdict::combine(&verdicts)
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "test code")]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::Analyzer;
+    use crate::config::Config;
+    use crate::parser::BashParser;
+    use crate::verdict::Decision;
+
+    /// `analyze_node` never routes a non-control-flow node here, so reach the
+    /// fallback the only way a test can: call it directly. Pinning it as Ask is
+    /// the point — a future kind added to that dispatch without an arm here
+    /// must not be approved unanalyzed.
+    #[test]
+    fn unrouted_node_kind_asks_rather_than_allowing() {
+        let nodes = BashParser::new().unwrap().parse("ls").unwrap();
+        let cwd = PathBuf::from("/project");
+        let mut analyzer = Analyzer::new(Config::empty(), false, cwd.clone(), false).unwrap();
+
+        let verdict = analyzer.analyze_control_flow(&nodes[0], &cwd, 0);
+
+        assert_eq!(verdict.decision, Decision::Ask);
     }
 }
