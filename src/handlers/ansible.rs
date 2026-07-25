@@ -1,9 +1,17 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag, surface,
+};
 use crate::verdict::AllowReason;
 
 /// Extensions that indicate a static inventory file rather than a dynamic
 /// (executable) inventory script.
 const STATIC_INVENTORY_EXTENSIONS: &[&str] = &[".ini", ".yaml", ".yml", ".json"];
+
+/// `ansible-galaxy` subcommands that only read.
+const GALAXY_SAFE: &[&str] = &["list", "search", "info"];
+
+/// `ansible-config` subcommands that only read.
+const CONFIG_SAFE: &[&str] = &["list", "dump", "view"];
 
 pub(crate) static ANSIBLE_HANDLER: AnsibleHandler = AnsibleHandler;
 
@@ -37,6 +45,30 @@ impl Handler for AnsibleHandler {
             "ansible-inventory" => classify_inventory(ctx),
             _ => Classification::Ask(format!("{} (unknown ansible command)", ctx.command_name)),
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let mut entries = vec![
+            AllowEntry::new("ansible-doc"),
+            AllowEntry::new("ansible-lint"),
+            AllowEntry::guarded("ansible", "one of --check/-C/--list-hosts present"),
+            AllowEntry::guarded(
+                "ansible-playbook",
+                "one of --check/-C/--syntax-check/--list-hosts/--list-tasks/--list-tags present",
+            ),
+            AllowEntry::new("ansible-vault view"),
+            AllowEntry::guarded(
+                "ansible-inventory",
+                format!(
+                    "one of --list/--graph/--host present, and either no inventory operand or \
+                     one ending in {}",
+                    STATIC_INVENTORY_EXTENSIONS.join("/"),
+                ),
+            ),
+        ];
+        entries.extend(surface::subcommands("ansible-galaxy", GALAXY_SAFE));
+        entries.extend(surface::subcommands("ansible-config", CONFIG_SAFE));
+        entries
     }
 }
 
@@ -78,22 +110,24 @@ fn classify_vault(ctx: &HandlerContext) -> Classification {
 }
 
 fn classify_galaxy(ctx: &HandlerContext) -> Classification {
-    match ctx.subcommand() {
-        "list" | "search" | "info" => Classification::Allow(AllowReason::handler(format!(
-            "ansible-galaxy {} (read-only)",
-            ctx.subcommand()
-        ))),
-        sub => Classification::Ask(format!("ansible-galaxy {sub} (may modify roles)")),
+    let sub = ctx.subcommand();
+    if GALAXY_SAFE.contains(&sub) {
+        Classification::Allow(AllowReason::handler(format!(
+            "ansible-galaxy {sub} (read-only)"
+        )))
+    } else {
+        Classification::Ask(format!("ansible-galaxy {sub} (may modify roles)"))
     }
 }
 
 fn classify_config(ctx: &HandlerContext) -> Classification {
-    match ctx.subcommand() {
-        "list" | "dump" | "view" => Classification::Allow(AllowReason::handler(format!(
-            "ansible-config {} (read-only)",
-            ctx.subcommand()
-        ))),
-        sub => Classification::Ask(format!("ansible-config {sub}")),
+    let sub = ctx.subcommand();
+    if CONFIG_SAFE.contains(&sub) {
+        Classification::Allow(AllowReason::handler(format!(
+            "ansible-config {sub} (read-only)"
+        )))
+    } else {
+        Classification::Ask(format!("ansible-config {sub}"))
     }
 }
 

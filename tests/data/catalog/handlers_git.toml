@@ -88,6 +88,70 @@ decision = "ask"
 command = "git config --unset foo"
 decision = "ask"
 
+# ---- sub-subcommand safe sets (src/handlers/git_subcommands.rs) ----
+# Every decision below was transcribed from an observed isolated_analyzer() run.
+# They pin the read/write split of the eight nested classifiers so the named
+# safe-set constants that also feed docs/allow-catalog.md cannot drift.
+[[case]]
+command = "git remote show origin"
+decision = "allow"
+
+[[case]]
+command = "git remote get-url origin"
+decision = "allow"
+
+[[case]]
+command = "git notes list"
+decision = "allow"
+
+[[case]]
+command = "git bisect log"
+decision = "allow"
+
+[[case]]
+command = "git bisect visualize"
+decision = "allow"
+
+[[case]]
+command = "git lfs status"
+decision = "allow"
+
+[[case]]
+command = "git lfs ls-files"
+decision = "allow"
+
+[[case]]
+command = "git config --get user.name"
+decision = "allow"
+
+[[case]]
+command = "git config user.name"
+decision = "allow"
+
+[[case]]
+command = "git stash show"
+decision = "allow"
+
+[[case]]
+command = "git notes add -m x"
+decision = "ask"
+
+[[case]]
+command = "git bisect start"
+decision = "ask"
+
+[[case]]
+command = "git lfs push origin main"
+decision = "ask"
+
+[[case]]
+command = "git remote rename a b"
+decision = "ask"
+
+[[case]]
+command = "git stash pop"
+decision = "ask"
+
 # ---- absolute out-of-scope repo redirects: Ask regardless of cwd ----
 # Both the separated (`-C PATH`) and attached (`--flag=PATH`) forms must Ask so
 # the redirect cannot be smuggled past the scope guard (#134).

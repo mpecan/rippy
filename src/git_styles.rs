@@ -14,6 +14,10 @@ const CAUTIOUS_TOML: &str = include_str!("stdlib/git_cautious.toml");
 const STANDARD_TOML: &str = include_str!("stdlib/git_standard.toml");
 const PERMISSIVE_TOML: &str = include_str!("stdlib/git_permissive.toml");
 
+/// Every git style, in the order the allow catalog renders them.
+pub(crate) const ALL_STYLES: &[GitStyle] =
+    &[GitStyle::Cautious, GitStyle::Standard, GitStyle::Permissive];
+
 /// A named git workflow style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GitStyle {
@@ -39,7 +43,7 @@ impl GitStyle {
         }
     }
 
-    const fn toml_source(self) -> &'static str {
+    pub(crate) const fn toml_source(self) -> &'static str {
         match self {
             Self::Cautious => CAUTIOUS_TOML,
             Self::Standard => STANDARD_TOML,
@@ -47,7 +51,7 @@ impl GitStyle {
         }
     }
 
-    const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Cautious => "cautious",
             Self::Standard => "standard",

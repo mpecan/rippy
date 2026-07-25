@@ -1,4 +1,6 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, surface,
+};
 use crate::verdict::AllowReason;
 
 pub(crate) static DOCKER_HANDLER: DockerHandler = DockerHandler;
@@ -17,6 +19,12 @@ const GROUPED_NOUNS: &[&str] = &["image", "system", "network", "volume", "config
 /// Read-only actions across the grouped management nouns.
 const GROUP_SAFE_ACTIONS: &[&str] = &[
     "ls", "list", "inspect", "df", "history", "events", "info", "show",
+];
+
+/// Read-only `compose` subcommands, shared by `docker compose <sub>` and the
+/// standalone `docker-compose <sub>` binaries.
+const COMPOSE_SAFE: &[&str] = &[
+    "ps", "logs", "config", "images", "ls", "top", "version", "port", "events",
 ];
 
 // All non-safe commands default to Ask, so no explicit ASK list needed.
@@ -59,6 +67,31 @@ impl Handler for DockerHandler {
         } else {
             Classification::Ask(desc)
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // `docker exec` re-analyzes the inner command instead of approving, so
+        // it is not part of this surface.
+        let mut entries = surface::subcommands("docker", SAFE);
+        for noun in GROUPED_NOUNS {
+            entries.extend(surface::subcommands(
+                &format!("docker {noun}"),
+                GROUP_SAFE_ACTIONS,
+            ));
+        }
+        entries.extend(surface::subcommands("docker compose", COMPOSE_SAFE));
+        entries.extend(surface::subcommands("docker-compose", COMPOSE_SAFE));
+        for sub in ["export", "save"] {
+            entries.push(AllowEntry::guarded(
+                format!("docker {sub}"),
+                "no -o/--output; with one, the target runs the redirect pipeline",
+            ));
+        }
+        entries.push(AllowEntry::guarded(
+            "docker --help|-h|--version",
+            "sole argument",
+        ));
+        entries
     }
 }
 
@@ -121,10 +154,6 @@ fn classify_export_save(ctx: &HandlerContext, sub: &str) -> Classification {
 }
 
 fn classify_compose(ctx: &HandlerContext) -> Classification {
-    const COMPOSE_SAFE: &[&str] = &[
-        "ps", "logs", "config", "images", "ls", "top", "version", "port", "events",
-    ];
-
     let sub = if ctx.command_name.ends_with("-compose") {
         ctx.args.first().map_or("", String::as_str)
     } else {

@@ -611,7 +611,7 @@ impl Analyzer {
         // Short-circuit to Allow ONLY when the help/version flag is the sole arg;
         // matching it anywhere let a dangerous operand ride along (#149). Bare `-h`
         // is dropped (commands overload it as `-h <host>`), so a lone `-h` Asks.
-        if is_sole_help_flag(&args, &["--help", "--version"]) {
+        if is_sole_help_flag(&args, allowlists::SOLE_HELP_FLAGS) {
             return Verdict::allow(AllowReason::HelpFlag(cmd_name.clone()));
         }
 

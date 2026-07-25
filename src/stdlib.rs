@@ -53,6 +53,11 @@ const STDLIB_SOURCES: &[(&str, &str)] = &[
     ("(stdlib:package_managers)", PACKAGE_MANAGERS_TOML),
 ];
 
+/// The embedded stdlib files, as `(label, raw TOML)` in loading order.
+pub(crate) const fn stdlib_sources() -> &'static [(&'static str, &'static str)] {
+    STDLIB_SOURCES
+}
+
 /// Parse all embedded stdlib TOML into config directives.
 ///
 /// # Errors

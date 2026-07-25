@@ -157,6 +157,21 @@ git tag -d v1.0	ask	git tag (delete)
 git stash	ask	git stash
 git remote add origin url	ask	git remote add
 git config --unset foo	ask	git config (write)
+git remote show origin	allow	git remote (view)
+git remote get-url origin	allow	git remote get-url
+git notes list	allow	git notes list
+git bisect log	allow	git bisect log
+git bisect visualize	allow	git bisect visualize
+git lfs status	allow	git lfs status
+git lfs ls-files	allow	git lfs ls-files
+git config --get user.name	allow	git config (read)
+git config user.name	allow	git config (read)
+git stash show	allow	git stash show
+git notes add -m x	ask	git notes add
+git bisect start	ask	git bisect start
+git lfs push origin main	ask	git lfs push
+git remote rename a b	ask	git remote rename
+git stash pop	ask	git stash pop
 git -C /etc status	ask	git -C targets outside allowed scope (/etc)
 git -C /opt/other-repo log	ask	git -C targets outside allowed scope (/opt/other-repo)
 git --git-dir /etc/repo/.git log	ask	git --git-dir targets outside allowed scope (/etc/repo/.git)

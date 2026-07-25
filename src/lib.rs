@@ -1,5 +1,6 @@
 #![warn(unreachable_pub)]
 
+pub mod allow_catalog;
 pub mod allowlists;
 pub mod analyzer;
 pub mod ast;

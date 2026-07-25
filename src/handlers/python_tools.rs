@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag, surface};
 use crate::verdict::AllowReason;
 
 // uv
@@ -8,6 +8,13 @@ pub(crate) static UV_HANDLER: UvHandler = UvHandler;
 pub(crate) struct UvHandler;
 
 const UV_SAFE: &[&str] = &["sync", "lock", "tree", "version", "help", "venv", "export"];
+
+/// `uv` groups whose second token decides safety.
+const UV_NESTED_SAFE: &[(&str, &[&str])] = &[
+    ("pip", &["list", "freeze", "show", "check", "tree"]),
+    ("python", &["list", "find", "dir"]),
+    ("cache", &["dir"]),
+];
 
 impl Handler for UvHandler {
     fn commands(&self) -> &[&str] {
@@ -41,35 +48,27 @@ impl Handler for UvHandler {
             return Classification::Recurse(inner.join(" "));
         }
 
-        if sub == "pip" {
-            let pip_sub = ctx.args.get(1).map_or("", String::as_str);
-            return match pip_sub {
-                "list" | "freeze" | "show" | "check" | "tree" => {
-                    Classification::Allow(AllowReason::handler(format!("uv pip {pip_sub}")))
-                }
-                _ => Classification::Ask(format!("uv pip {pip_sub}")),
-            };
-        }
-
-        if sub == "python" {
-            let py_sub = ctx.args.get(1).map_or("", String::as_str);
-            return match py_sub {
-                "list" | "find" | "dir" => {
-                    Classification::Allow(AllowReason::handler(format!("uv python {py_sub}")))
-                }
-                _ => Classification::Ask(format!("uv python {py_sub}")),
-            };
-        }
-
-        if sub == "cache" {
-            let cache_sub = ctx.args.get(1).map_or("", String::as_str);
-            return match cache_sub {
-                "dir" => Classification::Allow(AllowReason::handler("uv cache dir")),
-                _ => Classification::Ask(format!("uv cache {cache_sub}")),
-            };
+        for (parent, safe) in UV_NESTED_SAFE {
+            if sub == *parent {
+                let child = ctx.args.get(1).map_or("", String::as_str);
+                return if safe.contains(&child) {
+                    Classification::Allow(AllowReason::handler(format!("uv {parent} {child}")))
+                } else {
+                    Classification::Ask(format!("uv {parent} {child}"))
+                };
+            }
         }
 
         Classification::Ask(format!("uv {sub}"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // `uvx` always asks and `uv run` re-analyzes its inner command.
+        let mut entries = surface::subcommands("uv", UV_SAFE);
+        for (parent, safe) in UV_NESTED_SAFE {
+            entries.extend(surface::subcommands(&format!("uv {parent}"), safe));
+        }
+        entries
     }
 }
 
@@ -91,6 +90,13 @@ impl Handler for RuffHandler {
         }
         Classification::Allow(AllowReason::handler(format!("ruff {sub}")))
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "ruff <subcommand>",
+            "subcommand is neither `format` nor `clean`, and neither --fix nor --fix-only present",
+        )]
+    }
 }
 
 // black
@@ -109,6 +115,10 @@ impl Handler for BlackHandler {
             return Classification::Allow(AllowReason::handler("black (check only)"));
         }
         Classification::Ask("black (format)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::new("black --check|--diff")]
     }
 }
 

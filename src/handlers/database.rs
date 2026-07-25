@@ -1,9 +1,16 @@
 use super::{
-    Classification, Handler, HandlerContext, get_flag_value, has_flag, is_sole_help_flag,
-    positional_args,
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag,
+    is_sole_help_flag, positional_args,
 };
 use crate::sql::classify_sql;
 use crate::verdict::AllowReason;
+
+/// Guard shared by every inline-SQL entry: the statement itself decides.
+const READ_ONLY_SQL: &str = "statement classified read-only by src/sql.rs";
+
+/// Guard for the file-borne variant, which additionally has to be readable.
+const READ_ONLY_SQL_FILE: &str =
+    "file readable from the working directory and classified read-only by src/sql.rs";
 
 // psql
 
@@ -36,6 +43,15 @@ impl Handler for PsqlHandler {
         }
         Classification::Ask("psql (interactive)".into())
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("psql --help|-?|--version|-V", "sole argument"),
+            AllowEntry::new("psql --list|-l"),
+            AllowEntry::guarded("psql -c|--command <sql>", READ_ONLY_SQL),
+            AllowEntry::guarded("psql -f|--file <path>", READ_ONLY_SQL_FILE),
+        ]
+    }
 }
 
 // mysql
@@ -57,6 +73,13 @@ impl Handler for MysqlHandler {
             return classify_sql_command("mysql", &sql);
         }
         Classification::Ask("mysql (interactive)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("mysql --help|--version|-V", "sole argument"),
+            AllowEntry::guarded("mysql -e|--execute <sql>", READ_ONLY_SQL),
+        ]
     }
 }
 
@@ -84,6 +107,14 @@ impl Handler for Sqlite3Handler {
             return classify_sql_command("sqlite3", sql);
         }
         Classification::Ask("sqlite3 (interactive)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("sqlite3 --help|-help|--version", "sole argument"),
+            AllowEntry::new("sqlite3 -readonly|-safe"),
+            AllowEntry::guarded("sqlite3 <database> <sql>", READ_ONLY_SQL),
+        ]
     }
 }
 

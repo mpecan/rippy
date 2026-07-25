@@ -188,6 +188,13 @@ static WRAPPER_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     ])
 });
 
+/// Help/version flags the analyzer honors when one of them is a command's sole
+/// argument — the whole `AllowReason::HelpFlag` surface.
+///
+/// Deliberately excludes `-h`/`-V`: commands overload them (`docker -h` is
+/// `--hostname`), so a lone short flag keeps asking.
+pub const SOLE_HELP_FLAGS: &[&str] = &["--help", "--version"];
+
 /// Check if a command is in the simple-safe allowlist.
 #[must_use]
 pub fn is_simple_safe(cmd: &str) -> bool {
@@ -227,6 +234,15 @@ pub fn wrapper_count() -> usize {
 #[must_use]
 pub fn all_simple_safe() -> Vec<&'static str> {
     let mut cmds: Vec<_> = SIMPLE_SAFE.iter().copied().collect();
+    cmds.sort_unstable();
+    cmds
+}
+
+/// Return the `SIMPLE_SAFE` commands excluded from the dynamic-argument
+/// relaxation, sorted alphabetically.
+#[must_use]
+pub fn all_dynamic_arg_unsafe() -> Vec<&'static str> {
+    let mut cmds: Vec<_> = DYNAMIC_ARG_UNSAFE.iter().copied().collect();
     cmds.sort_unstable();
     cmds
 }

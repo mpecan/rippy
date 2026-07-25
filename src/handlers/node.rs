@@ -1,6 +1,6 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag,
-    is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
+    has_flag, is_sole_help_flag,
 };
 use crate::node_safety::is_node_source_safe;
 use crate::verdict::AllowReason;
@@ -57,6 +57,22 @@ impl Handler for NodeHandler {
             };
         }
         Classification::Ask(format!("{} script execution", ctx.command_name))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let safe_source = "source passes the analysis in src/node_safety.rs";
+        vec![
+            AllowEntry::guarded(
+                "node|nodejs|deno --version|-v|-V|--help|-h",
+                "sole argument",
+            ),
+            AllowEntry::guarded("node -e|--eval|-p|--print <code>", safe_source),
+            AllowEntry::guarded("deno eval <code>", safe_source),
+            AllowEntry::guarded(
+                "node <script>",
+                format!("script readable from the working directory and its {safe_source}"),
+            ),
+        ]
     }
 }
 

@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag};
 use crate::verdict::AllowReason;
 
 // fd
@@ -29,6 +29,13 @@ impl Handler for FdHandler {
         }
         Classification::Allow(AllowReason::handler("fd (search only)"))
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "fd <pattern>",
+            "no -x/--exec or -X/--exec-batch",
+        )]
+    }
 }
 
 // dmesg
@@ -47,6 +54,10 @@ impl Handler for DmesgHandler {
             return Classification::Ask("dmesg (clear kernel ring buffer)".into());
         }
         Classification::Allow(AllowReason::handler("dmesg (read)"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded("dmesg", "no -c/-C/--clear")]
     }
 }
 
@@ -96,6 +107,13 @@ impl Handler for IpHandler {
             )))
         }
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "ip <object> <action>",
+            format!("action not one of {}", IP_MUTATION_ACTIONS.join(" ")),
+        )]
+    }
 }
 
 // ifconfig
@@ -117,6 +135,13 @@ impl Handler for IfconfigHandler {
         } else {
             Classification::Ask("ifconfig (modify interface)".into())
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "ifconfig <interface>",
+            "at most one positional operand (more means a config change)",
+        )]
     }
 }
 

@@ -1,4 +1,6 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, surface,
+};
 use crate::verdict::AllowReason;
 
 pub(crate) static GH_HANDLER: GhHandler = GhHandler;
@@ -11,6 +13,25 @@ const SAFE_ACTIONS: &[&str] = &[
 ];
 
 const UNSAFE_METHODS: &[&str] = &["POST", "PUT", "DELETE", "PATCH"];
+
+/// `gh` subcommands that are read-only whatever follows them.
+const TOP_LEVEL_SAFE: &[&str] = &["status", "browse", "search", "completion", "help"];
+
+/// `gh` resource groups whose second token (the action) decides safety.
+const RESOURCE_COMMANDS: &[&str] = &[
+    "pr",
+    "issue",
+    "release",
+    "repo",
+    "run",
+    "workflow",
+    "gist",
+    "project",
+    "label",
+    "codespace",
+    "secret",
+    "variable",
+];
 
 impl Handler for GhHandler {
     fn commands(&self) -> &[&str] {
@@ -26,15 +47,37 @@ impl Handler for GhHandler {
 
         match sub {
             "api" => classify_api(ctx),
-            // Top-level safe commands
-            "status" | "browse" | "search" | "completion" | "help" => {
+            sub if TOP_LEVEL_SAFE.contains(&sub) => {
                 Classification::Allow(AllowReason::handler(format!("gh {sub}")))
             }
-            // Resource commands — classify by action (second arg)
-            "pr" | "issue" | "release" | "repo" | "run" | "workflow" | "gist" | "project"
-            | "label" | "codespace" | "secret" | "variable" => classify_resource(ctx, sub),
+            sub if RESOURCE_COMMANDS.contains(&sub) => classify_resource(ctx, sub),
             _ => Classification::Ask(format!("gh {sub}")),
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let api_guard = format!(
+            "no -X/--method in {}, no field flag ({}) outside a GraphQL query, and no \
+             `mutation` in a field value",
+            UNSAFE_METHODS.join("/"),
+            FIELD_FLAGS.join(" "),
+        );
+        let mut entries = vec![
+            AllowEntry::guarded("gh --help|-h|--version", "sole argument"),
+            AllowEntry::guarded("gh api <endpoint>", api_guard.clone()),
+            AllowEntry::guarded(
+                "gh api <endpoint> --input <file>",
+                format!("{api_guard}; the file is readable and contains no GraphQL mutation"),
+            ),
+        ];
+        entries.extend(surface::subcommands("gh", TOP_LEVEL_SAFE));
+        for resource in RESOURCE_COMMANDS {
+            entries.extend(surface::subcommands(
+                &format!("gh {resource}"),
+                SAFE_ACTIONS,
+            ));
+        }
+        entries
     }
 }
 

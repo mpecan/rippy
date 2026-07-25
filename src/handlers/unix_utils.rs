@@ -1,6 +1,6 @@
 use super::{
-    Classification, Handler, HandlerContext, SubcommandHandler, has_flag, has_flag_or_prefixed,
-    has_glued_short_flag, is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, SubcommandHandler, has_flag,
+    has_flag_or_prefixed, has_glued_short_flag, is_sole_help_flag,
 };
 use crate::verdict::AllowReason;
 
@@ -48,6 +48,14 @@ impl Handler for TarHandler {
         }
         Classification::Ask("tar (create/extract)".into())
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "tar -t|--list",
+            "no flag that runs an external program (-I, --use-compress-program, --to-command, \
+             --checkpoint-action, --rmt-command, -F, --info-script, --new-volume-script)",
+        )]
+    }
 }
 
 // wget
@@ -69,6 +77,13 @@ impl Handler for WgetHandler {
             return Classification::Allow(AllowReason::handler("wget help/version"));
         }
         Classification::Ask("wget (download)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::new("wget --spider"),
+            AllowEntry::guarded("wget --help|-h|--version|-V", "sole argument"),
+        ]
     }
 }
 
@@ -105,6 +120,10 @@ impl Handler for MktempHandler {
         }
         Classification::Ask("mktemp".into())
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::new("mktemp -u")]
+    }
 }
 
 // tee
@@ -132,6 +151,13 @@ impl Handler for TeeHandler {
             AllowReason::handler("tee"),
             files.iter().map(|f| (*f).to_owned()).collect(),
         )
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "tee",
+            "no file operand; file operands run the redirect pipeline",
+        )]
     }
 }
 
@@ -162,6 +188,13 @@ impl Handler for SortHandler {
             return Classification::Ask("sort (output target not extractable)".into());
         }
         Classification::Allow(AllowReason::handler("sort"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "sort",
+            "no -o/--output; with one, the target runs the redirect pipeline",
+        )]
     }
 }
 
@@ -197,6 +230,10 @@ impl Handler for OpenHandler {
         }
         Classification::Ask("open".into())
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::new("open -R")]
+    }
 }
 
 // yq
@@ -215,6 +252,10 @@ impl Handler for YqHandler {
             return Classification::Ask("yq -i (in-place)".into());
         }
         Classification::Allow(AllowReason::handler("yq (filter)"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded("yq <filter>", "no -i/--inplace")]
     }
 }
 

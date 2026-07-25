@@ -1,5 +1,6 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_values, is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_values,
+    is_sole_help_flag,
 };
 use crate::perl_safety::is_perl_source_safe;
 use crate::verdict::AllowReason;
@@ -45,6 +46,21 @@ impl Handler for PerlHandler {
             };
         }
         Classification::Ask("perl script execution".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let safe_source = "source passes the analysis in src/perl_safety.rs";
+        vec![
+            AllowEntry::guarded("perl --version|-v|--help|-h", "sole argument"),
+            AllowEntry::guarded(
+                "perl -e|-E <code>",
+                format!("every -e/-E fragment concatenated; the {safe_source}"),
+            ),
+            AllowEntry::guarded(
+                "perl <script>",
+                format!("script readable from the working directory and its {safe_source}"),
+            ),
+        ]
     }
 }
 
