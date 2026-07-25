@@ -343,10 +343,14 @@ pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
     )
 }
 
+/// Redirect targets that discard or re-emit output and so cannot overwrite
+/// anything worth guarding.
+pub const SAFE_REDIRECT_TARGETS: &[&str] = &["/dev/null", "/dev/stdout", "/dev/stderr"];
+
 /// Check if a redirect target is inherently safe (e.g., /dev/null).
 #[must_use]
 pub fn is_safe_redirect_target(target: &str) -> bool {
-    matches!(target, "/dev/null" | "/dev/stdout" | "/dev/stderr")
+    SAFE_REDIRECT_TARGETS.contains(&target)
 }
 
 /// Whether a `Command` node carries any redirects at all.

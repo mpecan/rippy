@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag};
 use crate::verdict::AllowReason;
 
 pub(crate) static FIND_HANDLER: FindHandler = FindHandler;
@@ -39,6 +39,13 @@ impl Handler for FindHandler {
         }
 
         Classification::Allow(AllowReason::handler("find (search only)"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "find <path> <expression>",
+            "no -delete, -ok/-okdir, -fprint/-fprint0/-fprintf/-fls, -exec or -execdir",
+        )]
     }
 }
 

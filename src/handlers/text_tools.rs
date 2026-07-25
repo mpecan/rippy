@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag};
 use crate::verdict::AllowReason;
 
 // sed
@@ -23,6 +23,13 @@ impl Handler for SedHandler {
         }
 
         Classification::Allow(AllowReason::handler("sed (filter)"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "sed <script> [<file>...]",
+            "no -i (in-place), and no `w`/`e` command or `s///w`/`s///e` flag in the script",
+        )]
     }
 }
 
@@ -144,6 +151,17 @@ impl Handler for AwkHandler {
             "{} (filter)",
             ctx.command_name
         )))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let guard = "no system() call, pipe-to-command or file redirect in the program";
+        vec![
+            AllowEntry::guarded("awk <program> [<file>...]", guard),
+            AllowEntry::guarded(
+                "awk -f <script>",
+                format!("script readable from the working directory; {guard}"),
+            ),
+        ]
     }
 }
 

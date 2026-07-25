@@ -66,10 +66,97 @@ pub enum AllowReason {
     AfterRule(String),
 }
 
+/// The `docs/allow-catalog.md` section an [`AllowReason`] is documented under.
+///
+/// [`AllowReason::category`] maps every variant exhaustively, so a new reason
+/// cannot be added without deciding where it appears in the published allow
+/// catalog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllowCategory {
+    /// Parse-shape approvals that carry no command to judge.
+    Structural,
+    /// The static command-name allowlists.
+    Allowlist,
+    /// The allowlist relaxation for set-but-unknown argument values.
+    DynamicArg,
+    /// Redirect targets that cannot write anything worth guarding.
+    Redirect,
+    /// A command-specific handler.
+    Handler,
+    /// A config rule (stdlib, package, git style, global or project).
+    Rule,
+    /// Approvals that exist only because this machine's config asked for them.
+    UserControlled,
+}
+
+impl AllowCategory {
+    /// Every category, in the order the catalog renders them.
+    pub const ALL: &'static [Self] = &[
+        Self::Allowlist,
+        Self::DynamicArg,
+        Self::Handler,
+        Self::Rule,
+        Self::Redirect,
+        Self::Structural,
+        Self::UserControlled,
+    ];
+
+    #[must_use]
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Structural => "Structural approvals",
+            Self::Allowlist => "Command-name allowlists",
+            Self::DynamicArg => "Dynamic-argument relaxation",
+            Self::Redirect => "Redirect targets",
+            Self::Handler => "Handler surfaces",
+            Self::Rule => "Rule bundles",
+            Self::UserControlled => "User-controlled (not shipped)",
+        }
+    }
+
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::Structural => {
+                "Shapes with nothing to judge: an empty node, a bare assignment, a heredoc body."
+            }
+            Self::Allowlist => "Commands approved on their name alone, regardless of arguments.",
+            Self::DynamicArg => {
+                "Which allowlist commands stay approved when an argument is set but unknown."
+            }
+            Self::Redirect => "Which redirect targets are approved without asking.",
+            Self::Handler => "Per-command handlers: the exact invocations each one auto-approves.",
+            Self::Rule => "Allow rules from the embedded stdlib and the opt-in bundles.",
+            Self::UserControlled => {
+                "Approvals that come from this machine's configuration, not from rippy's defaults."
+            }
+        }
+    }
+}
+
 impl AllowReason {
     /// Build a handler-provenance reason from a handler's description.
     pub fn handler(detail: impl Into<String>) -> Self {
         Self::Handler(detail.into())
+    }
+
+    /// Which catalog section documents this kind of approval.
+    #[must_use]
+    pub const fn category(&self) -> AllowCategory {
+        match self {
+            Self::Empty | Self::EmptyCommand | Self::Heredoc => AllowCategory::Structural,
+            Self::SimpleSafe(_) | Self::Wrapper(_) | Self::HelpFlag(_) => AllowCategory::Allowlist,
+            Self::DynamicArgSafe(_) => AllowCategory::DynamicArg,
+            Self::InputRedirect
+            | Self::FdRedirect
+            | Self::DeviceRedirect(_)
+            | Self::SafeDirWrite(_) => AllowCategory::Redirect,
+            Self::Handler(_) => AllowCategory::Handler,
+            Self::ConfigRule { .. } => AllowCategory::Rule,
+            Self::CcPermission(_) | Self::DefaultAction { .. } | Self::AfterRule(_) => {
+                AllowCategory::UserControlled
+            }
+        }
     }
 }
 
@@ -103,39 +190,71 @@ mod tests {
     use super::*;
     use crate::verdict::{Decision, Verdict};
 
-    /// The wire lock: each expected string is the literal that variant replaced.
-    /// A new variant must be added here, and a changed string is a wire-format
-    /// change that has to be deliberate.
-    #[test]
-    fn display_reproduces_wire_strings() {
-        let cases: Vec<(AllowReason, &str)> = vec![
-            (AllowReason::Empty, ""),
-            (AllowReason::EmptyCommand, "empty command"),
-            (AllowReason::SimpleSafe("ls".into()), "ls is safe"),
-            (AllowReason::Wrapper("env".into()), "env (no inner command)"),
-            (AllowReason::HelpFlag("tar".into()), "tar help/version"),
+    /// One row per variant: the reason, the literal wire string it replaced, and
+    /// the catalog section it is published under. A new variant must be added
+    /// here; a changed string is a wire-format change that has to be deliberate.
+    #[expect(clippy::too_many_lines, reason = "one row per variant, by design")]
+    fn cases() -> Vec<(AllowReason, &'static str, AllowCategory)> {
+        vec![
+            (AllowReason::Empty, "", AllowCategory::Structural),
+            (
+                AllowReason::EmptyCommand,
+                "empty command",
+                AllowCategory::Structural,
+            ),
+            (
+                AllowReason::SimpleSafe("ls".into()),
+                "ls is safe",
+                AllowCategory::Allowlist,
+            ),
+            (
+                AllowReason::Wrapper("env".into()),
+                "env (no inner command)",
+                AllowCategory::Allowlist,
+            ),
+            (
+                AllowReason::HelpFlag("tar".into()),
+                "tar help/version",
+                AllowCategory::Allowlist,
+            ),
             (
                 AllowReason::DynamicArgSafe("cat".into()),
                 "cat is safe (dynamic arg)",
+                AllowCategory::DynamicArg,
             ),
-            (AllowReason::InputRedirect, "input redirect"),
-            (AllowReason::FdRedirect, "fd redirect"),
+            (
+                AllowReason::InputRedirect,
+                "input redirect",
+                AllowCategory::Redirect,
+            ),
+            (
+                AllowReason::FdRedirect,
+                "fd redirect",
+                AllowCategory::Redirect,
+            ),
             (
                 AllowReason::DeviceRedirect("/dev/null".into()),
                 "redirect to /dev/null",
+                AllowCategory::Redirect,
             ),
             (
                 AllowReason::SafeDirWrite("/tmp/x".into()),
                 "redirect to /tmp/x (safe dir)",
+                AllowCategory::Redirect,
             ),
-            (AllowReason::Heredoc, "heredoc"),
-            (AllowReason::handler("git status"), "git status"),
+            (AllowReason::Heredoc, "heredoc", AllowCategory::Structural),
+            (
+                AllowReason::handler("git status"),
+                "git status",
+                AllowCategory::Handler,
+            ),
             (
                 AllowReason::ConfigRule {
                     source: RuleSource::Baseline,
                     detail: "matched rule: command=ls".into(),
                 },
                 "matched rule: command=ls",
+                AllowCategory::Rule,
             ),
             (
                 AllowReason::ConfigRule {
@@ -143,10 +262,12 @@ mod tests {
                     detail: "matched project rule (overrides ask: foo*) [weakened]".into(),
                 },
                 "matched project rule (overrides ask: foo*) [weakened]",
+                AllowCategory::Rule,
             ),
             (
                 AllowReason::CcPermission("ls -la".into()),
                 "ls -la (CC permission: allow)",
+                AllowCategory::UserControlled,
             ),
             (
                 AllowReason::DefaultAction {
@@ -154,6 +275,7 @@ mod tests {
                     weakening: String::new(),
                 },
                 "foo (default action)",
+                AllowCategory::UserControlled,
             ),
             (
                 AllowReason::DefaultAction {
@@ -161,12 +283,39 @@ mod tests {
                     weakening: " | NOTE: project config allows by default".into(),
                 },
                 "foo (default action) | NOTE: project config allows by default",
+                AllowCategory::UserControlled,
             ),
-            (AllowReason::AfterRule("ran linter".into()), "ran linter"),
-        ];
-        for (reason, expected) in cases {
+            (
+                AllowReason::AfterRule("ran linter".into()),
+                "ran linter",
+                AllowCategory::UserControlled,
+            ),
+        ]
+    }
+
+    #[test]
+    fn display_reproduces_wire_strings() {
+        for (reason, expected, _) in cases() {
             assert_eq!(reason.to_string(), expected, "Display for {reason:?}");
         }
+    }
+
+    /// Pairs with the exhaustive match in [`AllowReason::category`]: together
+    /// they make a new variant impossible to ship uncatalogued.
+    #[test]
+    fn category_is_assigned_for_every_wire_case() {
+        for (reason, _, expected) in cases() {
+            assert_eq!(reason.category(), expected, "category for {reason:?}");
+        }
+    }
+
+    #[test]
+    fn every_category_has_a_distinct_title() {
+        let mut titles: Vec<&str> = AllowCategory::ALL.iter().map(|c| c.title()).collect();
+        titles.sort_unstable();
+        let count = titles.len();
+        titles.dedup();
+        assert_eq!(titles.len(), count, "AllowCategory titles must be unique");
     }
 
     #[test]

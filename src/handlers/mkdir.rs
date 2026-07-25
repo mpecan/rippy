@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{Classification, Handler, HandlerContext, is_within_scope, normalize_path};
+use super::{AllowEntry, Classification, Handler, HandlerContext, is_within_scope, normalize_path};
 use crate::verdict::AllowReason;
 
 pub(crate) static MKDIR_HANDLER: MkdirHandler = MkdirHandler;
@@ -65,6 +65,14 @@ impl Handler for MkdirHandler {
         } else {
             Classification::Ask("mkdir (no directory specified)".into())
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "mkdir <path>...",
+            "local context, at least one target, and every target normalizes inside the cwd, a \
+             declared safe scope, or a default safe directory",
+        )]
     }
 }
 

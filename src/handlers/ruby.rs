@@ -1,5 +1,6 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_value, is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
+    is_sole_help_flag,
 };
 use crate::ruby_safety::is_ruby_source_safe;
 use crate::verdict::AllowReason;
@@ -47,6 +48,19 @@ impl Handler for RubyHandler {
             };
         }
         Classification::Ask("ruby script execution".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // `irb` is always interactive and has no approved shape.
+        let safe_source = "source passes the analysis in src/ruby_safety.rs";
+        vec![
+            AllowEntry::guarded("ruby|irb --version|-v|--help|-h", "sole argument"),
+            AllowEntry::guarded("ruby -e <code>", safe_source),
+            AllowEntry::guarded(
+                "ruby <script>",
+                format!("script readable from the working directory and its {safe_source}"),
+            ),
+        ]
     }
 }
 

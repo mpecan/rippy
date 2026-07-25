@@ -3,7 +3,7 @@ use crate::mode::{HookType, Mode, PermissionMode};
 #[path = "allow_reason.rs"]
 mod allow_reason;
 
-pub use allow_reason::{AllowReason, RuleSource};
+pub use allow_reason::{AllowCategory, AllowReason, RuleSource};
 
 /// The three possible safety decisions, ordered so `max()` gives the most restrictive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

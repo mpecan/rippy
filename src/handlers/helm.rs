@@ -1,4 +1,6 @@
-use super::{Classification, Handler, HandlerContext, has_flag, is_sole_help_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, has_flag, is_sole_help_flag, surface,
+};
 use crate::verdict::AllowReason;
 
 pub(crate) static HELM_HANDLER: HelmHandler = HelmHandler;
@@ -73,6 +75,26 @@ impl Handler for HelmHandler {
         }
 
         Classification::Ask(format!("helm {sub}"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let mut entries = surface::subcommands("helm", SAFE_SUBCOMMANDS);
+        entries.extend(surface::guarded_subcommands(
+            "helm",
+            DRY_RUN_SUBCOMMANDS,
+            "--dry-run present",
+        ));
+        for (parent, safe_actions) in NESTED_SAFE {
+            entries.extend(surface::subcommands(
+                &format!("helm {parent}"),
+                safe_actions,
+            ));
+        }
+        entries.push(AllowEntry::guarded(
+            "helm --help|-h|--version",
+            "sole argument",
+        ));
+        entries
     }
 }
 

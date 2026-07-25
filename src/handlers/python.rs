@@ -1,6 +1,6 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag,
-    is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
+    has_flag, is_sole_help_flag, surface,
 };
 use crate::python_safety::is_python_source_safe;
 use crate::verdict::AllowReason;
@@ -8,6 +8,9 @@ use crate::verdict::AllowReason;
 pub(crate) static PYTHON_HANDLER: PythonHandler = PythonHandler;
 
 pub(crate) struct PythonHandler;
+
+/// Stdlib modules `-m` may run: they print and exit, taking no code from argv.
+const SAFE_MODULES: &[&str] = &["calendar", "json.tool", "this", "antigravity"];
 
 impl Handler for PythonHandler {
     fn commands(&self) -> &[&str] {
@@ -46,11 +49,10 @@ impl Handler for PythonHandler {
                 .skip_while(|a| a.as_str() != "-m")
                 .nth(1)
                 .map_or("", String::as_str);
-            return match module {
-                "calendar" | "json.tool" | "this" | "antigravity" => {
-                    Classification::Allow(AllowReason::handler(format!("python -m {module}")))
-                }
-                _ => Classification::Ask(format!("python -m {module}")),
+            return if SAFE_MODULES.contains(&module) {
+                Classification::Allow(AllowReason::handler(format!("python -m {module}")))
+            } else {
+                Classification::Ask(format!("python -m {module}"))
             };
         }
 
@@ -76,6 +78,20 @@ impl Handler for PythonHandler {
             };
         }
         Classification::Ask("python script execution".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let safe_source = "source passes the analysis in src/python_safety.rs";
+        let mut entries = vec![
+            AllowEntry::guarded("python --version|-V|-VV|--help|-h", "sole argument"),
+            AllowEntry::guarded("python -c <code>", safe_source),
+        ];
+        entries.extend(surface::subcommands("python -m", SAFE_MODULES));
+        entries.push(AllowEntry::guarded(
+            "python <script>",
+            format!("script readable from the working directory and its {safe_source}"),
+        ));
+        entries
     }
 }
 

@@ -1,6 +1,6 @@
 use super::{
-    Classification, Handler, HandlerContext, get_flag_value, has_flag, has_flag_or_prefixed,
-    is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag,
+    has_flag_or_prefixed, is_sole_help_flag,
 };
 use crate::verdict::AllowReason;
 
@@ -103,6 +103,23 @@ impl Handler for CurlHandler {
         }
 
         Classification::Allow(AllowReason::handler("curl (GET request)"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("curl --help|-h|--version|-V", "sole argument"),
+            AllowEntry::guarded(
+                "curl <url>",
+                format!(
+                    "no request body flag ({}), no -X/--request with {}, no -K/--config, and no \
+                     server-named output flag (-O, -J, --remote-name, --remote-name-all, \
+                     --remote-header-name, --output-dir); an -o/--output target runs the \
+                     redirect pipeline",
+                    DATA_FLAGS.join(" "),
+                    UNSAFE_METHODS.join("/"),
+                ),
+            ),
+        ]
     }
 }
 

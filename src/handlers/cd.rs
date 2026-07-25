@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{Classification, Handler, HandlerContext, is_within_scope, normalize_path};
+use super::{AllowEntry, Classification, Handler, HandlerContext, is_within_scope, normalize_path};
 use crate::verdict::AllowReason;
 
 pub(crate) static CD_HANDLER: CdHandler = CdHandler;
@@ -85,6 +85,18 @@ impl Handler for CdHandler {
         } else {
             Classification::Ask(format!("{} to {target}", ctx.command_name))
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // `popd` never resolves statically and has no approved shape.
+        vec![
+            AllowEntry::guarded("cd|pushd -", "not a remote (docker/kubectl exec) context"),
+            AllowEntry::guarded(
+                "cd|pushd <path>",
+                "local context, no `$`/backtick expansion, no leading `~`, and the normalized \
+                 target is inside the cwd, a declared safe scope, or a default safe directory",
+            ),
+        ]
     }
 }
 

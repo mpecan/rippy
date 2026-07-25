@@ -8,6 +8,7 @@ mod env_xargs;
 mod find;
 mod gh;
 mod git;
+mod git_subcommands;
 mod helm;
 mod mkdir;
 mod node;
@@ -17,6 +18,7 @@ mod python;
 mod python_tools;
 mod ruby;
 mod shell;
+mod surface;
 mod system;
 mod task_runners;
 mod text_tools;
@@ -25,6 +27,8 @@ mod unix_utils;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::LazyLock;
+
+pub(crate) use surface::{AllowEntry, all_handler_surfaces};
 
 use crate::verdict::AllowReason;
 
@@ -126,6 +130,15 @@ pub(crate) enum Classification {
 pub(crate) trait Handler: Send + Sync {
     fn commands(&self) -> &[&str];
     fn classify(&self, ctx: &HandlerContext) -> Classification;
+
+    /// Every invocation shape [`Handler::classify`] can approve
+    /// (`Classification::Allow` or `WithRedirects`), as data.
+    ///
+    /// Rendered into `docs/allow-catalog.md`, so a widening of the approved set
+    /// is visible as a documentation diff. Deliberately has no default
+    /// implementation: a new handler must declare its surface to compile. A
+    /// handler that only recurses or asks returns an empty vector.
+    fn allow_surface(&self) -> Vec<AllowEntry>;
 }
 
 /// A data-driven handler for commands with simple subcommand-based classification.
@@ -179,6 +192,16 @@ impl Handler for SubcommandHandler {
         } else {
             Classification::Ask(desc)
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let cmd = self.cmds.first().copied().unwrap_or(self.desc_prefix);
+        let mut entries = surface::subcommands(cmd, self.safe);
+        entries.push(AllowEntry::guarded(
+            format!("{cmd} --help|-h|--version|-V"),
+            "sole argument",
+        ));
+        entries
     }
 }
 

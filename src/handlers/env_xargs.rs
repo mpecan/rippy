@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag};
 use crate::ast;
 use crate::verdict::AllowReason;
 
@@ -49,6 +49,14 @@ impl Handler for EnvHandler {
 
         // Delegate inner command
         Classification::Recurse(positionals.join(" "))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "env [NAME=VALUE]...",
+            "no inner command, no -S/--split-string, and no assignment to a code-influencing \
+             variable (see docs/security-invariants.md#dangerous-env-name)",
+        )]
     }
 }
 
@@ -123,6 +131,11 @@ impl Handler for XargsHandler {
             return Classification::Ask("xargs (no command)".into());
         }
         Classification::Recurse(inner.join(" "))
+    }
+
+    /// Empty by design: `xargs` only re-analyzes its inner command, or asks.
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        Vec::new()
     }
 }
 

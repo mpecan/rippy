@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext, first_positional};
+use super::{AllowEntry, Classification, Handler, HandlerContext, first_positional, surface};
 use crate::verdict::AllowReason;
 
 // just
@@ -45,6 +45,14 @@ impl Handler for JustHandler {
         let sub = ctx.args.first().map_or("", String::as_str);
         Classification::Ask(format!("just {sub}"))
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        surface::guarded_subcommands(
+            "just",
+            READONLY_JUST_FLAGS,
+            "the flag appears in the leading run of flags, before any recipe name",
+        )
+    }
 }
 
 // mise
@@ -90,6 +98,15 @@ impl Handler for MiseHandler {
             return Classification::Allow(AllowReason::handler(format!("mise {sub}")));
         }
         Classification::Ask(format!("mise {sub}"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let mut entries = surface::subcommands("mise", MISE_SAFE);
+        entries.push(AllowEntry::guarded(
+            "mise tasks [<child>]",
+            format!("child not one of {}", MISE_TASKS_UNSAFE.join(" ")),
+        ));
+        entries
     }
 }
 
@@ -160,6 +177,11 @@ impl Handler for TokfHandler {
         }
 
         Classification::Ask(format!("tokf {sub}"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // TOKF_WRAPPERS re-analyze the wrapped command rather than approving it.
+        surface::subcommands("tokf", TOKF_SAFE)
     }
 }
 

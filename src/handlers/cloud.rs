@@ -1,7 +1,12 @@
 use super::{
-    Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, positional_args,
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag,
+    positional_args, surface,
 };
 use crate::verdict::AllowReason;
+
+/// Shared guard text for the gcloud/az resource trees, whose safety is decided
+/// by the whole command path rather than a single verb.
+const NO_MUTATING_VERB: &str = "no mutating verb anywhere in the command path";
 
 /// Verbs across gcloud/az resource trees that mutate state, checked against
 /// the command-path (positional tokens before the first flag). Any match in
@@ -80,6 +85,18 @@ impl Handler for KubectlHandler {
         } else {
             Classification::Ask(desc)
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // `kubectl exec -- CMD` re-analyzes the inner command instead of
+        // approving, so it is not part of this surface.
+        let mut entries = surface::subcommands("kubectl", KUBECTL_SAFE);
+        entries.extend(surface::subcommands("kubectl config", KUBECTL_CONFIG_SAFE));
+        entries.push(AllowEntry::guarded(
+            "kubectl --help|-h|--version",
+            "sole argument",
+        ));
+        entries
     }
 }
 
@@ -163,6 +180,18 @@ const AWS_SAFE_ACTIONS: &[&str] = &[
     "transact-get-items",
 ];
 
+/// `aws configure` actions that only read (empty = bare `aws configure`).
+const AWS_CONFIGURE_SAFE: &[&str] = &["list", "list-profiles", "get", ""];
+
+/// `aws sts` actions that only read. Listed explicitly because `sts` also has
+/// credential-minting actions the `get-` prefix would otherwise wave through.
+const AWS_STS_SAFE: &[&str] = &[
+    "get-caller-identity",
+    "get-session-token",
+    "get-access-key-info",
+    "decode-authorization-message",
+];
+
 impl Handler for AwsHandler {
     fn commands(&self) -> &[&str] {
         &["aws"]
@@ -190,23 +219,15 @@ impl Handler for AwsHandler {
         }
 
         if service == "configure" {
-            return if matches!(action, "list" | "list-profiles" | "get" | "") {
+            return if AWS_CONFIGURE_SAFE.contains(&action) {
                 Classification::Allow(AllowReason::handler(format!("aws configure {action}")))
             } else {
                 Classification::Ask(format!("aws configure {action}"))
             };
         }
 
-        if service == "sts" {
-            let sts_safe = [
-                "get-caller-identity",
-                "get-session-token",
-                "get-access-key-info",
-                "decode-authorization-message",
-            ];
-            if sts_safe.contains(&action) {
-                return Classification::Allow(AllowReason::handler(format!("aws sts {action}")));
-            }
+        if service == "sts" && AWS_STS_SAFE.contains(&action) {
+            return Classification::Allow(AllowReason::handler(format!("aws sts {action}")));
         }
 
         if AWS_SAFE_ACTIONS.contains(&action) {
@@ -218,6 +239,34 @@ impl Handler for AwsHandler {
         }
 
         Classification::Ask(format!("aws {service} {action}"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let endpoint_guard = "any --endpoint-url must point at localhost";
+        let mut entries = vec![AllowEntry::guarded("aws --help|--version", "sole argument")];
+        for action in AWS_SAFE_ACTIONS {
+            entries.push(AllowEntry::guarded(
+                format!("aws <service> {action}"),
+                endpoint_guard,
+            ));
+        }
+        for prefix in AWS_SAFE_PREFIXES {
+            entries.push(AllowEntry::guarded(
+                format!("aws <service> {prefix}*"),
+                format!("{endpoint_guard}; `get-login-password` is excluded"),
+            ));
+        }
+        entries.extend(surface::guarded_subcommands(
+            "aws configure",
+            AWS_CONFIGURE_SAFE,
+            endpoint_guard,
+        ));
+        entries.extend(surface::guarded_subcommands(
+            "aws sts",
+            AWS_STS_SAFE,
+            endpoint_guard,
+        ));
+        entries
     }
 }
 
@@ -241,6 +290,9 @@ const GCLOUD_SAFE_KEYWORDS: &[&str] = &[
     "configurations",
 ];
 
+/// `gsutil` subcommands that only read.
+const GSUTIL_SAFE: &[&str] = &["ls", "cat", "stat", "du", "hash", "version", "help"];
+
 impl Handler for GcloudHandler {
     fn commands(&self) -> &[&str] {
         &["gcloud", "gsutil"]
@@ -256,11 +308,10 @@ impl Handler for GcloudHandler {
 
         if ctx.command_name == "gsutil" {
             let sub = ctx.args.first().map_or("", String::as_str);
-            return match sub {
-                "ls" | "cat" | "stat" | "du" | "hash" | "version" | "help" => {
-                    Classification::Allow(AllowReason::handler(format!("gsutil {sub}")))
-                }
-                _ => Classification::Ask(format!("gsutil {sub}")),
+            return if GSUTIL_SAFE.contains(&sub) {
+                Classification::Allow(AllowReason::handler(format!("gsutil {sub}")))
+            } else {
+                Classification::Ask(format!("gsutil {sub}"))
             };
         }
 
@@ -284,6 +335,21 @@ impl Handler for GcloudHandler {
         } else {
             Classification::Ask(format!("gcloud {}", ctx.args.join(" ")))
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let mut entries = vec![
+            AllowEntry::guarded("gcloud --help|-h|--version", "sole argument"),
+            AllowEntry::guarded("gsutil --help|-h|--version", "sole argument"),
+        ];
+        for action in GCLOUD_SAFE_KEYWORDS {
+            entries.push(AllowEntry::guarded(
+                format!("gcloud <group>... {action}"),
+                format!("{NO_MUTATING_VERB}; a leading `alpha`/`beta` is skipped"),
+            ));
+        }
+        entries.extend(surface::subcommands("gsutil", GSUTIL_SAFE));
+        entries
     }
 }
 
@@ -332,6 +398,26 @@ impl Handler for AzHandler {
         } else {
             Classification::Ask(format!("az {}", ctx.args.join(" ")))
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let mut entries = vec![AllowEntry::guarded(
+            "az --help|-h|--version",
+            "sole argument",
+        )];
+        for action in AZ_SAFE_KEYWORDS {
+            entries.push(AllowEntry::guarded(
+                format!("az <group>... {action}"),
+                NO_MUTATING_VERB,
+            ));
+        }
+        for prefix in ["list-", "show-", "get-"] {
+            entries.push(AllowEntry::guarded(
+                format!("az <group>... {prefix}*"),
+                NO_MUTATING_VERB,
+            ));
+        }
+        entries
     }
 }
 
