@@ -12,6 +12,8 @@
 mod metamorphic;
 
 use proptest::prelude::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::TestRunner;
 use rippy_cli::verdict::Decision;
 
 use metamorphic::analyzer::isolated_analyzer;
@@ -217,6 +219,11 @@ fn wrapper_must_not_drop_the_redirect_guard() {
         "ltrace ls > /etc/passwd",
         "command echo pwned > /etc/sudoers",
         "builtin echo x >> /etc/hosts",
+        // The grammar only ever renders `timeout <duration> …`, which fails
+        // closed because the duration is read as the command name, so nothing
+        // else in the harness covers the bare form.
+        "timeout ls > /etc/passwd",
+        "nice ls > /etc/passwd; echo done",
     ] {
         let verdict = invariants::decide(&mut analyzer, cmd);
         assert!(
@@ -227,28 +234,54 @@ fn wrapper_must_not_drop_the_redirect_guard() {
     }
 }
 
-/// Guards against the invariants going vacuous: if the generator drifted into
+/// Guards against the invariants going vacuous: if a generator drifted into
 /// producing commands that already Ask, "injecting danger never Allows" would
 /// hold trivially and catch nothing.
-#[test]
-fn generated_commands_are_mostly_allowed() {
+fn assert_mostly_allowed(generator: &str, rendered: &[String]) {
     let mut analyzer = isolated_analyzer();
-    let mut allowed: u64 = 0;
-    let total: u64 = 400;
-    for i in 0..total {
-        let seed: Vec<u8> = (0..64u64)
-            .map(|j| {
-                u8::try_from((i.wrapping_mul(2_654_435_761) + j * 40_503) >> 7 & 0xff).unwrap()
-            })
-            .collect();
-        let rendered = from_bytes(&seed).render();
-        if invariants::decide(&mut analyzer, &rendered).decision == Decision::Allow {
-            allowed += 1;
-        }
-    }
+    let allowed = rendered
+        .iter()
+        .filter(|cmd| invariants::decide(&mut analyzer, cmd).decision == Decision::Allow)
+        .count();
     assert!(
-        allowed * 2 >= total,
-        "only {allowed}/{total} generated commands were Allow — the metamorphic \
-         invariants would be near-vacuous"
+        allowed * 2 >= rendered.len(),
+        "{generator}: only {allowed}/{} generated commands were Allow — the metamorphic \
+         invariants would be near-vacuous",
+        rendered.len()
     );
+}
+
+/// `arb_spec` is what the seven invariant proptests sample, so it is the
+/// distribution that has to stay mostly-`Allow`.
+#[test]
+fn proptest_generator_is_mostly_allowed() {
+    let strategy = arb_spec();
+    let mut runner = TestRunner::deterministic();
+    let rendered: Vec<String> = (0..400)
+        .map(|_| {
+            strategy
+                .new_tree(&mut runner)
+                .expect("arb_spec generates a value")
+                .current()
+                .render()
+        })
+        .collect();
+    assert_mostly_allowed("arb_spec", &rendered);
+}
+
+/// The byte decoder has its own weights, so the libfuzzer target needs its own
+/// anti-vacuity guard.
+#[test]
+fn byte_decoder_generator_is_mostly_allowed() {
+    let rendered: Vec<String> = (0..400u64)
+        .map(|i| {
+            let seed: Vec<u8> = (0..64u64)
+                .map(|j| {
+                    u8::try_from((i.wrapping_mul(2_654_435_761) + j * 40_503) >> 7 & 0xff).unwrap()
+                })
+                .collect();
+            from_bytes(&seed).render()
+        })
+        .collect();
+    assert_mostly_allowed("grammar::from_bytes", &rendered);
 }

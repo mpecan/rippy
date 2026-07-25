@@ -2,8 +2,10 @@
 //!
 //! The seeds are generated rather than committed: `tests/data/catalog/*.toml`
 //! grows on nearly every handler change, and 700+ one-line corpus files would
-//! churn with it. The nightly fuzz workflow runs this test to fill
-//! `fuzz/seeds/analyze/` before starting a run. See docs/fuzzing.md.
+//! churn with it. The nightly fuzz workflow sets `RIPPY_WRITE_FUZZ_SEEDS` to
+//! fill `fuzz/seeds/analyze/` before starting a run; a plain `cargo test` only
+//! checks that the catalog still yields a usable corpus, so the standard gate
+//! stays hermetic. See docs/fuzzing.md.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -72,14 +74,31 @@ fn catalog_commands(catalog_dir: &Path) -> BTreeSet<String> {
 }
 
 #[test]
-fn seed_corpus_written_from_catalog() {
-    let root = repo_root();
-    let commands = catalog_commands(&root.join("tests/data/catalog"));
+fn catalog_yields_a_usable_seed_corpus() {
+    let commands = catalog_commands(&repo_root().join("tests/data/catalog"));
     assert!(
         commands.len() > 100,
         "catalog yielded only {} commands — the seed corpus would be near-empty",
         commands.len()
     );
+
+    let names: BTreeSet<String> = commands.iter().map(|c| seed_name(c)).collect();
+    assert_eq!(
+        names.len(),
+        commands.len(),
+        "seed file names collide — distinct catalog commands would overwrite each other"
+    );
+}
+
+/// Writing is opt-in: it rewrites hundreds of files under the source tree, which
+/// a read-only or sandboxed `cargo test` cannot do and no non-fuzz run needs.
+#[test]
+fn seed_corpus_written_from_catalog() {
+    if std::env::var_os("RIPPY_WRITE_FUZZ_SEEDS").is_none() {
+        return;
+    }
+    let root = repo_root();
+    let commands = catalog_commands(&root.join("tests/data/catalog"));
 
     let seed_dir = root.join("fuzz/seeds/analyze");
     if seed_dir.exists() {

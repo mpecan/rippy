@@ -21,9 +21,10 @@ Invariants, known gaps and crash triage: [`../docs/fuzzing.md`](../docs/fuzzing.
 ```sh
 cargo install cargo-fuzz
 cd ..
-cargo test --test fuzz_seeds     # writes fuzz/seeds/analyze/
+RIPPY_WRITE_FUZZ_SEEDS=1 cargo test --test fuzz_seeds   # writes fuzz/seeds/analyze/
+mkdir -p fuzz/corpus/analyze                            # libFuzzer will not create it
 cargo +nightly fuzz run analyze fuzz/corpus/analyze fuzz/seeds/analyze -- -max_total_time=300
-cargo +nightly fuzz run metamorphic -- -max_total_time=300
+cargo +nightly fuzz run metamorphic -- -max_total_time=300 -max_len=64 -len_control=0
 ```
 
 `rust-toolchain.toml` pins stable 1.93, so `+nightly` (or

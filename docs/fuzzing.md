@@ -18,7 +18,7 @@ Related issue: [#168](https://github.com/mpecan/rippy/issues/168).
 | `src/fuzz_support.rs` | `feature = "fuzzing"` shim so the libfuzzer target can reach invariant 8 |
 | `fuzz/fuzz_targets/analyze.rs` | Coverage-guided no-panic/no-hang target |
 | `fuzz/fuzz_targets/metamorphic.rs` | Coverage-guided version of invariants 1-8 |
-| `tests/fuzz_seeds.rs` | Writes `fuzz/seeds/analyze/` from every catalog command |
+| `tests/fuzz_seeds.rs` | Writes `fuzz/seeds/analyze/` from every catalog command (only when `RIPPY_WRITE_FUZZ_SEEDS` is set) |
 
 The grammar is *generated*, not a fixed cross-product: the space is up to three
 pipeline stages, each with an optional inert env prefix, an optional wrapper,
@@ -93,6 +93,8 @@ Found by invariant 3.
 ls > /etc/passwd                    => Ask   | redirect to /etc/passwd
 nice ls > /etc/passwd               => Allow | ls is safe
 command echo pwned > /etc/sudoers   => Allow | echo is safe
+timeout ls > /etc/passwd            => Allow | ls is safe
+nice ls > /etc/passwd; echo done    => Allow | echo is safe
 ```
 
 `analyze_command_node` returns the wrapper's inner verdict directly instead of
@@ -105,7 +107,8 @@ Until it is fixed:
 - `invariants::redirect_guard_lost_by_wrapper` skips exactly this shape during
   generation. The invariant itself is unchanged.
 - `tests/proptest_metamorphic.rs::wrapper_must_not_drop_the_redirect_guard`
-  pins the reproducers as an `#[ignore]`d failing test.
+  pins the reproducers as an `#[ignore]`d failing test, including the bare
+  `timeout` and compound forms the generator cannot reach.
 
 Fixing #181 means deleting both.
 
@@ -142,13 +145,26 @@ The libfuzzer targets need nightly and `cargo-fuzz`:
 
 ```sh
 cargo install cargo-fuzz
-cargo test --test fuzz_seeds                    # fills fuzz/seeds/analyze/
+RIPPY_WRITE_FUZZ_SEEDS=1 cargo test --test fuzz_seeds   # fills fuzz/seeds/analyze/
+mkdir -p fuzz/corpus/analyze
 cargo +nightly fuzz run analyze fuzz/corpus/analyze fuzz/seeds/analyze -- -max_total_time=300
-cargo +nightly fuzz run metamorphic -- -max_total_time=300
+cargo +nightly fuzz run metamorphic -- -max_total_time=300 -max_len=64 -len_control=0
 ```
 
 The first corpus directory is the writable one; the seed directory is read-only
-input. If the ASan build of rusqlite's bundled SQLite misbehaves, add
+input. Both must exist before the run: cargo-fuzz creates only the default
+corpus directory it picks itself, and hands explicitly passed paths straight to
+libFuzzer, which aborts with `ERROR: The required directory ... does not exist`.
+`fuzz/corpus/` is gitignored, so a fresh checkout always needs the `mkdir`.
+
+`grammar::from_bytes` needs roughly 12 bytes per stage, and `Reader::byte()`
+returns 0 past the end, so a short input decodes to a truncated single-stage
+spec. libFuzzer keeps finding new coverage at `lim: 6` and therefore never grows
+the limit on its own — `-len_control=0` is what forces `-max_len` to take effect.
+Measured over 20s: `lim: 6, cov: 2325, ft: 4587` without it,
+`lim: 64, cov: 2695, ft: 9557` with it.
+
+If the ASan build of rusqlite's bundled SQLite misbehaves, add
 `--sanitizer none` — coverage-guided fuzzing still works and a panic/hang oracle
 does not need ASan.
 
