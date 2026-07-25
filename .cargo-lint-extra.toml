@@ -1,5 +1,5 @@
 [global]
-exclude = ["target"]
+exclude = ["target", "fuzz/target", "fuzz/corpus", "fuzz/seeds", "fuzz/artifacts"]
 
 # --- Comment rules: STRICT ---
 [rules.redundant-comments]

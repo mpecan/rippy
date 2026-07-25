@@ -1,0 +1,134 @@
+[meta]
+description = "Declared npm / deno allow surfaces, one observed allow case each"
+
+[[case]]
+command = 'deno eval "console.log(1)"'
+decision = "allow"
+
+[[case]]
+command = 'npm list'
+decision = "allow"
+
+[[case]]
+command = 'npm ll'
+decision = "allow"
+
+[[case]]
+command = 'npm la'
+decision = "allow"
+
+[[case]]
+command = 'npm info'
+decision = "allow"
+
+[[case]]
+command = 'npm show'
+decision = "allow"
+
+[[case]]
+command = 'npm search'
+decision = "allow"
+
+[[case]]
+command = 'npm outdated'
+decision = "allow"
+
+[[case]]
+command = 'npm help'
+decision = "allow"
+
+[[case]]
+command = 'npm docs'
+decision = "allow"
+
+[[case]]
+command = 'npm whoami'
+decision = "allow"
+
+[[case]]
+command = 'npm ping'
+decision = "allow"
+
+[[case]]
+command = 'npm explain'
+decision = "allow"
+
+[[case]]
+command = 'npm why'
+decision = "allow"
+
+[[case]]
+command = 'npm fund'
+decision = "allow"
+
+[[case]]
+command = 'npm doctor'
+decision = "allow"
+
+[[case]]
+command = 'npm licenses'
+decision = "allow"
+
+[[case]]
+command = 'npm completion'
+decision = "allow"
+
+[[case]]
+command = 'npm diff'
+decision = "allow"
+
+[[case]]
+command = 'npm find-dupes'
+decision = "allow"
+
+[[case]]
+command = 'npm query'
+decision = "allow"
+
+[[case]]
+command = 'npm stars'
+decision = "allow"
+
+[[case]]
+command = 'npm sbom'
+decision = "allow"
+
+[[case]]
+command = 'npm config list'
+decision = "allow"
+
+[[case]]
+command = 'npm config ls'
+decision = "allow"
+
+[[case]]
+command = 'npm config get'
+decision = "allow"
+
+[[case]]
+command = 'npm c list'
+decision = "allow"
+
+[[case]]
+command = 'npm c ls'
+decision = "allow"
+
+[[case]]
+command = 'npm c get'
+decision = "allow"
+
+[[case]]
+command = 'npm cache ls'
+decision = "allow"
+
+[[case]]
+command = 'npm cache list'
+decision = "allow"
+
+[[case]]
+command = 'npm run'
+decision = "allow"
+
+[[case]]
+command = 'npm audit'
+decision = "allow"

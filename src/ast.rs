@@ -343,20 +343,14 @@ pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
     )
 }
 
+/// Redirect targets that discard or re-emit output and so cannot overwrite
+/// anything worth guarding.
+pub const SAFE_REDIRECT_TARGETS: &[&str] = &["/dev/null", "/dev/stdout", "/dev/stderr"];
+
 /// Check if a redirect target is inherently safe (e.g., /dev/null).
 #[must_use]
 pub fn is_safe_redirect_target(target: &str) -> bool {
-    matches!(target, "/dev/null" | "/dev/stdout" | "/dev/stderr")
-}
-
-/// Whether a `Command` node carries any redirects at all.
-///
-/// Used to route a single simple command that has redirects (e.g.
-/// `echo x > .env`) through the full analyzer, since the redirect target may be
-/// protected and cannot be judged safe on the command name alone.
-#[must_use]
-pub const fn command_has_redirects(node: &Node) -> bool {
-    matches!(&node.kind, NodeKind::Command { redirects, .. } if !redirects.is_empty())
+    SAFE_REDIRECT_TARGETS.contains(&target)
 }
 
 /// Whether the parsed tree is one plain simple command (no redirects, no word

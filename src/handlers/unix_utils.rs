@@ -1,7 +1,8 @@
 use super::{
-    Classification, Handler, HandlerContext, SubcommandHandler, has_flag, has_flag_or_prefixed,
-    has_glued_short_flag, is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, SubcommandHandler, has_flag,
+    has_flag_or_prefixed, has_glued_short_flag, is_sole_help_flag,
 };
+use crate::verdict::AllowReason;
 
 /// tar flags that spawn an external program (RCE regardless of archive flags used).
 ///
@@ -43,9 +44,17 @@ impl Handler for TarHandler {
             return Classification::Ask("tar (runs external program)".into());
         }
         if has_flag(ctx.args, &["-t", "--list"]) {
-            return Classification::Allow("tar (list)".into());
+            return Classification::Allow(AllowReason::handler("tar (list)"));
         }
         Classification::Ask("tar (create/extract)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "tar -t|--list",
+            "no flag that runs an external program (-I, --use-compress-program, --to-command, \
+             --checkpoint-action, --rmt-command, -F, --info-script, --new-volume-script)",
+        )]
     }
 }
 
@@ -62,12 +71,19 @@ impl Handler for WgetHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if has_flag(ctx.args, &["--spider"]) {
-            return Classification::Allow("wget --spider".into());
+            return Classification::Allow(AllowReason::handler("wget --spider"));
         }
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
-            return Classification::Allow("wget help/version".into());
+            return Classification::Allow(AllowReason::handler("wget help/version"));
         }
         Classification::Ask("wget (download)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::new("wget --spider"),
+            AllowEntry::guarded("wget --help|-h|--version|-V", "sole argument"),
+        ]
     }
 }
 
@@ -100,9 +116,13 @@ impl Handler for MktempHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if has_flag(ctx.args, &["-u"]) {
-            return Classification::Allow("mktemp -u (dry run)".into());
+            return Classification::Allow(AllowReason::handler("mktemp -u (dry run)"));
         }
         Classification::Ask("mktemp".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::new("mktemp -u")]
     }
 }
 
@@ -125,13 +145,19 @@ impl Handler for TeeHandler {
             .map(String::as_str)
             .collect();
         if files.is_empty() {
-            return Classification::Allow("tee (stdout only)".into());
+            return Classification::Allow(AllowReason::handler("tee (stdout only)"));
         }
         Classification::WithRedirects(
-            crate::verdict::Decision::Allow,
-            "tee".into(),
+            AllowReason::handler("tee"),
             files.iter().map(|f| (*f).to_owned()).collect(),
         )
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "tee",
+            "no file operand; file operands run the redirect pipeline",
+        )]
     }
 }
 
@@ -151,22 +177,24 @@ impl Handler for SortHandler {
             && let Some(file) = ctx.args.get(pos + 1)
         {
             return Classification::WithRedirects(
-                crate::verdict::Decision::Allow,
-                "sort -o".into(),
+                AllowReason::handler("sort -o"),
                 vec![file.clone()],
             );
         }
         if let Some(file) = attached_output_value(ctx.args) {
-            return Classification::WithRedirects(
-                crate::verdict::Decision::Allow,
-                "sort -o".into(),
-                vec![file],
-            );
+            return Classification::WithRedirects(AllowReason::handler("sort -o"), vec![file]);
         }
         if has_flag_or_prefixed(ctx.args, &["-o", "--output"]) {
             return Classification::Ask("sort (output target not extractable)".into());
         }
-        Classification::Allow("sort".into())
+        Classification::Allow(AllowReason::handler("sort"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "sort",
+            "no -o/--output; with one, the target runs the redirect pipeline",
+        )]
     }
 }
 
@@ -198,9 +226,13 @@ impl Handler for OpenHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if has_flag(ctx.args, &["-R"]) {
-            return Classification::Allow("open -R (reveal)".into());
+            return Classification::Allow(AllowReason::handler("open -R (reveal)"));
         }
         Classification::Ask("open".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::new("open -R")]
     }
 }
 
@@ -219,7 +251,11 @@ impl Handler for YqHandler {
         if has_flag(ctx.args, &["-i", "--inplace"]) {
             return Classification::Ask("yq -i (in-place)".into());
         }
-        Classification::Allow("yq (filter)".into())
+        Classification::Allow(AllowReason::handler("yq (filter)"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded("yq <filter>", "no -i/--inplace")]
     }
 }
 

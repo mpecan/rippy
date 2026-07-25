@@ -1,5 +1,6 @@
 #![warn(unreachable_pub)]
 
+pub mod allow_catalog;
 pub mod allowlists;
 pub mod analyzer;
 pub mod ast;
@@ -11,6 +12,9 @@ pub mod debug_cmd;
 pub mod discover;
 pub mod environment;
 pub mod error;
+#[cfg(any(feature = "fuzzing", test))]
+#[doc(hidden)]
+pub mod fuzz_support;
 pub(crate) mod git_styles;
 pub(crate) mod handlers;
 pub mod inspect;
@@ -39,7 +43,15 @@ pub mod stats;
 pub mod stdlib;
 pub mod suggest;
 pub(crate) mod toml_config;
+pub mod trace;
 pub mod tracking;
 pub mod trust;
 pub mod trust_cmd;
 pub mod verdict;
+
+/// Whole-catalog reason snapshot; lives here (not in `tests/`) because it needs
+/// the crate-internal deterministic test harness.
+#[cfg(test)]
+#[expect(clippy::unwrap_used, clippy::panic)]
+#[path = "analyzer_snapshot_tests.rs"]
+mod analyzer_snapshot_tests;

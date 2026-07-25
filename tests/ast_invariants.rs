@@ -271,3 +271,98 @@ fn has_expansions_agrees_on_simple_inputs() {
         );
     }
 }
+
+// Invariant 5: quoted expansion *text* is not an expansion.
+//
+// see docs/security-invariants.md#word-parts-trust — the parts branch must be
+// what answers here (a single-quoted `$(...)` decomposes into one all-literal
+// part), with the textual scan reserved for parts-less synthetic words.
+
+#[test]
+fn single_quoted_expansion_text_is_not_an_expansion() {
+    let quoted = parse("echo '$(whoami)'");
+    assert!(!ast::has_expansions(&quoted[0]));
+
+    let literal_parts_word = tree_contains(&quoted, &|n| {
+        matches!(
+            &n.kind,
+            NodeKind::Word { value, parts, .. }
+                if value.contains("$(")
+                    && !parts.is_empty()
+                    && parts
+                        .iter()
+                        .all(|p| matches!(p.kind, NodeKind::WordLiteral { .. }))
+        )
+    });
+    assert!(
+        literal_parts_word,
+        "expected the single-quoted word to carry non-empty all-literal parts"
+    );
+
+    let unquoted = parse("echo $(whoami)");
+    assert!(ast::has_expansions(&unquoted[0]));
+    assert!(ast::has_shell_expansion_pattern("$(whoami)"));
+}
+
+// Invariant 6: the whole-string allow-rule gate accepts only bare simple
+// commands. see docs/security-invariants.md#string-rule-chokepoint
+
+#[test]
+fn is_single_plain_command_matches_only_bare_simple_commands() {
+    let plain: &[&str] = &["cargo build", "cargo build --release"];
+    for src in plain {
+        assert!(
+            ast::is_single_plain_command(&parse(src)),
+            "expected {src:?} to be a single plain command"
+        );
+    }
+    let compound: &[&str] = &[
+        "cargo build && rm -rf ~",
+        "cargo build | tee f",
+        "cargo build > out",
+        "cargo $X",
+        "echo $(whoami)",
+        "a; b",
+    ];
+    for src in compound {
+        assert!(
+            !ast::is_single_plain_command(&parse(src)),
+            "expected {src:?} NOT to be a single plain command"
+        );
+    }
+    assert!(!ast::is_single_plain_command(&[]));
+}
+
+// Invariant 7: the rable pin stays at or above the heredoc paren-tracking fix.
+//
+// see docs/security-invariants.md#heredoc-rable-26 — the structural heredoc
+// guarantees are only reliable from rable 0.1.14 onwards, so the manifest
+// requirement is enforced mechanically rather than by prose.
+
+#[test]
+fn rable_dependency_pinned_above_heredoc_fix() {
+    let manifest_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let manifest = std::fs::read_to_string(&manifest_path).expect("Cargo.toml is readable");
+    let manifest: toml::Value = manifest.parse().expect("Cargo.toml parses as TOML");
+    let rable = manifest
+        .get("dependencies")
+        .and_then(|d| d.get("rable"))
+        .expect("Cargo.toml declares a rable dependency");
+    let requirement = rable
+        .as_str()
+        .or_else(|| rable.get("version").and_then(toml::Value::as_str))
+        .unwrap_or_else(|| panic!("rable dependency has no version string: {rable:?}"));
+
+    let parts: Vec<u64> = requirement
+        .trim_start_matches(['^', '~', '=', '>', '<', ' '])
+        .split('.')
+        .map(|p| {
+            p.parse()
+                .unwrap_or_else(|e| panic!("rable version {requirement:?} is not numeric: {e}"))
+        })
+        .collect();
+    assert!(
+        parts.as_slice() >= [0, 1, 14].as_slice(),
+        "rable must be pinned >= 0.1.14 (rable issue #26), found {requirement:?}"
+    );
+}

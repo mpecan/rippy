@@ -67,7 +67,7 @@ pub fn write_log_entry(entry: &LogEntry<'_>) {
 #[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::verdict::Decision;
+    use crate::verdict::AllowReason;
 
     fn entry_to<'a>(
         log_path: &'a Path,
@@ -90,7 +90,7 @@ mod tests {
     fn writes_json_line() {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("test.log");
-        let verdict = Verdict::allow("test reason");
+        let verdict = Verdict::allow(AllowReason::handler("test reason"));
 
         write_log_entry(&entry_to(&log_path, false, Some("ls"), &verdict, None));
 
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn bad_path_does_not_panic() {
-        let verdict = Verdict::allow("ok");
+        let verdict = Verdict::allow(AllowReason::handler("ok"));
         write_log_entry(&entry_to(
             Path::new("/nonexistent/dir/file.log"),
             false,
@@ -140,7 +140,7 @@ mod tests {
     fn no_command_field_when_none() {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("test.log");
-        let verdict = Verdict::allow("no command");
+        let verdict = Verdict::allow(AllowReason::Empty);
 
         write_log_entry(&entry_to(&log_path, false, None, &verdict, None));
 
@@ -154,12 +154,8 @@ mod tests {
     fn appends_multiple_entries() {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("test.log");
-        let v1 = Verdict::allow("safe");
-        let v2 = Verdict {
-            decision: Decision::Ask,
-            reason: "dangerous".into(),
-            resolved_command: None,
-        };
+        let v1 = Verdict::allow(AllowReason::handler("safe"));
+        let v2 = Verdict::ask("dangerous");
 
         write_log_entry(&entry_to(&log_path, false, Some("ls"), &v1, None));
         write_log_entry(&entry_to(&log_path, false, Some("rm"), &v2, None));

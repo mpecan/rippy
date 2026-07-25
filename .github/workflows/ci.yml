@@ -64,6 +64,18 @@ jobs:
       - name: Run tests
         run: cargo test --all-targets
 
+      - name: Allow-catalog freshness
+        # Redundant with the step above (this is one of its integration tests),
+        # but a named check tells a reviewer at a glance that a PR widened the
+        # auto-approved surface without updating docs/allow-catalog.md.
+        run: cargo test --test allow_catalog
+
+      - name: Allow-surface completeness
+        # Also redundant with "Run tests", and named for the same reason: this
+        # is the check that fails when a PR adds an approval without a catalog
+        # case or without a dangerous neighbor pinning where it stops.
+        run: cargo test --test allow_completeness
+
   check:
     name: Check
     if: always()

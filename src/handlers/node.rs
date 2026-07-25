@@ -1,8 +1,9 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag,
-    is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
+    has_flag, is_sole_help_flag,
 };
 use crate::node_safety::is_node_source_safe;
+use crate::verdict::AllowReason;
 
 pub(crate) static NODE_HANDLER: NodeHandler = NodeHandler;
 
@@ -16,7 +17,10 @@ impl Handler for NodeHandler {
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         // `-V` is deno's version flag; safe since it must be the sole arg here.
         if is_sole_help_flag(ctx.args, &["--version", "-v", "-V", "--help", "-h"]) {
-            return Classification::Allow(format!("{} version/help", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} version/help",
+                ctx.command_name
+            )));
         }
 
         if ctx.command_name == "deno" && ctx.args.first().map(String::as_str) == Some("eval") {
@@ -41,7 +45,10 @@ impl Handler for NodeHandler {
         let script = first_positional(ctx.args).unwrap_or("");
         if let Some(source) = ctx.read_file(script) {
             return if is_node_source_safe(&source) {
-                Classification::Allow(format!("{} {script} (safe script)", ctx.command_name))
+                Classification::Allow(AllowReason::handler(format!(
+                    "{} {script} (safe script)",
+                    ctx.command_name
+                )))
             } else {
                 Classification::Ask(format!(
                     "{} {script} (potentially dangerous)",
@@ -51,11 +58,27 @@ impl Handler for NodeHandler {
         }
         Classification::Ask(format!("{} script execution", ctx.command_name))
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let safe_source = "source passes the analysis in src/node_safety.rs";
+        vec![
+            AllowEntry::guarded(
+                "node|nodejs|deno --version|-v|-V|--help|-h",
+                "sole argument",
+            ),
+            AllowEntry::guarded("node -e|--eval|-p|--print <code>", safe_source),
+            AllowEntry::guarded("deno eval <code>", safe_source),
+            AllowEntry::guarded(
+                "node <script>",
+                format!("script readable from the working directory and its {safe_source}"),
+            ),
+        ]
+    }
 }
 
 fn classify_inline(cmd: &str, source: &str) -> Classification {
     if is_node_source_safe(source) {
-        Classification::Allow(format!("{cmd} -e (safe inline code)"))
+        Classification::Allow(AllowReason::handler(format!("{cmd} -e (safe inline code)")))
     } else {
         Classification::Ask(format!("{cmd} -e (potentially dangerous code)"))
     }

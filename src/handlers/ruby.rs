@@ -1,7 +1,9 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_value, is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
+    is_sole_help_flag,
 };
 use crate::ruby_safety::is_ruby_source_safe;
+use crate::verdict::AllowReason;
 
 pub(crate) static RUBY_HANDLER: RubyHandler = RubyHandler;
 
@@ -14,7 +16,10 @@ impl Handler for RubyHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
-            return Classification::Allow(format!("{} version/help", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} version/help",
+                ctx.command_name
+            )));
         }
 
         if ctx.command_name == "irb" {
@@ -24,7 +29,7 @@ impl Handler for RubyHandler {
         // -e inline code: analyze source for dangerous patterns.
         if let Some(source) = get_flag_value(ctx.args, &["-e"]) {
             return if is_ruby_source_safe(&source) {
-                Classification::Allow("ruby -e (safe inline code)".into())
+                Classification::Allow(AllowReason::handler("ruby -e (safe inline code)"))
             } else {
                 Classification::Ask("ruby -e (potentially dangerous code)".into())
             };
@@ -37,12 +42,25 @@ impl Handler for RubyHandler {
         let script = first_positional(ctx.args).unwrap_or("");
         if let Some(source) = ctx.read_file(script) {
             return if is_ruby_source_safe(&source) {
-                Classification::Allow(format!("ruby {script} (safe script)"))
+                Classification::Allow(AllowReason::handler(format!("ruby {script} (safe script)")))
             } else {
                 Classification::Ask(format!("ruby {script} (potentially dangerous)"))
             };
         }
         Classification::Ask("ruby script execution".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // `irb` is always interactive and has no approved shape.
+        let safe_source = "source passes the analysis in src/ruby_safety.rs";
+        vec![
+            AllowEntry::guarded("ruby|irb --version|-v|--help|-h", "sole argument"),
+            AllowEntry::guarded("ruby -e <code>", safe_source),
+            AllowEntry::guarded(
+                "ruby <script>",
+                format!("script readable from the working directory and its {safe_source}"),
+            ),
+        ]
     }
 }
 

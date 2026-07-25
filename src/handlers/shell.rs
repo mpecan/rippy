@@ -1,4 +1,4 @@
-use super::{Classification, Handler, HandlerContext};
+use super::{AllowEntry, Classification, Handler, HandlerContext};
 
 pub(crate) static SHELL_HANDLER: ShellHandler = ShellHandler;
 
@@ -36,6 +36,12 @@ impl Handler for ShellHandler {
         }
 
         Classification::Ask(format!("{} (interactive)", ctx.command_name))
+    }
+
+    /// Empty by design: this handler only re-analyzes a `-c` body or a script's
+    /// contents, or asks. It never mints an approval of its own.
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        Vec::new()
     }
 }
 

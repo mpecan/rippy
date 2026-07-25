@@ -1,4 +1,7 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, surface,
+};
+use crate::verdict::AllowReason;
 
 pub(crate) static DOCKER_HANDLER: DockerHandler = DockerHandler;
 
@@ -18,6 +21,12 @@ const GROUP_SAFE_ACTIONS: &[&str] = &[
     "ls", "list", "inspect", "df", "history", "events", "info", "show",
 ];
 
+/// Read-only `compose` subcommands, shared by `docker compose <sub>` and the
+/// standalone `docker-compose <sub>` binaries.
+const COMPOSE_SAFE: &[&str] = &[
+    "ps", "logs", "config", "images", "ls", "top", "version", "port", "events",
+];
+
 // All non-safe commands default to Ask, so no explicit ASK list needed.
 
 impl Handler for DockerHandler {
@@ -30,7 +39,10 @@ impl Handler for DockerHandler {
         let desc = format!("{} {sub}", ctx.command_name);
 
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
-            return Classification::Allow(format!("{} help/version", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} help/version",
+                ctx.command_name
+            )));
         }
 
         if sub == "exec" {
@@ -51,10 +63,35 @@ impl Handler for DockerHandler {
         }
 
         if SAFE.contains(&sub) {
-            Classification::Allow(desc)
+            Classification::Allow(AllowReason::handler(desc))
         } else {
             Classification::Ask(desc)
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        // `docker exec` re-analyzes the inner command instead of approving, so
+        // it is not part of this surface.
+        let mut entries = surface::subcommands("docker", SAFE);
+        for noun in GROUPED_NOUNS {
+            entries.extend(surface::subcommands(
+                &format!("docker {noun}"),
+                GROUP_SAFE_ACTIONS,
+            ));
+        }
+        entries.extend(surface::subcommands("docker compose", COMPOSE_SAFE));
+        entries.extend(surface::subcommands("docker-compose", COMPOSE_SAFE));
+        for sub in ["export", "save"] {
+            entries.push(AllowEntry::guarded(
+                format!("docker {sub}"),
+                "no -o/--output; with one, the target runs the redirect pipeline",
+            ));
+        }
+        entries.push(AllowEntry::guarded(
+            "docker --help|-h|--version",
+            "sole argument",
+        ));
+        entries
     }
 }
 
@@ -62,7 +99,7 @@ fn classify_grouped_noun(ctx: &HandlerContext, noun: &str) -> Classification {
     let action = ctx.args.get(1).map_or("", String::as_str);
     let desc = format!("{} {noun} {action}", ctx.command_name);
     if GROUP_SAFE_ACTIONS.contains(&action) {
-        Classification::Allow(desc)
+        Classification::Allow(AllowReason::handler(desc))
     } else {
         Classification::Ask(desc)
     }
@@ -106,19 +143,17 @@ fn classify_exec(ctx: &HandlerContext) -> Classification {
 fn classify_export_save(ctx: &HandlerContext, sub: &str) -> Classification {
     if let Some(output) = get_flag_value(ctx.args, &["-o", "--output"]) {
         return Classification::WithRedirects(
-            crate::verdict::Decision::Allow,
-            format!("{} {sub} with output file", ctx.command_name),
+            AllowReason::handler(format!("{} {sub} with output file", ctx.command_name)),
             vec![output],
         );
     }
-    Classification::Allow(format!("{} {sub} (stdout)", ctx.command_name))
+    Classification::Allow(AllowReason::handler(format!(
+        "{} {sub} (stdout)",
+        ctx.command_name
+    )))
 }
 
 fn classify_compose(ctx: &HandlerContext) -> Classification {
-    const COMPOSE_SAFE: &[&str] = &[
-        "ps", "logs", "config", "images", "ls", "top", "version", "port", "events",
-    ];
-
     let sub = if ctx.command_name.ends_with("-compose") {
         ctx.args.first().map_or("", String::as_str)
     } else {
@@ -127,7 +162,7 @@ fn classify_compose(ctx: &HandlerContext) -> Classification {
     };
 
     if COMPOSE_SAFE.contains(&sub) {
-        Classification::Allow(format!("compose {sub}"))
+        Classification::Allow(AllowReason::handler(format!("compose {sub}")))
     } else {
         Classification::Ask(format!("compose {sub}"))
     }

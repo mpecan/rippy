@@ -1,5 +1,10 @@
 use crate::mode::{HookType, Mode, PermissionMode};
 
+#[path = "allow_reason.rs"]
+mod allow_reason;
+
+pub use allow_reason::{AllowCategory, AllowReason, RuleSource};
+
 /// The three possible safety decisions, ordered so `max()` gives the most restrictive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Decision {
@@ -9,23 +14,35 @@ pub enum Decision {
 }
 
 /// A decision paired with a human-readable reason.
+///
+/// Construct one through [`Verdict::allow`], [`Verdict::ask`], [`Verdict::deny`]
+/// or [`Verdict::from_rule`]: the private `allow_reason` field makes struct
+/// literals impossible outside this module, which is what forces every approval
+/// through the typed [`AllowReason`] surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
     pub decision: Decision,
+    /// Human-readable reason, part of the JSON hook output. For an approval it
+    /// is *initialized* from `Display for AllowReason`; the analyzer may later
+    /// append `(resolved: …)` to it, so it is not permanently equal to that
+    /// rendering.
     pub reason: String,
     /// The fully-resolved command (after expansion of `$VAR`, `$'...'`, `$((...))`,
     /// etc.) when the analyzer was able to statically resolve all expansions.
     /// `None` when no resolution occurred or it failed.
     pub resolved_command: Option<String>,
+    /// Typed provenance of an approval; always `None` for `Ask`/`Deny`.
+    allow_reason: Option<AllowReason>,
 }
 
 impl Verdict {
     #[must_use]
-    pub fn allow(reason: impl Into<String>) -> Self {
+    pub fn allow(reason: AllowReason) -> Self {
         Self {
             decision: Decision::Allow,
-            reason: reason.into(),
+            reason: reason.to_string(),
             resolved_command: None,
+            allow_reason: Some(reason),
         }
     }
 
@@ -35,6 +52,7 @@ impl Verdict {
             decision: Decision::Ask,
             reason: reason.into(),
             resolved_command: None,
+            allow_reason: None,
         }
     }
 
@@ -44,7 +62,28 @@ impl Verdict {
             decision: Decision::Deny,
             reason: reason.into(),
             resolved_command: None,
+            allow_reason: None,
         }
+    }
+
+    /// Build the verdict for a matched config rule, typing the allow arm as
+    /// [`AllowReason::ConfigRule`] while `ask`/`deny` keep their free text.
+    #[must_use]
+    pub fn from_rule(decision: Decision, reason: String, source: RuleSource) -> Self {
+        match decision {
+            Decision::Allow => Self::allow(AllowReason::ConfigRule {
+                source,
+                detail: reason,
+            }),
+            Decision::Ask => Self::ask(reason),
+            Decision::Deny => Self::deny(reason),
+        }
+    }
+
+    /// Typed provenance of this approval, or `None` for `Ask`/`Deny`.
+    #[must_use]
+    pub const fn allow_reason(&self) -> Option<&AllowReason> {
+        self.allow_reason.as_ref()
     }
 
     /// Attach a resolved command form to this verdict for transparency.
@@ -175,11 +214,7 @@ impl ClaudeDecision {
 
 impl Default for Verdict {
     fn default() -> Self {
-        Self {
-            decision: Decision::Allow,
-            reason: String::new(),
-            resolved_command: None,
-        }
+        Self::allow(AllowReason::Empty)
     }
 }
 
@@ -327,6 +362,45 @@ mod tests {
     }
 
     #[test]
+    fn allow_reason_present_only_for_allow() {
+        assert!(
+            Verdict::allow(AllowReason::Heredoc)
+                .allow_reason()
+                .is_some()
+        );
+        assert!(Verdict::ask("review").allow_reason().is_none());
+        assert!(Verdict::deny("dangerous").allow_reason().is_none());
+    }
+
+    #[test]
+    fn from_rule_types_allow_only() {
+        let allow = Verdict::from_rule(
+            Decision::Allow,
+            "matched rule: command=ls".to_owned(),
+            RuleSource::Project,
+        );
+        assert_eq!(
+            allow.allow_reason(),
+            Some(&AllowReason::ConfigRule {
+                source: RuleSource::Project,
+                detail: "matched rule: command=ls".to_owned(),
+            })
+        );
+        assert_eq!(allow.reason, "matched rule: command=ls");
+
+        for decision in [Decision::Ask, Decision::Deny] {
+            let v = Verdict::from_rule(
+                decision,
+                "matched rule: command=rm".to_owned(),
+                RuleSource::Baseline,
+            );
+            assert_eq!(v.decision, decision);
+            assert_eq!(v.reason, "matched rule: command=rm");
+            assert!(v.allow_reason().is_none());
+        }
+    }
+
+    #[test]
     fn decision_ordering() {
         assert!(Decision::Allow < Decision::Ask);
         assert!(Decision::Ask < Decision::Deny);
@@ -336,9 +410,9 @@ mod tests {
     #[test]
     fn combine_takes_most_restrictive() {
         let verdicts = vec![
-            Verdict::allow("safe"),
+            Verdict::allow(AllowReason::handler("safe")),
             Verdict::ask("needs review"),
-            Verdict::allow("also safe"),
+            Verdict::allow(AllowReason::handler("also safe")),
         ];
         let combined = Verdict::combine(&verdicts);
         assert_eq!(combined.decision, Decision::Ask);
@@ -353,7 +427,7 @@ mod tests {
 
     #[test]
     fn claude_json_format() {
-        let v = Verdict::allow("git status is safe");
+        let v = Verdict::allow(AllowReason::handler("git status is safe"));
         let json = v.to_json(Mode::Claude, ctx(HookType::PreToolUse));
         assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "allow");
@@ -365,7 +439,7 @@ mod tests {
 
     #[test]
     fn claude_post_tool_uses_post_event_name() {
-        let v = Verdict::allow("");
+        let v = Verdict::allow(AllowReason::Empty);
         let json = v.to_json(Mode::Claude, ctx(HookType::PostToolUse));
         assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PostToolUse");
         // permissionDecision is PreToolUse-only and must not appear here.
@@ -383,7 +457,7 @@ mod tests {
 
     #[test]
     fn claude_post_tool_maps_reason_to_additional_context() {
-        let v = Verdict::allow("ran linter");
+        let v = Verdict::allow(AllowReason::AfterRule("ran linter".into()));
         let json = v.to_json(Mode::Claude, ctx(HookType::PostToolUse));
         assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PostToolUse");
         assert_eq!(
@@ -422,7 +496,7 @@ mod tests {
 
     #[test]
     fn with_resolution_attaches_resolved_command() {
-        let v = Verdict::allow("ls is safe").with_resolution("ls /tmp");
+        let v = Verdict::allow(AllowReason::SimpleSafe("ls".into())).with_resolution("ls /tmp");
         assert_eq!(v.resolved_command.as_deref(), Some("ls /tmp"));
         assert_eq!(v.decision, Decision::Allow);
     }
@@ -430,7 +504,7 @@ mod tests {
     #[test]
     fn combine_preserves_resolved_command_from_chosen() {
         let verdicts = vec![
-            Verdict::allow("safe"),
+            Verdict::allow(AllowReason::handler("safe")),
             Verdict::ask("review").with_resolution("rm -rf /tmp"),
         ];
         let combined = Verdict::combine(&verdicts);
@@ -442,7 +516,7 @@ mod tests {
     fn combine_borrows_resolved_command_from_other_when_chosen_has_none() {
         let verdicts = vec![
             Verdict::ask("review"),
-            Verdict::allow("safe").with_resolution("ls /tmp"),
+            Verdict::allow(AllowReason::handler("safe")).with_resolution("ls /tmp"),
         ];
         let combined = Verdict::combine(&verdicts);
         assert_eq!(combined.decision, Decision::Ask);
@@ -452,7 +526,7 @@ mod tests {
     #[test]
     fn json_output_unchanged_when_resolved_present() {
         // resolved_command is internal-only, not part of any wire format
-        let v = Verdict::allow("ls is safe").with_resolution("ls /tmp");
+        let v = Verdict::allow(AllowReason::SimpleSafe("ls".into())).with_resolution("ls /tmp");
         let json = v.to_json(Mode::Claude, ctx(HookType::PreToolUse));
         assert!(json.get("resolved_command").is_none());
         assert!(json["hookSpecificOutput"].get("resolved_command").is_none());

@@ -48,3 +48,463 @@ decision = "allow"
 [[case]]
 command = "pwd"
 decision = "allow"
+
+[[case]]
+command = ':'
+decision = "allow"
+
+[[case]]
+command = '[ -f /tmp/file.txt ]'
+decision = "allow"
+
+[[case]]
+command = 'ag TODO src'
+decision = "allow"
+
+[[case]]
+command = 'apropos socket'
+decision = "allow"
+
+[[case]]
+command = 'arch'
+decision = "allow"
+
+[[case]]
+command = 'base32 /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'basename /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'bat README.md'
+decision = "allow"
+
+[[case]]
+command = 'bc -l'
+decision = "allow"
+
+[[case]]
+command = 'blkid'
+decision = "allow"
+
+[[case]]
+command = 'bzcat archive.bz2'
+decision = "allow"
+
+[[case]]
+command = 'cksum /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'cloc src'
+decision = "allow"
+
+[[case]]
+command = 'column -t /tmp/table.txt'
+decision = "allow"
+
+[[case]]
+command = 'comm -12 a.txt b.txt'
+decision = "allow"
+
+[[case]]
+command = 'cut -d, -f1 data.csv'
+decision = "allow"
+
+[[case]]
+command = 'df -h'
+decision = "allow"
+
+[[case]]
+command = 'dig example.com'
+decision = "allow"
+
+[[case]]
+command = 'dirname /tmp/file.txt'
+decision = "allow"
+
+# KNOWN GAP: dos2unix/unix2dos rewrite the named file in place by default,
+# and being in SIMPLE_SAFE they are approved on the command name alone --
+# `dos2unix /etc/hosts` allows. Pinned as observed, not endorsed.
+[[case]]
+command = 'dos2unix notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'du -sh src'
+decision = "allow"
+
+[[case]]
+command = 'exa -l'
+decision = "allow"
+
+[[case]]
+command = 'expand notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'expr 1 + 2'
+decision = "allow"
+
+[[case]]
+command = 'eza -l'
+decision = "allow"
+
+[[case]]
+command = 'false'
+decision = "allow"
+
+[[case]]
+command = 'file /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'findmnt'
+decision = "allow"
+
+[[case]]
+command = 'fmt -w 80 notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'fold -w 80 notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'free -m'
+decision = "allow"
+
+[[case]]
+command = 'fzf --version'
+decision = "allow"
+
+[[case]]
+command = 'getconf PAGESIZE'
+decision = "allow"
+
+[[case]]
+command = 'getent hosts example.com'
+decision = "allow"
+
+[[case]]
+command = 'groups'
+decision = "allow"
+
+[[case]]
+command = 'help'
+decision = "allow"
+
+[[case]]
+command = 'hexdump -C /tmp/file.bin'
+decision = "allow"
+
+[[case]]
+command = 'host example.com'
+decision = "allow"
+
+[[case]]
+command = 'hostname'
+decision = "allow"
+
+[[case]]
+command = 'htop --version'
+decision = "allow"
+
+[[case]]
+command = 'hyperfine --version'
+decision = "allow"
+
+[[case]]
+command = 'iconv -f utf-8 -t ascii notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'id'
+decision = "allow"
+
+[[case]]
+command = 'info coreutils'
+decision = "allow"
+
+[[case]]
+command = 'iostat'
+decision = "allow"
+
+[[case]]
+command = 'join a.txt b.txt'
+decision = "allow"
+
+[[case]]
+command = 'ldd /bin/ls'
+decision = "allow"
+
+[[case]]
+command = 'less README.md'
+decision = "allow"
+
+[[case]]
+command = 'locale'
+decision = "allow"
+
+[[case]]
+command = 'locate rippy'
+decision = "allow"
+
+[[case]]
+command = 'lsb_release -a'
+decision = "allow"
+
+[[case]]
+command = 'lsblk'
+decision = "allow"
+
+[[case]]
+command = 'lsd -l'
+decision = "allow"
+
+[[case]]
+command = 'lsof -i'
+decision = "allow"
+
+[[case]]
+command = 'man git'
+decision = "allow"
+
+[[case]]
+command = 'md5sum /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'more README.md'
+decision = "allow"
+
+[[case]]
+command = 'mount'
+decision = "allow"
+
+[[case]]
+command = 'netstat -an'
+decision = "allow"
+
+[[case]]
+command = 'nl README.md'
+decision = "allow"
+
+[[case]]
+command = 'nm /bin/ls'
+decision = "allow"
+
+[[case]]
+command = 'nproc'
+decision = "allow"
+
+[[case]]
+command = 'nslookup example.com'
+decision = "allow"
+
+[[case]]
+command = 'objdump -d /bin/ls'
+decision = "allow"
+
+[[case]]
+command = 'od -c /tmp/file.bin'
+decision = "allow"
+
+[[case]]
+command = 'otool -L /bin/ls'
+decision = "allow"
+
+[[case]]
+command = 'paste a.txt b.txt'
+decision = "allow"
+
+[[case]]
+command = 'pgrep rippy'
+decision = "allow"
+
+[[case]]
+command = 'ping -c 1 example.com'
+decision = "allow"
+
+[[case]]
+command = 'printenv PATH'
+decision = "allow"
+
+[[case]]
+command = "printf '%s\\n' hello"
+decision = "allow"
+
+[[case]]
+command = 'readelf -h /bin/ls'
+decision = "allow"
+
+[[case]]
+command = 'readlink -f /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'realpath /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'rev notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'rg TODO src'
+decision = "allow"
+
+[[case]]
+command = 'scc src'
+decision = "allow"
+
+[[case]]
+command = 'seq 1 10'
+decision = "allow"
+
+[[case]]
+command = 'sha1sum /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'sha256sum /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'sha512sum /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'shuf -n 3 lines.txt'
+decision = "allow"
+
+[[case]]
+command = 'size /bin/ls'
+decision = "allow"
+
+[[case]]
+command = 'sleep 1'
+decision = "allow"
+
+[[case]]
+command = 'ss -tuln'
+decision = "allow"
+
+[[case]]
+command = 'stat /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'strings /bin/ls'
+decision = "allow"
+
+[[case]]
+command = 'stty -a'
+decision = "allow"
+
+[[case]]
+command = 'sum /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'tac notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'test -f /tmp/file.txt'
+decision = "allow"
+
+[[case]]
+command = 'tldr tar'
+decision = "allow"
+
+[[case]]
+command = 'tokei src'
+decision = "allow"
+
+[[case]]
+command = 'top -l 1'
+decision = "allow"
+
+[[case]]
+command = 'tput colors'
+decision = "allow"
+
+[[case]]
+command = 'tracepath example.com'
+decision = "allow"
+
+[[case]]
+command = 'traceroute example.com'
+decision = "allow"
+
+[[case]]
+command = 'tree -L 2 src'
+decision = "allow"
+
+[[case]]
+command = 'tty'
+decision = "allow"
+
+[[case]]
+command = 'type ls'
+decision = "allow"
+
+[[case]]
+command = 'uname -a'
+decision = "allow"
+
+[[case]]
+command = 'unexpand notes.txt'
+decision = "allow"
+
+# KNOWN GAP: in-place rewrite of any named file, see dos2unix above.
+[[case]]
+command = 'unix2dos notes.txt'
+decision = "allow"
+
+[[case]]
+command = 'uptime'
+decision = "allow"
+
+[[case]]
+command = 'vmstat 1 1'
+decision = "allow"
+
+[[case]]
+command = 'whatis ls'
+decision = "allow"
+
+[[case]]
+command = 'whence ls'
+decision = "allow"
+
+[[case]]
+command = 'whereis git'
+decision = "allow"
+
+[[case]]
+command = 'which git'
+decision = "allow"
+
+[[case]]
+command = 'xxd /tmp/file.bin'
+decision = "allow"
+
+[[case]]
+command = 'xzcat archive.xz'
+decision = "allow"
+
+[[case]]
+command = 'yes'
+decision = "allow"
+
+[[case]]
+command = 'zcat archive.gz'
+decision = "allow"
+
+[[case]]
+command = 'zstdcat archive.zst'
+decision = "allow"

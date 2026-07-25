@@ -1,0 +1,72 @@
+name: Fuzz
+
+# Timer-based, never per-PR: a coverage-guided run costs minutes, while the
+# same invariants already run as proptests in the PR test job.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # rust-toolchain.toml pins 1.93.0 and would otherwise override the nightly
+  # that cargo-fuzz needs for its `-Z` flags.
+  RUSTUP_TOOLCHAIN: nightly
+
+jobs:
+  fuzz:
+    name: cargo-fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [analyze, metamorphic]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-fuzz
+        run: cargo binstall -y cargo-fuzz
+
+      - name: Generate seed corpus
+        if: matrix.target == 'analyze'
+        run: cargo test --test fuzz_seeds
+        env:
+          RIPPY_WRITE_FUZZ_SEEDS: "1"
+
+      # libFuzzer only auto-creates the corpus directory cargo-fuzz picks by
+      # default; explicitly passed directories must already exist, and
+      # fuzz/corpus/ is gitignored.
+      - name: Fuzz analyze
+        if: matrix.target == 'analyze'
+        run: |
+          mkdir -p fuzz/corpus/analyze
+          cargo fuzz run analyze fuzz/corpus/analyze fuzz/seeds/analyze \
+            -- -max_total_time=300
+
+      # The decoder needs ~12 bytes per grammar stage, but libFuzzer keeps
+      # finding coverage at lim=6 and never grows it, so -len_control=0 is what
+      # actually forces full-length inputs; -max_len alone changes nothing.
+      - name: Fuzz metamorphic
+        if: matrix.target == 'metamorphic'
+        run: |
+          cargo fuzz run metamorphic \
+            -- -max_total_time=300 -max_len=64 -len_control=0
+
+      - name: Upload crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

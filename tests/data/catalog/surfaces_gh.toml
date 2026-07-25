@@ -1,0 +1,534 @@
+[meta]
+description = "Declared gh allow surfaces, one observed allow case each"
+
+[[case]]
+command = 'gh browse'
+decision = "allow"
+
+[[case]]
+command = 'gh search repos rippy'
+decision = "allow"
+
+[[case]]
+command = 'gh completion -s bash'
+decision = "allow"
+
+[[case]]
+command = 'gh help'
+decision = "allow"
+
+[[case]]
+command = 'gh pr status'
+decision = "allow"
+
+[[case]]
+command = 'gh pr diff'
+decision = "allow"
+
+[[case]]
+command = 'gh pr checks'
+decision = "allow"
+
+[[case]]
+command = 'gh pr search'
+decision = "allow"
+
+[[case]]
+command = 'gh pr download'
+decision = "allow"
+
+[[case]]
+command = 'gh pr watch'
+decision = "allow"
+
+[[case]]
+command = 'gh pr verify'
+decision = "allow"
+
+[[case]]
+command = 'gh pr logs'
+decision = "allow"
+
+[[case]]
+command = 'gh pr ports'
+decision = "allow"
+
+[[case]]
+command = 'gh issue list'
+decision = "allow"
+
+[[case]]
+command = 'gh issue status'
+decision = "allow"
+
+[[case]]
+command = 'gh issue diff'
+decision = "allow"
+
+[[case]]
+command = 'gh issue checks'
+decision = "allow"
+
+[[case]]
+command = 'gh issue search'
+decision = "allow"
+
+[[case]]
+command = 'gh issue download'
+decision = "allow"
+
+[[case]]
+command = 'gh issue watch'
+decision = "allow"
+
+[[case]]
+command = 'gh issue verify'
+decision = "allow"
+
+[[case]]
+command = 'gh issue logs'
+decision = "allow"
+
+[[case]]
+command = 'gh issue ports'
+decision = "allow"
+
+[[case]]
+command = 'gh release view'
+decision = "allow"
+
+[[case]]
+command = 'gh release list'
+decision = "allow"
+
+[[case]]
+command = 'gh release status'
+decision = "allow"
+
+[[case]]
+command = 'gh release diff'
+decision = "allow"
+
+[[case]]
+command = 'gh release checks'
+decision = "allow"
+
+[[case]]
+command = 'gh release search'
+decision = "allow"
+
+[[case]]
+command = 'gh release download'
+decision = "allow"
+
+[[case]]
+command = 'gh release watch'
+decision = "allow"
+
+[[case]]
+command = 'gh release verify'
+decision = "allow"
+
+[[case]]
+command = 'gh release logs'
+decision = "allow"
+
+[[case]]
+command = 'gh release ports'
+decision = "allow"
+
+[[case]]
+command = 'gh repo view'
+decision = "allow"
+
+[[case]]
+command = 'gh repo list'
+decision = "allow"
+
+[[case]]
+command = 'gh repo status'
+decision = "allow"
+
+[[case]]
+command = 'gh repo diff'
+decision = "allow"
+
+[[case]]
+command = 'gh repo checks'
+decision = "allow"
+
+[[case]]
+command = 'gh repo search'
+decision = "allow"
+
+[[case]]
+command = 'gh repo download'
+decision = "allow"
+
+[[case]]
+command = 'gh repo watch'
+decision = "allow"
+
+[[case]]
+command = 'gh repo verify'
+decision = "allow"
+
+[[case]]
+command = 'gh repo logs'
+decision = "allow"
+
+[[case]]
+command = 'gh repo ports'
+decision = "allow"
+
+[[case]]
+command = 'gh run view'
+decision = "allow"
+
+[[case]]
+command = 'gh run list'
+decision = "allow"
+
+[[case]]
+command = 'gh run status'
+decision = "allow"
+
+[[case]]
+command = 'gh run diff'
+decision = "allow"
+
+[[case]]
+command = 'gh run checks'
+decision = "allow"
+
+[[case]]
+command = 'gh run search'
+decision = "allow"
+
+[[case]]
+command = 'gh run download'
+decision = "allow"
+
+[[case]]
+command = 'gh run watch'
+decision = "allow"
+
+[[case]]
+command = 'gh run verify'
+decision = "allow"
+
+[[case]]
+command = 'gh run logs'
+decision = "allow"
+
+[[case]]
+command = 'gh run ports'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow view'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow list'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow status'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow diff'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow checks'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow search'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow download'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow watch'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow verify'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow logs'
+decision = "allow"
+
+[[case]]
+command = 'gh workflow ports'
+decision = "allow"
+
+[[case]]
+command = 'gh gist view'
+decision = "allow"
+
+[[case]]
+command = 'gh gist list'
+decision = "allow"
+
+[[case]]
+command = 'gh gist status'
+decision = "allow"
+
+[[case]]
+command = 'gh gist diff'
+decision = "allow"
+
+[[case]]
+command = 'gh gist checks'
+decision = "allow"
+
+[[case]]
+command = 'gh gist search'
+decision = "allow"
+
+[[case]]
+command = 'gh gist download'
+decision = "allow"
+
+[[case]]
+command = 'gh gist watch'
+decision = "allow"
+
+[[case]]
+command = 'gh gist verify'
+decision = "allow"
+
+[[case]]
+command = 'gh gist logs'
+decision = "allow"
+
+[[case]]
+command = 'gh gist ports'
+decision = "allow"
+
+[[case]]
+command = 'gh project view'
+decision = "allow"
+
+[[case]]
+command = 'gh project list'
+decision = "allow"
+
+[[case]]
+command = 'gh project status'
+decision = "allow"
+
+[[case]]
+command = 'gh project diff'
+decision = "allow"
+
+[[case]]
+command = 'gh project checks'
+decision = "allow"
+
+[[case]]
+command = 'gh project search'
+decision = "allow"
+
+[[case]]
+command = 'gh project download'
+decision = "allow"
+
+[[case]]
+command = 'gh project watch'
+decision = "allow"
+
+[[case]]
+command = 'gh project verify'
+decision = "allow"
+
+[[case]]
+command = 'gh project logs'
+decision = "allow"
+
+[[case]]
+command = 'gh project ports'
+decision = "allow"
+
+[[case]]
+command = 'gh label view'
+decision = "allow"
+
+[[case]]
+command = 'gh label list'
+decision = "allow"
+
+[[case]]
+command = 'gh label status'
+decision = "allow"
+
+[[case]]
+command = 'gh label diff'
+decision = "allow"
+
+[[case]]
+command = 'gh label checks'
+decision = "allow"
+
+[[case]]
+command = 'gh label search'
+decision = "allow"
+
+[[case]]
+command = 'gh label download'
+decision = "allow"
+
+[[case]]
+command = 'gh label watch'
+decision = "allow"
+
+[[case]]
+command = 'gh label verify'
+decision = "allow"
+
+[[case]]
+command = 'gh label logs'
+decision = "allow"
+
+[[case]]
+command = 'gh label ports'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace view'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace list'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace status'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace diff'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace checks'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace search'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace download'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace watch'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace verify'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace logs'
+decision = "allow"
+
+[[case]]
+command = 'gh codespace ports'
+decision = "allow"
+
+[[case]]
+command = 'gh secret view'
+decision = "allow"
+
+[[case]]
+command = 'gh secret list'
+decision = "allow"
+
+[[case]]
+command = 'gh secret status'
+decision = "allow"
+
+[[case]]
+command = 'gh secret diff'
+decision = "allow"
+
+[[case]]
+command = 'gh secret checks'
+decision = "allow"
+
+[[case]]
+command = 'gh secret search'
+decision = "allow"
+
+[[case]]
+command = 'gh secret download'
+decision = "allow"
+
+[[case]]
+command = 'gh secret watch'
+decision = "allow"
+
+[[case]]
+command = 'gh secret verify'
+decision = "allow"
+
+[[case]]
+command = 'gh secret logs'
+decision = "allow"
+
+[[case]]
+command = 'gh secret ports'
+decision = "allow"
+
+[[case]]
+command = 'gh variable view'
+decision = "allow"
+
+[[case]]
+command = 'gh variable list'
+decision = "allow"
+
+[[case]]
+command = 'gh variable status'
+decision = "allow"
+
+[[case]]
+command = 'gh variable diff'
+decision = "allow"
+
+[[case]]
+command = 'gh variable checks'
+decision = "allow"
+
+[[case]]
+command = 'gh variable search'
+decision = "allow"
+
+[[case]]
+command = 'gh variable download'
+decision = "allow"
+
+[[case]]
+command = 'gh variable watch'
+decision = "allow"
+
+[[case]]
+command = 'gh variable verify'
+decision = "allow"
+
+[[case]]
+command = 'gh variable logs'
+decision = "allow"
+
+[[case]]
+command = 'gh variable ports'
+decision = "allow"

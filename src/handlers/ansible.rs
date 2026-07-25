@@ -1,8 +1,17 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag, surface,
+};
+use crate::verdict::AllowReason;
 
 /// Extensions that indicate a static inventory file rather than a dynamic
 /// (executable) inventory script.
 const STATIC_INVENTORY_EXTENSIONS: &[&str] = &[".ini", ".yaml", ".yml", ".json"];
+
+/// `ansible-galaxy` subcommands that only read.
+const GALAXY_SAFE: &[&str] = &["list", "search", "info"];
+
+/// `ansible-config` subcommands that only read.
+const CONFIG_SAFE: &[&str] = &["list", "dump", "view"];
 
 pub(crate) static ANSIBLE_HANDLER: AnsibleHandler = AnsibleHandler;
 
@@ -24,8 +33,10 @@ impl Handler for AnsibleHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         match ctx.command_name {
-            "ansible-doc" => Classification::Allow("ansible-doc (read-only)".into()),
-            "ansible-lint" => Classification::Allow("ansible-lint (read-only)".into()),
+            "ansible-doc" => Classification::Allow(AllowReason::handler("ansible-doc (read-only)")),
+            "ansible-lint" => {
+                Classification::Allow(AllowReason::handler("ansible-lint (read-only)"))
+            }
             "ansible" => classify_ansible(ctx),
             "ansible-playbook" => classify_playbook(ctx),
             "ansible-vault" => classify_vault(ctx),
@@ -35,11 +46,35 @@ impl Handler for AnsibleHandler {
             _ => Classification::Ask(format!("{} (unknown ansible command)", ctx.command_name)),
         }
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let mut entries = vec![
+            AllowEntry::new("ansible-doc"),
+            AllowEntry::new("ansible-lint"),
+            AllowEntry::guarded("ansible", "one of --check/-C/--list-hosts present"),
+            AllowEntry::guarded(
+                "ansible-playbook",
+                "one of --check/-C/--syntax-check/--list-hosts/--list-tasks/--list-tags present",
+            ),
+            AllowEntry::new("ansible-vault view"),
+            AllowEntry::guarded(
+                "ansible-inventory",
+                format!(
+                    "one of --list/--graph/--host present, and either no inventory operand or \
+                     one ending in {}",
+                    STATIC_INVENTORY_EXTENSIONS.join("/"),
+                ),
+            ),
+        ];
+        entries.extend(surface::subcommands("ansible-galaxy", GALAXY_SAFE));
+        entries.extend(surface::subcommands("ansible-config", CONFIG_SAFE));
+        entries
+    }
 }
 
 fn classify_ansible(ctx: &HandlerContext) -> Classification {
     if has_flag(ctx.args, &["--check", "-C", "--list-hosts"]) {
-        Classification::Allow("ansible dry-run/inspection".into())
+        Classification::Allow(AllowReason::handler("ansible dry-run/inspection"))
     } else {
         Classification::Ask("ansible (may modify targets)".into())
     }
@@ -57,7 +92,7 @@ fn classify_playbook(ctx: &HandlerContext) -> Classification {
             "--list-tags",
         ],
     ) {
-        Classification::Allow("ansible-playbook dry-run/inspection".into())
+        Classification::Allow(AllowReason::handler("ansible-playbook dry-run/inspection"))
     } else {
         Classification::Ask("ansible-playbook (may modify targets)".into())
     }
@@ -65,7 +100,7 @@ fn classify_playbook(ctx: &HandlerContext) -> Classification {
 
 fn classify_vault(ctx: &HandlerContext) -> Classification {
     if ctx.subcommand() == "view" {
-        Classification::Allow("ansible-vault view (read-only)".into())
+        Classification::Allow(AllowReason::handler("ansible-vault view (read-only)"))
     } else {
         Classification::Ask(format!(
             "ansible-vault {} (may modify vault)",
@@ -75,20 +110,24 @@ fn classify_vault(ctx: &HandlerContext) -> Classification {
 }
 
 fn classify_galaxy(ctx: &HandlerContext) -> Classification {
-    match ctx.subcommand() {
-        "list" | "search" | "info" => {
-            Classification::Allow(format!("ansible-galaxy {} (read-only)", ctx.subcommand()))
-        }
-        sub => Classification::Ask(format!("ansible-galaxy {sub} (may modify roles)")),
+    let sub = ctx.subcommand();
+    if GALAXY_SAFE.contains(&sub) {
+        Classification::Allow(AllowReason::handler(format!(
+            "ansible-galaxy {sub} (read-only)"
+        )))
+    } else {
+        Classification::Ask(format!("ansible-galaxy {sub} (may modify roles)"))
     }
 }
 
 fn classify_config(ctx: &HandlerContext) -> Classification {
-    match ctx.subcommand() {
-        "list" | "dump" | "view" => {
-            Classification::Allow(format!("ansible-config {} (read-only)", ctx.subcommand()))
-        }
-        sub => Classification::Ask(format!("ansible-config {sub}")),
+    let sub = ctx.subcommand();
+    if CONFIG_SAFE.contains(&sub) {
+        Classification::Allow(AllowReason::handler(format!(
+            "ansible-config {sub} (read-only)"
+        )))
+    } else {
+        Classification::Ask(format!("ansible-config {sub}"))
     }
 }
 
@@ -104,13 +143,13 @@ fn classify_inventory(ctx: &HandlerContext) -> Classification {
                 .iter()
                 .any(|ext| inv.ends_with(ext)) =>
         {
-            Classification::Allow("ansible-inventory (read-only query)".into())
+            Classification::Allow(AllowReason::handler("ansible-inventory (read-only query)"))
         }
         Some(_) => Classification::Ask("ansible-inventory (dynamic inventory script)".into()),
         None if has_flag(ctx.args, &["-i", "--inventory"]) => {
             Classification::Ask("ansible-inventory (inventory target not extractable)".into())
         }
-        None => Classification::Allow("ansible-inventory (read-only query)".into()),
+        None => Classification::Allow(AllowReason::handler("ansible-inventory (read-only query)")),
     }
 }
 

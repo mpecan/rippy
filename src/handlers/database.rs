@@ -1,8 +1,16 @@
 use super::{
-    Classification, Handler, HandlerContext, get_flag_value, has_flag, is_sole_help_flag,
-    positional_args,
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag,
+    is_sole_help_flag, positional_args,
 };
 use crate::sql::classify_sql;
+use crate::verdict::AllowReason;
+
+/// Guard shared by every inline-SQL entry: the statement itself decides.
+const READ_ONLY_SQL: &str = "statement classified read-only by src/sql.rs";
+
+/// Guard for the file-borne variant, which additionally has to be readable.
+const READ_ONLY_SQL_FILE: &str =
+    "file readable from the working directory and classified read-only by src/sql.rs";
 
 // psql
 
@@ -17,10 +25,10 @@ impl Handler for PsqlHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-?", "--version", "-V"]) {
-            return Classification::Allow("psql help/version".into());
+            return Classification::Allow(AllowReason::handler("psql help/version"));
         }
         if has_flag(ctx.args, &["--list", "-l"]) {
-            return Classification::Allow("psql list databases".into());
+            return Classification::Allow(AllowReason::handler("psql list databases"));
         }
         // -c SQL
         if let Some(sql) = get_flag_value(ctx.args, &["-c", "--command"]) {
@@ -34,6 +42,15 @@ impl Handler for PsqlHandler {
             return Classification::Ask("psql -f (file execution)".into());
         }
         Classification::Ask("psql (interactive)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("psql --help|-?|--version|-V", "sole argument"),
+            AllowEntry::new("psql --list|-l"),
+            AllowEntry::guarded("psql -c|--command <sql>", READ_ONLY_SQL),
+            AllowEntry::guarded("psql -f|--file <path>", READ_ONLY_SQL_FILE),
+        ]
     }
 }
 
@@ -50,12 +67,19 @@ impl Handler for MysqlHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "--version", "-V"]) {
-            return Classification::Allow("mysql help/version".into());
+            return Classification::Allow(AllowReason::handler("mysql help/version"));
         }
         if let Some(sql) = get_flag_value(ctx.args, &["-e", "--execute"]) {
             return classify_sql_command("mysql", &sql);
         }
         Classification::Ask("mysql (interactive)".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("mysql --help|--version|-V", "sole argument"),
+            AllowEntry::guarded("mysql -e|--execute <sql>", READ_ONLY_SQL),
+        ]
     }
 }
 
@@ -72,10 +96,10 @@ impl Handler for Sqlite3Handler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-help", "--version"]) {
-            return Classification::Allow("sqlite3 help/version".into());
+            return Classification::Allow(AllowReason::handler("sqlite3 help/version"));
         }
         if has_flag(ctx.args, &["-readonly", "-safe"]) {
-            return Classification::Allow("sqlite3 (readonly mode)".into());
+            return Classification::Allow(AllowReason::handler("sqlite3 (readonly mode)"));
         }
         // Look for SQL after the database file argument
         let positionals = positional_args(ctx.args);
@@ -84,11 +108,21 @@ impl Handler for Sqlite3Handler {
         }
         Classification::Ask("sqlite3 (interactive)".into())
     }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![
+            AllowEntry::guarded("sqlite3 --help|-help|--version", "sole argument"),
+            AllowEntry::new("sqlite3 -readonly|-safe"),
+            AllowEntry::guarded("sqlite3 <database> <sql>", READ_ONLY_SQL),
+        ]
+    }
 }
 
 fn classify_sql_command(tool: &str, sql: &str) -> Classification {
     match classify_sql(sql) {
-        Some(true) => Classification::Allow(format!("{tool} (read-only SQL)")),
+        Some(true) => {
+            Classification::Allow(AllowReason::handler(format!("{tool} (read-only SQL)")))
+        }
         Some(false) => Classification::Ask(format!("{tool} (write SQL)")),
         None => Classification::Ask(format!("{tool} (ambiguous SQL)")),
     }

@@ -1,4 +1,7 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, surface,
+};
+use crate::verdict::AllowReason;
 
 pub(crate) static GH_HANDLER: GhHandler = GhHandler;
 
@@ -11,6 +14,25 @@ const SAFE_ACTIONS: &[&str] = &[
 
 const UNSAFE_METHODS: &[&str] = &["POST", "PUT", "DELETE", "PATCH"];
 
+/// `gh` subcommands that are read-only whatever follows them.
+const TOP_LEVEL_SAFE: &[&str] = &["status", "browse", "search", "completion", "help"];
+
+/// `gh` resource groups whose second token (the action) decides safety.
+const RESOURCE_COMMANDS: &[&str] = &[
+    "pr",
+    "issue",
+    "release",
+    "repo",
+    "run",
+    "workflow",
+    "gist",
+    "project",
+    "label",
+    "codespace",
+    "secret",
+    "variable",
+];
+
 impl Handler for GhHandler {
     fn commands(&self) -> &[&str] {
         &["gh"]
@@ -18,22 +40,44 @@ impl Handler for GhHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
-            return Classification::Allow("gh help/version".into());
+            return Classification::Allow(AllowReason::handler("gh help/version"));
         }
 
         let sub = ctx.subcommand();
 
         match sub {
             "api" => classify_api(ctx),
-            // Top-level safe commands
-            "status" | "browse" | "search" | "completion" | "help" => {
-                Classification::Allow(format!("gh {sub}"))
+            sub if TOP_LEVEL_SAFE.contains(&sub) => {
+                Classification::Allow(AllowReason::handler(format!("gh {sub}")))
             }
-            // Resource commands — classify by action (second arg)
-            "pr" | "issue" | "release" | "repo" | "run" | "workflow" | "gist" | "project"
-            | "label" | "codespace" | "secret" | "variable" => classify_resource(ctx, sub),
+            sub if RESOURCE_COMMANDS.contains(&sub) => classify_resource(ctx, sub),
             _ => Classification::Ask(format!("gh {sub}")),
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let api_guard = format!(
+            "no -X/--method in {}, no field flag ({}) outside a GraphQL query, and no \
+             `mutation` in a field value",
+            UNSAFE_METHODS.join("/"),
+            FIELD_FLAGS.join(" "),
+        );
+        let mut entries = vec![
+            AllowEntry::guarded("gh --help|-h|--version", "sole argument"),
+            AllowEntry::guarded("gh api <endpoint>", api_guard.clone()),
+            AllowEntry::guarded(
+                "gh api <endpoint> --input <file>",
+                format!("{api_guard}; the file is readable and contains no GraphQL mutation"),
+            ),
+        ];
+        entries.extend(surface::subcommands("gh", TOP_LEVEL_SAFE));
+        for resource in RESOURCE_COMMANDS {
+            entries.extend(surface::subcommands(
+                &format!("gh {resource}"),
+                SAFE_ACTIONS,
+            ));
+        }
+        entries
     }
 }
 
@@ -104,13 +148,13 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
             return if is_graphql_mutation(&content) {
                 Classification::Ask("gh api --input (GraphQL mutation)".into())
             } else {
-                Classification::Allow("gh api --input (query)".into())
+                Classification::Allow(AllowReason::handler("gh api --input (query)"))
             };
         }
         return Classification::Ask("gh api (--input, cannot verify contents)".into());
     }
 
-    Classification::Allow("gh api (GET)".into())
+    Classification::Allow(AllowReason::handler("gh api (GET)"))
 }
 
 /// Check if a GraphQL document contains a mutation operation.
@@ -129,7 +173,7 @@ fn classify_resource(ctx: &HandlerContext, resource: &str) -> Classification {
     }
 
     if SAFE_ACTIONS.contains(&action) {
-        Classification::Allow(format!("gh {resource} {action}"))
+        Classification::Allow(AllowReason::handler(format!("gh {resource} {action}")))
     } else {
         Classification::Ask(format!("gh {resource} {action}"))
     }

@@ -1,0 +1,142 @@
+[meta]
+description = "Declared git allow surfaces, one observed allow case each"
+
+[[case]]
+command = 'git annotate'
+decision = "allow"
+
+[[case]]
+command = 'git shortlog'
+decision = "allow"
+
+[[case]]
+command = 'git describe'
+decision = "allow"
+
+[[case]]
+command = 'git rev-parse'
+decision = "allow"
+
+[[case]]
+command = 'git rev-list'
+decision = "allow"
+
+[[case]]
+command = 'git reflog'
+decision = "allow"
+
+[[case]]
+command = 'git whatchanged'
+decision = "allow"
+
+[[case]]
+command = 'git diff-tree'
+decision = "allow"
+
+[[case]]
+command = 'git diff-files'
+decision = "allow"
+
+[[case]]
+command = 'git diff-index'
+decision = "allow"
+
+[[case]]
+command = 'git range-diff'
+decision = "allow"
+
+[[case]]
+command = 'git ls-files'
+decision = "allow"
+
+[[case]]
+command = 'git ls-tree'
+decision = "allow"
+
+[[case]]
+command = 'git ls-remote'
+decision = "allow"
+
+[[case]]
+command = 'git cat-file'
+decision = "allow"
+
+[[case]]
+command = 'git verify-commit'
+decision = "allow"
+
+[[case]]
+command = 'git verify-tag'
+decision = "allow"
+
+[[case]]
+command = 'git name-rev'
+decision = "allow"
+
+[[case]]
+command = 'git merge-base'
+decision = "allow"
+
+[[case]]
+command = 'git show-ref'
+decision = "allow"
+
+[[case]]
+command = 'git show-branch'
+decision = "allow"
+
+[[case]]
+command = 'git check-ignore'
+decision = "allow"
+
+[[case]]
+command = 'git cherry'
+decision = "allow"
+
+[[case]]
+command = 'git for-each-ref'
+decision = "allow"
+
+[[case]]
+command = 'git count-objects'
+decision = "allow"
+
+[[case]]
+command = 'git fsck'
+decision = "allow"
+
+[[case]]
+command = 'git var'
+decision = "allow"
+
+[[case]]
+command = 'git request-pull'
+decision = "allow"
+
+[[case]]
+command = 'git version'
+decision = "allow"
+
+[[case]]
+command = 'git help'
+decision = "allow"
+
+[[case]]
+command = 'git notes show'
+decision = "allow"
+
+[[case]]
+command = 'git bisect view'
+decision = "allow"
+
+[[case]]
+command = 'git lfs fetch'
+decision = "allow"
+
+[[case]]
+command = 'git lfs env'
+decision = "allow"
+
+[[case]]
+command = 'git lfs version'
+decision = "allow"

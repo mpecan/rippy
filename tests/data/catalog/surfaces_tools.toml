@@ -1,0 +1,206 @@
+[meta]
+description = "Remaining declared handler allow surfaces, one observed allow case each"
+
+[[case]]
+command = 'cd -'
+decision = "allow"
+
+[[case]]
+command = 'cd /tmp'
+decision = "allow"
+
+[[case]]
+command = 'gzip --stdout file.txt'
+decision = "allow"
+
+[[case]]
+command = 'gzip -c file.txt'
+decision = "allow"
+
+[[case]]
+command = 'gzip --list archive.gz'
+decision = "allow"
+
+[[case]]
+command = 'gzip -l archive.gz'
+decision = "allow"
+
+[[case]]
+command = 'gzip --test archive.gz'
+decision = "allow"
+
+[[case]]
+command = 'gzip -t archive.gz'
+decision = "allow"
+
+[[case]]
+command = 'gzip --help'
+decision = "allow"
+
+[[case]]
+command = 'just -l'
+decision = "allow"
+
+[[case]]
+command = 'just --variables'
+decision = "allow"
+
+[[case]]
+command = 'just --evaluate'
+decision = "allow"
+
+[[case]]
+command = 'just -s build'
+decision = "allow"
+
+[[case]]
+command = 'mise list'
+decision = "allow"
+
+[[case]]
+command = 'mise dr'
+decision = "allow"
+
+[[case]]
+command = 'mise where'
+decision = "allow"
+
+[[case]]
+command = 'mise which'
+decision = "allow"
+
+[[case]]
+command = 'mise bin-paths'
+decision = "allow"
+
+[[case]]
+command = 'mise ls-remote'
+decision = "allow"
+
+[[case]]
+command = 'mise version'
+decision = "allow"
+
+[[case]]
+command = 'mkdir /tmp/rippy-demo'
+decision = "allow"
+
+[[case]]
+command = 'python -m calendar'
+decision = "allow"
+
+[[case]]
+command = 'python -m this'
+decision = "allow"
+
+[[case]]
+command = 'python -m antigravity'
+decision = "allow"
+
+[[case]]
+command = 'sqlite3 --help'
+decision = "allow"
+
+[[case]]
+command = 'echo hi | tee'
+decision = "allow"
+
+[[case]]
+command = 'tokf info'
+decision = "allow"
+
+[[case]]
+command = 'tokf gain'
+decision = "allow"
+
+[[case]]
+command = 'tokf check'
+decision = "allow"
+
+[[case]]
+command = 'tokf apply'
+decision = "allow"
+
+[[case]]
+command = 'tokf verify'
+decision = "allow"
+
+[[case]]
+command = 'tokf discover'
+decision = "allow"
+
+[[case]]
+command = 'tokf doctor'
+decision = "allow"
+
+[[case]]
+command = 'tokf completions'
+decision = "allow"
+
+[[case]]
+command = 'unzip l archive.zip'
+decision = "allow"
+
+[[case]]
+command = 'unzip t archive.zip'
+decision = "allow"
+
+[[case]]
+command = 'unzip --help'
+decision = "allow"
+
+[[case]]
+command = 'uv lock'
+decision = "allow"
+
+[[case]]
+command = 'uv tree'
+decision = "allow"
+
+[[case]]
+command = 'uv version'
+decision = "allow"
+
+[[case]]
+command = 'uv help'
+decision = "allow"
+
+[[case]]
+command = 'uv venv'
+decision = "allow"
+
+[[case]]
+command = 'uv export'
+decision = "allow"
+
+[[case]]
+command = 'uv pip freeze'
+decision = "allow"
+
+[[case]]
+command = 'uv pip show'
+decision = "allow"
+
+[[case]]
+command = 'uv pip check'
+decision = "allow"
+
+[[case]]
+command = 'uv pip tree'
+decision = "allow"
+
+[[case]]
+command = 'uv python list'
+decision = "allow"
+
+[[case]]
+command = 'uv python find'
+decision = "allow"
+
+[[case]]
+command = 'uv python dir'
+decision = "allow"
+
+[[case]]
+command = 'uv cache dir'
+decision = "allow"

@@ -34,6 +34,7 @@
 | `src/handlers/` | 85+ CLI-specific command handlers (git, docker, etc.) |
 | `src/payload.rs` | JSON input deserialization (4 AI tool formats) |
 | `src/verdict.rs` | Decision (Allow/Ask/Deny), per-mode JSON serialization |
+| `src/allow_reason.rs` | Typed Allow provenance (`AllowReason`) + `Display` that reproduces the wire strings |
 | `src/mode.rs` | Mode (Claude/Gemini/Cursor/Codex) and HookType enums |
 | `src/error.rs` | RippyError via thiserror |
 | `src/sql.rs` | SQL read-only classifier for database handlers |
@@ -122,6 +123,11 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
   `tests/catalog_runner.rs` asserts `verdict.decision`), so they test the actual
   user-facing verdict and are immune to `HandlerContext` struct refactors. New
   handlers add catalog cases first.
+- **Every new `allow_surface()` entry ships a pair.** A `decision = "allow"`
+  case exercising it, and — for the namespace it lives in — a dangerous-neighbor
+  `ask`/`deny` case marking where the approval stops.
+  `tests/allow_completeness.rs` fails CI otherwise, and its two exemption
+  tables are the only escape hatch (each entry needs a why and a citation).
 - **Reserve white-box `HandlerContext` tests for what a command string cannot
   reach:** internal helpers, and behavior that depends on injected state —
   `working_directory`/cwd-relative resolution, `remote = true`, non-empty
@@ -137,8 +143,29 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
   security tool — a mis-transcribed `decision = "allow"` silently passes while
   asserting the wrong thing, so keep contrast pairs and never migrate an
   `ask`/`deny` case you have not observed.
+- **Assert Allow provenance by category, not by reason substring.** Use
+  `Verdict::allow_reason()` and match the `AllowReason` variant
+  (`tests/allow_provenance.rs`). Reason strings themselves are pinned wholesale
+  by `tests/data/reason_snapshot.txt` — they are part of the JSON hook output,
+  so a change there is a wire-format change and must be deliberate.
+- **Metamorphic "never fail open" invariants** live in `tests/metamorphic/`
+  (shared grammar + invariants) and run as proptests via
+  `tests/proptest_metamorphic.rs` under plain `cargo test`; invariant 8 is
+  in-crate at `src/resolve_proptests.rs`. The same harness is driven
+  coverage-guided by the nightly `fuzz/` crate (excluded from the workspace, so
+  the stable gate never builds it). Never soften an invariant to make it pass —
+  carve the shape out with a named, issue-referencing predicate and pin the
+  reproducer as an `#[ignore]`d test. See `docs/fuzzing.md`.
+- `rippy inspect` renders `Analyzer::analyze` rather than re-deciding (#167), and
+  `tests/inspect_delegation.rs` holds it to that. Still observe ground truth with
+  `common::isolated_analyzer()`: inspect's own config/cwd discovery is a second
+  variable a test does not need.
 - Property-based tests in `tests/proptest_robustness.rs` — proptest covers
   the four parsing/analysis surfaces (`Payload::parse`, `BashParser` +
   `Analyzer`, `Pattern::matches`, `Config::load_from_str`) against random
   input. They run as part of `cargo test`. Failures auto-persist to
-  `proptest-regressions/` and should be committed as permanent regression seeds.
+  `tests/<name>.proptest-regressions` (integration tests) or
+  `proptest-regressions/<module>.txt` (in-crate tests) and should be committed
+  as permanent regression seeds — except for a *known* fail-open, which is
+  pinned as an `#[ignore]`d reproducer plus a tracked issue instead. See
+  `docs/fuzzing.md`.

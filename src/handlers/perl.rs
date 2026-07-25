@@ -1,7 +1,9 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_values, is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_values,
+    is_sole_help_flag,
 };
 use crate::perl_safety::is_perl_source_safe;
+use crate::verdict::AllowReason;
 
 pub(crate) static PERL_HANDLER: PerlHandler = PerlHandler;
 
@@ -14,7 +16,7 @@ impl Handler for PerlHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--version", "-v", "--help", "-h"]) {
-            return Classification::Allow("perl version/help".into());
+            return Classification::Allow(AllowReason::handler("perl version/help"));
         }
 
         // -e / -E inline code — Perl concatenates every fragment with "\n" at
@@ -23,7 +25,7 @@ impl Handler for PerlHandler {
         if !fragments.is_empty() {
             let source = fragments.join("\n");
             return if is_perl_source_safe(&source) {
-                Classification::Allow("perl -e (safe inline code)".into())
+                Classification::Allow(AllowReason::handler("perl -e (safe inline code)"))
             } else {
                 Classification::Ask("perl -e (potentially dangerous code)".into())
             };
@@ -38,12 +40,27 @@ impl Handler for PerlHandler {
         let script = first_positional(ctx.args).unwrap_or("");
         if let Some(source) = ctx.read_file(script) {
             return if is_perl_source_safe(&source) {
-                Classification::Allow(format!("perl {script} (safe script)"))
+                Classification::Allow(AllowReason::handler(format!("perl {script} (safe script)")))
             } else {
                 Classification::Ask(format!("perl {script} (potentially dangerous)"))
             };
         }
         Classification::Ask("perl script execution".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let safe_source = "source passes the analysis in src/perl_safety.rs";
+        vec![
+            AllowEntry::guarded("perl --version|-v|--help|-h", "sole argument"),
+            AllowEntry::guarded(
+                "perl -e|-E <code>",
+                format!("every -e/-E fragment concatenated; the {safe_source}"),
+            ),
+            AllowEntry::guarded(
+                "perl <script>",
+                format!("script readable from the working directory and its {safe_source}"),
+            ),
+        ]
     }
 }
 

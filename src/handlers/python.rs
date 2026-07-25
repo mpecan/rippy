@@ -1,12 +1,16 @@
 use super::{
-    Classification, Handler, HandlerContext, first_positional, get_flag_value, has_flag,
-    is_sole_help_flag,
+    AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
+    has_flag, is_sole_help_flag, surface,
 };
 use crate::python_safety::is_python_source_safe;
+use crate::verdict::AllowReason;
 
 pub(crate) static PYTHON_HANDLER: PythonHandler = PythonHandler;
 
 pub(crate) struct PythonHandler;
+
+/// Stdlib modules `-m` may run: they print and exit, taking no code from argv.
+const SAFE_MODULES: &[&str] = &["calendar", "json.tool", "this", "antigravity"];
 
 impl Handler for PythonHandler {
     fn commands(&self) -> &[&str] {
@@ -25,13 +29,13 @@ impl Handler for PythonHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--version", "-V", "-VV", "--help", "-h"]) {
-            return Classification::Allow("python version/help".into());
+            return Classification::Allow(AllowReason::handler("python version/help"));
         }
 
         // -c inline code — analyze source for dangerous patterns
         if let Some(source) = get_flag_value(ctx.args, &["-c"]) {
             return if is_python_source_safe(&source) {
-                Classification::Allow("python -c (safe inline code)".into())
+                Classification::Allow(AllowReason::handler("python -c (safe inline code)"))
             } else {
                 Classification::Ask("python -c (potentially dangerous code)".into())
             };
@@ -45,11 +49,10 @@ impl Handler for PythonHandler {
                 .skip_while(|a| a.as_str() != "-m")
                 .nth(1)
                 .map_or("", String::as_str);
-            return match module {
-                "calendar" | "json.tool" | "this" | "antigravity" => {
-                    Classification::Allow(format!("python -m {module}"))
-                }
-                _ => Classification::Ask(format!("python -m {module}")),
+            return if SAFE_MODULES.contains(&module) {
+                Classification::Allow(AllowReason::handler(format!("python -m {module}")))
+            } else {
+                Classification::Ask(format!("python -m {module}"))
             };
         }
 
@@ -67,12 +70,28 @@ impl Handler for PythonHandler {
         let script = first_positional(ctx.args).unwrap_or("");
         if let Some(source) = ctx.read_file(script) {
             return if is_python_source_safe(&source) {
-                Classification::Allow(format!("python {script} (safe script)"))
+                Classification::Allow(AllowReason::handler(format!(
+                    "python {script} (safe script)"
+                )))
             } else {
                 Classification::Ask(format!("python {script} (potentially dangerous)"))
             };
         }
         Classification::Ask("python script execution".into())
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let safe_source = "source passes the analysis in src/python_safety.rs";
+        let mut entries = vec![
+            AllowEntry::guarded("python --version|-V|-VV|--help|-h", "sole argument"),
+            AllowEntry::guarded("python -c <code>", safe_source),
+        ];
+        entries.extend(surface::subcommands("python -m", SAFE_MODULES));
+        entries.push(AllowEntry::guarded(
+            "python <script>",
+            format!("script readable from the working directory and its {safe_source}"),
+        ));
+        entries
     }
 }
 

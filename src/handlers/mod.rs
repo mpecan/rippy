@@ -8,6 +8,7 @@ mod env_xargs;
 mod find;
 mod gh;
 mod git;
+mod git_subcommands;
 mod helm;
 mod mkdir;
 mod node;
@@ -17,6 +18,7 @@ mod python;
 mod python_tools;
 mod ruby;
 mod shell;
+mod surface;
 mod system;
 mod task_runners;
 mod text_tools;
@@ -26,7 +28,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::LazyLock;
 
-use crate::verdict::Decision;
+pub(crate) use surface::{AllowEntry, all_handler_surfaces};
+
+use crate::verdict::AllowReason;
 
 /// Context passed to handlers for classification.
 pub(crate) struct HandlerContext<'a> {
@@ -101,8 +105,9 @@ impl HandlerContext<'_> {
 /// The result of classifying a command.
 #[derive(Debug, Clone)]
 pub(crate) enum Classification {
-    /// Auto-approve with description.
-    Allow(String),
+    /// Auto-approve, carrying typed provenance (always
+    /// [`AllowReason::Handler`] when minted by a handler).
+    Allow(AllowReason),
     /// Needs user confirmation with description.
     Ask(String),
     /// Block with description. Wired to `Verdict::deny` in `apply_classification`;
@@ -116,14 +121,24 @@ pub(crate) enum Classification {
     Recurse(String),
     /// Re-parse inner command with remote=true (for docker exec, kubectl exec).
     RecurseRemote(String),
-    /// Decision with redirect targets that need config rule checking.
-    WithRedirects(Decision, String, Vec<String>),
+    /// Approve the command itself, but route these redirect targets through
+    /// the redirect safety pipeline (self-protect, safe-dir, config rules).
+    WithRedirects(AllowReason, Vec<String>),
 }
 
 /// Trait for command handlers.
 pub(crate) trait Handler: Send + Sync {
     fn commands(&self) -> &[&str];
     fn classify(&self, ctx: &HandlerContext) -> Classification;
+
+    /// Every invocation shape [`Handler::classify`] can approve
+    /// (`Classification::Allow` or `WithRedirects`), as data.
+    ///
+    /// Rendered into `docs/allow-catalog.md`, so a widening of the approved set
+    /// is visible as a documentation diff. Deliberately has no default
+    /// implementation: a new handler must declare its surface to compile. A
+    /// handler that only recurses or asks returns an empty vector.
+    fn allow_surface(&self) -> Vec<AllowEntry>;
 }
 
 /// A data-driven handler for commands with simple subcommand-based classification.
@@ -162,11 +177,14 @@ impl Handler for SubcommandHandler {
 
         // Check --help/--version first (only when it is the sole argument).
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
-            return Classification::Allow(format!("{} help/version", self.desc_prefix));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} help/version",
+                self.desc_prefix
+            )));
         }
 
         if self.safe.contains(&sub) {
-            Classification::Allow(desc)
+            Classification::Allow(AllowReason::handler(desc))
         } else if self.ask.contains(&sub) {
             Classification::Ask(desc)
         } else if sub.is_empty() {
@@ -174,6 +192,16 @@ impl Handler for SubcommandHandler {
         } else {
             Classification::Ask(desc)
         }
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let cmd = self.cmds.first().copied().unwrap_or(self.desc_prefix);
+        let mut entries = surface::subcommands(cmd, self.safe);
+        entries.push(AllowEntry::guarded(
+            format!("{cmd} --help|-h|--version|-V"),
+            "sole argument",
+        ));
+        entries
     }
 }
 

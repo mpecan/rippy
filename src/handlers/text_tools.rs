@@ -1,4 +1,5 @@
-use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use crate::verdict::AllowReason;
 
 // sed
 
@@ -21,7 +22,14 @@ impl Handler for SedHandler {
             return Classification::Ask(reason);
         }
 
-        Classification::Allow("sed (filter)".into())
+        Classification::Allow(AllowReason::handler("sed (filter)"))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "sed <script> [<file>...]",
+            "no -i (in-place), and no `w`/`e` command or `s///w`/`s///e` flag in the script",
+        )]
     }
 }
 
@@ -139,7 +147,21 @@ impl Handler for AwkHandler {
             return Classification::Ask(reason);
         }
 
-        Classification::Allow(format!("{} (filter)", ctx.command_name))
+        Classification::Allow(AllowReason::handler(format!(
+            "{} (filter)",
+            ctx.command_name
+        )))
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        let guard = "no system() call, pipe-to-command or file redirect in the program";
+        vec![
+            AllowEntry::guarded("awk <program> [<file>...]", guard),
+            AllowEntry::guarded(
+                "awk -f <script>",
+                format!("script readable from the working directory; {guard}"),
+            ),
+        ]
     }
 }
 
@@ -154,7 +176,7 @@ fn check_awk_source(program: &str, cmd_name: &str) -> Classification {
     if awk_has_file_redirect(program) {
         return Classification::Ask(format!("{cmd_name} -f file redirect"));
     }
-    Classification::Allow(format!("{cmd_name} -f (safe script)"))
+    Classification::Allow(AllowReason::handler(format!("{cmd_name} -f (safe script)")))
 }
 
 /// Check awk program arguments for `system()`, pipe-to-command, and file redirects.
