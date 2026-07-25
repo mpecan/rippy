@@ -6,9 +6,10 @@
 //! dangerous neighbor that must Ask or Deny. Adding an approval with neither
 //! fails CI, which is the gap behind #155–#162.
 //!
-//! The neighbor requirement is enforced per *approved prefix* — every declared
-//! namespace, every guarded surface's literal prefix, and every handler command
-//! name — not per surface entry. That is a deliberate limit, not an oversight:
+//! Issue #165 words the neighbor requirement per surface entry; it is enforced
+//! per *approved prefix* instead — every declared namespace, every guarded
+//! surface's literal prefix, and every handler command name. That narrowing is
+//! deliberate, not an oversight:
 //! a neighbor has to be a command someone can actually write, and most approved
 //! verbs have no dangerous form at all. 430 of the 451 fully-spelled surfaces
 //! (`docker version`, `aws sts get-caller-identity`, `ansible-config view`)

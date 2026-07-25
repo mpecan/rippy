@@ -164,4 +164,8 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
   the four parsing/analysis surfaces (`Payload::parse`, `BashParser` +
   `Analyzer`, `Pattern::matches`, `Config::load_from_str`) against random
   input. They run as part of `cargo test`. Failures auto-persist to
-  `proptest-regressions/` and should be committed as permanent regression seeds.
+  `tests/<name>.proptest-regressions` (integration tests) or
+  `proptest-regressions/<module>.txt` (in-crate tests) and should be committed
+  as permanent regression seeds — except for a *known* fail-open, which is
+  pinned as an `#[ignore]`d reproducer plus a tracked issue instead. See
+  `docs/fuzzing.md`.

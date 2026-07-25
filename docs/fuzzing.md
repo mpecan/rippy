@@ -57,9 +57,10 @@ non-`Allow` outcome and satisfies every invariant below.
    resolution contains `ast::has_shell_expansion_pattern` or a process
    substitution.
 
-### Invariant 6 is stated over a single command
+### Invariant 6
 
-Issue #168 writes invariant 6 as `analyze("time " + cmd) >= analyze(cmd)`.
+Stated over a single command. Issue #168 writes invariant 6 as
+`analyze("time " + cmd) >= analyze(cmd)`.
 Textually prefixing a wrapper to a *compound* command wraps only its first
 stage, so the two sides are not the same program and the relation is not
 meaningful there. Concretely, `cargo check; ls` is `Ask` — the
@@ -72,9 +73,10 @@ specs, where prefixing a wrapper really does wrap the whole command. An
 exhaustive sweep of every `SIMPLE_SAFE` leaf times every wrapper in that shape
 found exactly one violation, recorded below.
 
-### Invariant 7 is monotone, not an equality
+### Invariant 7
 
-Issue #168 writes invariant 7 as `analyze(r).decision == verdict.decision`.
+Monotone, not an equality. Issue #168 writes invariant 7 as
+`analyze(r).decision == verdict.decision`.
 Equality is wrong and would fire on strictly-more-restrictive behavior: the
 command-position dynamic branch in `src/analyzer_dispatch.rs` returns `Ask`
 *with* a resolved command attached, and that resolved command re-analyzes to
@@ -180,15 +182,31 @@ the pinned stable and fails on missing `-Z` flags. Use `cargo +nightly` or set
 3. If it is a rippy bug, add the command to `tests/data/catalog/*.toml` with the
    *observed* decision, or as an `#[ignore]`d test plus an issue when the
    observed decision is the bug.
-4. If a proptest reproduces it, commit the generated
-   `proptest-regressions/*.txt` file so CI re-runs the counterexample forever.
+4. If a proptest reproduces it, commit the generated seed file so CI re-runs the
+   counterexample forever: `tests/<name>.proptest-regressions` for
+   integration-test proptests, `proptest-regressions/<module>.txt` for in-crate
+   ones.
 
-Integration-test proptests persist to `tests/<name>.proptest-regressions`
-(proptest's `SourceParallel` cannot find a `lib.rs`/`main.rs` above `tests/`);
-in-crate proptests persist to `proptest-regressions/<module>.txt`.
+The two paths differ because proptest's `SourceParallel` cannot find a
+`lib.rs`/`main.rs` above `tests/`, so an integration test falls back to a
+sibling file and the repo-root `proptest-regressions/` never receives anything
+from `tests/`.
+
+Both counterexamples found so far ([#181](https://github.com/mpecan/rippy/issues/181),
+[#182](https://github.com/mpecan/rippy/issues/182)) are pinned as `#[ignore]`d
+reproducers plus tracked issues rather than as committed seed files, so
+`proptest-regressions/` is still empty. A seed only replays one shrunk input and
+says nothing about why it is accepted; the named carve-out predicate plus the
+`#[ignore]`d test states the exact command, keeps it in the file a reader of the
+invariant will open, and fails loudly the day the fail-open is closed. Prefer
+that shape for a *known* fail-open, and commit the seed file for a genuine
+regression that the invariants are meant to catch.
 
 ## Authoring catalog cases
 
-Never transcribe a decision from memory, and do not use `rippy inspect` as the
-oracle — it can diverge from the analyzer pipeline (issue #167). Run the
-candidate through `common::isolated_analyzer()` and use the observed `Decision`.
+Never transcribe a decision from memory. `rippy inspect` renders
+`Analyzer::analyze` rather than re-deciding (#167), and
+`tests/inspect_delegation.rs` holds it to that — but still observe ground truth
+by running the candidate through `common::isolated_analyzer()` and using the
+`Decision` it reports: inspect's own config and cwd discovery is a second
+variable a test does not need.
