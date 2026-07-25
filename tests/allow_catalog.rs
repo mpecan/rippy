@@ -12,6 +12,8 @@ use rippy_cli::verdict::{AllowCategory, AllowReason, Decision};
 
 mod common;
 
+use common::surfaces::{declared_namespaces, is_declared};
+
 /// Verbs a widening would plausibly introduce. Each declared namespace is
 /// probed with all of them; an approval no `allow_surface()` declares is a
 /// handler that widened without saying so.
@@ -142,51 +144,6 @@ fn every_literal_surface_is_allowed() {
         "handler allow surfaces disagree with the analyzer:\n  {}",
         unexpected.join("\n  ")
     );
-}
-
-/// Does `surface` cover `probe`, word by word?
-///
-/// `<operand>` and `[optional]` are open-ended — they and every later word
-/// match anything. An alternation (`node|nodejs`, `--help|-h`) is a *closed*
-/// choice: it covers the spelled alternatives only. Reading it as a wildcard
-/// would let one `npm --help|-v` row silently vouch for the whole `npm`
-/// namespace and disarm the check.
-fn covers(surface: &str, probe: &[&str]) -> bool {
-    let words: Vec<&str> = surface.split_whitespace().collect();
-    for (i, word) in words.iter().enumerate() {
-        if word.contains(['<', '[', '*']) {
-            return i < probe.len();
-        }
-        if probe
-            .get(i)
-            .is_none_or(|actual| !word.split('|').any(|alt| alt == *actual))
-        {
-            return false;
-        }
-    }
-    words.len() == probe.len()
-}
-
-fn is_declared(declared: &[String], probe: &[&str]) -> bool {
-    declared.iter().any(|surface| covers(surface, probe))
-}
-
-/// Every command prefix a fully literal surface hangs a verb off, e.g.
-/// `git lfs` from `git lfs status`. Probing these is what makes the catalog a
-/// two-way check instead of a restatement of whatever the handler declared.
-fn declared_namespaces(declared: &[String]) -> Vec<Vec<&str>> {
-    let mut namespaces: Vec<Vec<&str>> = Vec::new();
-    for surface in declared {
-        let words: Vec<&str> = surface.split_whitespace().collect();
-        if words.len() < 2 || words.iter().any(|w| w.contains(['<', '[', '*', '|'])) {
-            continue;
-        }
-        let namespace = words[..words.len() - 1].to_vec();
-        if !namespaces.contains(&namespace) {
-            namespaces.push(namespace);
-        }
-    }
-    namespaces
 }
 
 /// Each declared namespace crossed with every mutation verb it does not

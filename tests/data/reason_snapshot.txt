@@ -778,5 +778,587 @@ echo "hello world"	allow	echo is safe
 jq '.items[0]' data.json	allow	jq is safe
 date +%Y-%m-%d	allow	date is safe
 pwd	allow	pwd is safe
+:	allow	: is safe
+[ -f /tmp/file.txt ]	allow	[ is safe
+ag TODO src	allow	ag is safe
+apropos socket	allow	apropos is safe
+arch	allow	arch is safe
+base32 /tmp/file.txt	allow	base32 is safe
+basename /tmp/file.txt	allow	basename is safe
+bat README.md	allow	bat is safe
+bc -l	allow	bc is safe
+blkid	allow	blkid is safe
+bzcat archive.bz2	allow	bzcat is safe
+cksum /tmp/file.txt	allow	cksum is safe
+cloc src	allow	cloc is safe
+column -t /tmp/table.txt	allow	column is safe
+comm -12 a.txt b.txt	allow	comm is safe
+cut -d, -f1 data.csv	allow	cut is safe
+df -h	allow	df is safe
+dig example.com	allow	dig is safe
+dirname /tmp/file.txt	allow	dirname is safe
+dos2unix notes.txt	allow	dos2unix is safe
+du -sh src	allow	du is safe
+exa -l	allow	exa is safe
+expand notes.txt	allow	expand is safe
+expr 1 + 2	allow	expr is safe
+eza -l	allow	eza is safe
+false	allow	false is safe
+file /tmp/file.txt	allow	file is safe
+findmnt	allow	findmnt is safe
+fmt -w 80 notes.txt	allow	fmt is safe
+fold -w 80 notes.txt	allow	fold is safe
+free -m	allow	free is safe
+fzf --version	allow	fzf is safe
+getconf PAGESIZE	allow	getconf is safe
+getent hosts example.com	allow	getent is safe
+groups	allow	groups is safe
+help	allow	help is safe
+hexdump -C /tmp/file.bin	allow	hexdump is safe
+host example.com	allow	host is safe
+hostname	allow	hostname is safe
+htop --version	allow	htop is safe
+hyperfine --version	allow	hyperfine is safe
+iconv -f utf-8 -t ascii notes.txt	allow	iconv is safe
+id	allow	id is safe
+info coreutils	allow	info is safe
+iostat	allow	iostat is safe
+join a.txt b.txt	allow	join is safe
+ldd /bin/ls	allow	ldd is safe
+less README.md	allow	less is safe
+locale	allow	locale is safe
+locate rippy	allow	locate is safe
+lsb_release -a	allow	lsb_release is safe
+lsblk	allow	lsblk is safe
+lsd -l	allow	lsd is safe
+lsof -i	allow	lsof is safe
+man git	allow	man is safe
+md5sum /tmp/file.txt	allow	md5sum is safe
+more README.md	allow	more is safe
+mount	allow	mount is safe
+netstat -an	allow	netstat is safe
+nl README.md	allow	nl is safe
+nm /bin/ls	allow	nm is safe
+nproc	allow	nproc is safe
+nslookup example.com	allow	nslookup is safe
+objdump -d /bin/ls	allow	objdump is safe
+od -c /tmp/file.bin	allow	od is safe
+otool -L /bin/ls	allow	otool is safe
+paste a.txt b.txt	allow	paste is safe
+pgrep rippy	allow	pgrep is safe
+ping -c 1 example.com	allow	ping is safe
+printenv PATH	allow	printenv is safe
+printf '%s\n' hello	allow	printf is safe
+readelf -h /bin/ls	allow	readelf is safe
+readlink -f /tmp/file.txt	allow	readlink is safe
+realpath /tmp/file.txt	allow	realpath is safe
+rev notes.txt	allow	rev is safe
+rg TODO src	allow	rg is safe
+scc src	allow	scc is safe
+seq 1 10	allow	seq is safe
+sha1sum /tmp/file.txt	allow	sha1sum is safe
+sha256sum /tmp/file.txt	allow	sha256sum is safe
+sha512sum /tmp/file.txt	allow	sha512sum is safe
+shuf -n 3 lines.txt	allow	shuf is safe
+size /bin/ls	allow	size is safe
+sleep 1	allow	sleep is safe
+ss -tuln	allow	ss is safe
+stat /tmp/file.txt	allow	stat is safe
+strings /bin/ls	allow	strings is safe
+stty -a	allow	stty is safe
+sum /tmp/file.txt	allow	sum is safe
+tac notes.txt	allow	tac is safe
+test -f /tmp/file.txt	allow	test is safe
+tldr tar	allow	tldr is safe
+tokei src	allow	tokei is safe
+top -l 1	allow	top is safe
+tput colors	allow	tput is safe
+tracepath example.com	allow	tracepath is safe
+traceroute example.com	allow	traceroute is safe
+tree -L 2 src	allow	tree is safe
+tty	allow	tty is safe
+type ls	allow	type is safe
+uname -a	allow	uname is safe
+unexpand notes.txt	allow	unexpand is safe
+unix2dos notes.txt	allow	unix2dos is safe
+uptime	allow	uptime is safe
+vmstat 1 1	allow	vmstat is safe
+whatis ls	allow	whatis is safe
+whence ls	allow	whence is safe
+whereis git	allow	whereis is safe
+which git	allow	which is safe
+xxd /tmp/file.bin	allow	xxd is safe
+xzcat archive.xz	allow	xzcat is safe
+yes	allow	yes is safe
+zcat archive.gz	allow	zcat is safe
+zstdcat archive.zst	allow	zstdcat is safe
+aws configure set aws_access_key_id AKIAEXAMPLE	ask	aws configure set
+aws sts assume-role --role-arn arn:aws:iam::1:role/r --role-session-name s	ask	aws sts assume-role
+az vm delete --name demo	ask	az vm delete --name demo
+gcloud compute instances delete demo	ask	gcloud compute instances delete demo
+gsutil rm gs://bucket/object	ask	gsutil rm
+docker config create mysecret ./secret.txt	ask	docker config create
+docker-compose up -d	ask	compose up
+gh release create v1.0.0	ask	gh release create
+gh repo delete owner/repo	ask	gh repo delete
+gh run cancel 12345	ask	gh run cancel
+gh workflow run ci.yml	ask	gh workflow run
+gh gist create notes.txt	ask	gh gist create
+gh project edit 1	ask	gh project edit
+gh label create bug	ask	gh label create
+gh codespace create	ask	gh codespace create
+gh secret set MY_TOKEN	ask	gh secret set
+gh variable set MY_VAR bar	ask	gh variable set
+helm dependency install ./chart	ask	helm dependency install
+helm plugin install https://example.com/plugin	ask	helm plugin install
+npm config set registry https://evil.example.com	ask	npm config set
+npm c set registry https://evil.example.com	ask	npm config set
+npm cache clean --force	ask	npm cache clean
+python -m pip install requests	ask	python -m pip
+uv pip install requests	ask	uv pip install
+uv python install 3.12	ask	uv python install
+uv cache clean	ask	uv cache clean
+mktemp -p /etc	ask	mktemp
+gzip -d archive.gz	ask	gzip -d
+unzip archive.zip	ask	archive archive.zip
+awk -f /tmp/script.awk notes.txt	ask	awk -f (script file)
+cd /etc	ask	cd to /etc
+pushd /etc	ask	pushd to /etc
+curl -o /etc/hosts https://example.com	ask	redirect to /etc/hosts
+deno run script.ts	ask	deno script execution
+deno eval 'process.env.AWS_SECRET_ACCESS_KEY'	ask	deno -e (potentially dangerous code)
+python -c 'import os'	ask	python -c (potentially dangerous code)
+nodejs script.js	ask	nodejs script execution
+env LD_PRELOAD=./evil.so ls	ask	env (dangerous env-var assignment)
+env FOO=bar rm -rf /tmp/x	ask	matched rule: command=rm
+fd --exec	ask	fd exec (no command)
+fd -x rm {}	ask	matched rule: command=rm
+find /tmp -delete	ask	find -delete
+ifconfig en0 down	ask	ifconfig (modify interface)
+ip link set en0 down	ask	ip link set
+mkdir /etc/rippy-demo	ask	mkdir outside allowed scope (/etc/rippy-demo)
+ruff check --fix .	ask	ruff check (modifying)
+sed -i 's/a/b/' notes.txt	ask	sed -i (in-place edit)
+sqlite3 db.sqlite 'DROP TABLE t'	ask	sqlite3 (write SQL)
+tee /etc/hosts	ask	redirect to /etc/hosts
+yq -i '.a = 1' config.yaml	ask	yq -i (in-place)
+aws --help	allow	aws help/version
+aws cloudformation wait	allow	aws cloudformation wait
+aws s3 help	allow	aws s3 help
+aws dynamodb query	allow	aws dynamodb query
+aws dynamodb scan	allow	aws dynamodb scan
+aws logs tail	allow	aws logs tail
+aws sqs receive-message	allow	aws sqs receive-message
+aws dynamodb batch-get-item	allow	aws dynamodb batch-get-item
+aws dynamodb transact-get-items	allow	aws dynamodb transact-get-items
+aws s3api list-buckets	allow	aws s3api list-buckets
+aws s3api get-object	allow	aws s3api get-object
+aws cloudwatch show-dashboard	allow	aws cloudwatch show-dashboard
+aws s3api head-object	allow	aws s3api head-object
+aws cloudtrail lookup-events	allow	aws cloudtrail lookup-events
+aws logs filter-log-events	allow	aws logs filter-log-events
+aws cloudformation validate-template	allow	aws cloudformation validate-template
+aws cloudformation estimate-template-cost	allow	aws cloudformation estimate-template-cost
+aws iam simulate-principal-policy	allow	aws iam simulate-principal-policy
+aws s3 generate-presigned-url	allow	aws s3 generate-presigned-url
+aws rds download-db-log-file-portion	allow	aws rds download-db-log-file-portion
+aws cloudformation detect-stack-drift	allow	aws cloudformation detect-stack-drift
+aws events test-event-pattern	allow	aws events test-event-pattern
+aws sns check-if-phone-number-is-opted-out	allow	aws sns check-if-phone-number-is-opted-out
+aws cognito-idp admin-get-user	allow	aws cognito-idp admin-get-user
+aws cognito-idp admin-list-groups-for-user	allow	aws cognito-idp admin-list-groups-for-user
+aws configure list	allow	aws configure list
+aws configure list-profiles	allow	aws configure list-profiles
+aws configure get	allow	aws configure get
+aws configure	allow	aws configure 
+aws sts get-caller-identity	allow	aws sts get-caller-identity
+aws sts get-session-token	allow	aws sts get-session-token
+aws sts get-access-key-info	allow	aws sts get-access-key-info
+aws sts decode-authorization-message	allow	aws sts decode-authorization-message
+az --help	allow	az help/version
+az vm get	allow	az ... get
+az storage container exists	allow	az ... exists
+az vm query	allow	az ... query
+az container logs	allow	az ... logs
+az vm check-health	allow	az ... check-health
+az storage blob download	allow	az ... download
+az webapp log tail	allow	az ... tail
+az vm list-sizes	allow	az ... list-sizes
+az storage account show-connection-string	allow	az ... show-connection-string
+az vm get-instance-view	allow	az ... get-instance-view
+gcloud --help	allow	gcloud help/version
+gsutil --help	allow	gsutil help/version
+gcloud compute instances describe	allow	gcloud ... describe
+gcloud config get	allow	gcloud ... get
+gcloud compute instances show	allow	gcloud ... show
+gcloud compute instances info	allow	gcloud ... info
+gcloud compute instances status	allow	gcloud ... status
+gcloud compute instances version	allow	gcloud ... version
+gcloud container clusters get-credentials	allow	gcloud ... get-credentials
+gcloud compute instances list-tags	allow	gcloud ... list-tags
+gcloud logging read	allow	gcloud ... read
+gcloud config configurations	allow	gcloud ... configurations
+gsutil cat	allow	gsutil cat
+gsutil stat	allow	gsutil stat
+gsutil du	allow	gsutil du
+gsutil hash	allow	gsutil hash
+gsutil version	allow	gsutil version
+gsutil help	allow	gsutil help
+helm completion bash	allow	helm completion
+helm env	allow	helm env
+helm get values myrelease	allow	helm get
+helm help	allow	helm help
+helm history myrelease	allow	helm history
+helm lint ./chart	allow	helm lint
+helm ls	allow	helm ls
+helm search repo nginx	allow	helm search
+helm show chart ./chart	allow	helm show
+helm inspect chart ./chart	allow	helm inspect
+helm status myrelease	allow	helm status
+helm template ./chart	allow	helm template
+helm verify ./chart	allow	helm verify
+helm version	allow	helm version
+helm uninstall myrelease --dry-run	allow	helm uninstall --dry-run
+helm dependency update	allow	helm dependency update
+helm dependency build	allow	helm dependency build
+kubectl describe	allow	kubectl describe
+kubectl explain	allow	kubectl explain
+kubectl logs	allow	kubectl logs
+kubectl top	allow	kubectl top
+kubectl cluster-info	allow	kubectl cluster-info
+kubectl version	allow	kubectl version
+kubectl api-resources	allow	kubectl api-resources
+kubectl api-versions	allow	kubectl api-versions
+kubectl auth	allow	kubectl auth
+kubectl wait	allow	kubectl wait
+kubectl diff	allow	kubectl diff
+kubectl plugin	allow	kubectl plugin
+kubectl completion	allow	kubectl completion
+kubectl kustomize	allow	kubectl kustomize
+kubectl config current-context	allow	kubectl config current-context
+kubectl config get-contexts	allow	kubectl config get-contexts
+kubectl config get-clusters	allow	kubectl config get-clusters
+kubectl config get-users	allow	kubectl config get-users
+kubectl config get-context	allow	kubectl config get-context
+docker help	allow	docker help
+docker info	allow	docker info
+docker stats	allow	docker stats
+docker top	allow	docker top
+docker port	allow	docker port
+docker diff	allow	docker diff
+docker history	allow	docker history
+docker search nginx	allow	docker search
+docker events	allow	docker events
+docker image list	allow	docker image list
+docker image inspect	allow	docker image inspect
+docker image df	allow	docker image df
+docker image history	allow	docker image history
+docker image events	allow	docker image events
+docker image info	allow	docker image info
+docker image show	allow	docker image show
+docker system ls	allow	docker system ls
+docker system list	allow	docker system list
+docker system inspect	allow	docker system inspect
+docker system history	allow	docker system history
+docker system events	allow	docker system events
+docker system info	allow	docker system info
+docker system show	allow	docker system show
+docker network list	allow	docker network list
+docker network inspect	allow	docker network inspect
+docker network df	allow	docker network df
+docker network history	allow	docker network history
+docker network events	allow	docker network events
+docker network info	allow	docker network info
+docker network show	allow	docker network show
+docker volume list	allow	docker volume list
+docker volume inspect	allow	docker volume inspect
+docker volume df	allow	docker volume df
+docker volume history	allow	docker volume history
+docker volume events	allow	docker volume events
+docker volume info	allow	docker volume info
+docker volume show	allow	docker volume show
+docker config list	allow	docker config list
+docker config inspect	allow	docker config inspect
+docker config df	allow	docker config df
+docker config history	allow	docker config history
+docker config events	allow	docker config events
+docker config info	allow	docker config info
+docker config show	allow	docker config show
+docker context list	allow	docker context list
+docker context inspect	allow	docker context inspect
+docker context df	allow	docker context df
+docker context history	allow	docker context history
+docker context events	allow	docker context events
+docker context info	allow	docker context info
+docker context show	allow	docker context show
+docker compose logs	allow	compose logs
+docker compose config	allow	compose config
+docker compose images	allow	compose images
+docker compose ls	allow	compose ls
+docker compose top	allow	compose top
+docker compose version	allow	compose version
+docker compose port	allow	compose port
+docker compose events	allow	compose events
+docker-compose ps	allow	compose ps
+docker-compose logs	allow	compose logs
+docker-compose config	allow	compose config
+docker-compose images	allow	compose images
+docker-compose ls	allow	compose ls
+docker-compose top	allow	compose top
+docker-compose version	allow	compose version
+docker-compose port	allow	compose port
+docker-compose events	allow	compose events
+gh browse	allow	gh browse
+gh search repos rippy	allow	gh search
+gh completion -s bash	allow	gh completion
+gh help	allow	gh help
+gh pr status	allow	gh pr status
+gh pr diff	allow	gh pr diff
+gh pr checks	allow	gh pr checks
+gh pr search	allow	gh pr search
+gh pr download	allow	gh pr download
+gh pr watch	allow	gh pr watch
+gh pr verify	allow	gh pr verify
+gh pr logs	allow	gh pr logs
+gh pr ports	allow	gh pr ports
+gh issue list	allow	gh issue list
+gh issue status	allow	gh issue status
+gh issue diff	allow	gh issue diff
+gh issue checks	allow	gh issue checks
+gh issue search	allow	gh issue search
+gh issue download	allow	gh issue download
+gh issue watch	allow	gh issue watch
+gh issue verify	allow	gh issue verify
+gh issue logs	allow	gh issue logs
+gh issue ports	allow	gh issue ports
+gh release view	allow	gh release view
+gh release list	allow	gh release list
+gh release status	allow	gh release status
+gh release diff	allow	gh release diff
+gh release checks	allow	gh release checks
+gh release search	allow	gh release search
+gh release download	allow	gh release download
+gh release watch	allow	gh release watch
+gh release verify	allow	gh release verify
+gh release logs	allow	gh release logs
+gh release ports	allow	gh release ports
+gh repo view	allow	gh repo view
+gh repo list	allow	gh repo list
+gh repo status	allow	gh repo status
+gh repo diff	allow	gh repo diff
+gh repo checks	allow	gh repo checks
+gh repo search	allow	gh repo search
+gh repo download	allow	gh repo download
+gh repo watch	allow	gh repo watch
+gh repo verify	allow	gh repo verify
+gh repo logs	allow	gh repo logs
+gh repo ports	allow	gh repo ports
+gh run view	allow	gh run view
+gh run list	allow	gh run list
+gh run status	allow	gh run status
+gh run diff	allow	gh run diff
+gh run checks	allow	gh run checks
+gh run search	allow	gh run search
+gh run download	allow	gh run download
+gh run watch	allow	gh run watch
+gh run verify	allow	gh run verify
+gh run logs	allow	gh run logs
+gh run ports	allow	gh run ports
+gh workflow view	allow	gh workflow view
+gh workflow list	allow	gh workflow list
+gh workflow status	allow	gh workflow status
+gh workflow diff	allow	gh workflow diff
+gh workflow checks	allow	gh workflow checks
+gh workflow search	allow	gh workflow search
+gh workflow download	allow	gh workflow download
+gh workflow watch	allow	gh workflow watch
+gh workflow verify	allow	gh workflow verify
+gh workflow logs	allow	gh workflow logs
+gh workflow ports	allow	gh workflow ports
+gh gist view	allow	gh gist view
+gh gist list	allow	gh gist list
+gh gist status	allow	gh gist status
+gh gist diff	allow	gh gist diff
+gh gist checks	allow	gh gist checks
+gh gist search	allow	gh gist search
+gh gist download	allow	gh gist download
+gh gist watch	allow	gh gist watch
+gh gist verify	allow	gh gist verify
+gh gist logs	allow	gh gist logs
+gh gist ports	allow	gh gist ports
+gh project view	allow	gh project view
+gh project list	allow	gh project list
+gh project status	allow	gh project status
+gh project diff	allow	gh project diff
+gh project checks	allow	gh project checks
+gh project search	allow	gh project search
+gh project download	allow	gh project download
+gh project watch	allow	gh project watch
+gh project verify	allow	gh project verify
+gh project logs	allow	gh project logs
+gh project ports	allow	gh project ports
+gh label view	allow	gh label view
+gh label list	allow	gh label list
+gh label status	allow	gh label status
+gh label diff	allow	gh label diff
+gh label checks	allow	gh label checks
+gh label search	allow	gh label search
+gh label download	allow	gh label download
+gh label watch	allow	gh label watch
+gh label verify	allow	gh label verify
+gh label logs	allow	gh label logs
+gh label ports	allow	gh label ports
+gh codespace view	allow	gh codespace view
+gh codespace list	allow	gh codespace list
+gh codespace status	allow	gh codespace status
+gh codespace diff	allow	gh codespace diff
+gh codespace checks	allow	gh codespace checks
+gh codespace search	allow	gh codespace search
+gh codespace download	allow	gh codespace download
+gh codespace watch	allow	gh codespace watch
+gh codespace verify	allow	gh codespace verify
+gh codespace logs	allow	gh codespace logs
+gh codespace ports	allow	gh codespace ports
+gh secret view	allow	gh secret view
+gh secret list	allow	gh secret list
+gh secret status	allow	gh secret status
+gh secret diff	allow	gh secret diff
+gh secret checks	allow	gh secret checks
+gh secret search	allow	gh secret search
+gh secret download	allow	gh secret download
+gh secret watch	allow	gh secret watch
+gh secret verify	allow	gh secret verify
+gh secret logs	allow	gh secret logs
+gh secret ports	allow	gh secret ports
+gh variable view	allow	gh variable view
+gh variable list	allow	gh variable list
+gh variable status	allow	gh variable status
+gh variable diff	allow	gh variable diff
+gh variable checks	allow	gh variable checks
+gh variable search	allow	gh variable search
+gh variable download	allow	gh variable download
+gh variable watch	allow	gh variable watch
+gh variable verify	allow	gh variable verify
+gh variable logs	allow	gh variable logs
+gh variable ports	allow	gh variable ports
+git annotate	allow	git annotate
+git shortlog	allow	git shortlog
+git describe	allow	git describe
+git rev-parse	allow	git rev-parse
+git rev-list	allow	git rev-list
+git reflog	allow	git reflog
+git whatchanged	allow	git whatchanged
+git diff-tree	allow	git diff-tree
+git diff-files	allow	git diff-files
+git diff-index	allow	git diff-index
+git range-diff	allow	git range-diff
+git ls-files	allow	git ls-files
+git ls-tree	allow	git ls-tree
+git ls-remote	allow	git ls-remote
+git cat-file	allow	git cat-file
+git verify-commit	allow	git verify-commit
+git verify-tag	allow	git verify-tag
+git name-rev	allow	git name-rev
+git merge-base	allow	git merge-base
+git show-ref	allow	git show-ref
+git show-branch	allow	git show-branch
+git check-ignore	allow	git check-ignore
+git cherry	allow	git cherry
+git for-each-ref	allow	git for-each-ref
+git count-objects	allow	git count-objects
+git fsck	allow	git fsck
+git var	allow	git var
+git request-pull	allow	git request-pull
+git version	allow	git version
+git help	allow	git help
+git notes show	allow	git notes show
+git bisect view	allow	git bisect view
+git lfs fetch	allow	git lfs fetch
+git lfs env	allow	git lfs env
+git lfs version	allow	git lfs version
+deno eval "console.log(1)"	allow	deno -e (safe inline code)
+npm list	allow	npm list
+npm ll	allow	npm ll
+npm la	allow	npm la
+npm info	allow	npm info
+npm show	allow	npm show
+npm search	allow	npm search
+npm outdated	allow	npm outdated
+npm help	allow	npm help
+npm docs	allow	npm docs
+npm whoami	allow	npm whoami
+npm ping	allow	npm ping
+npm explain	allow	npm explain
+npm why	allow	npm why
+npm fund	allow	npm fund
+npm doctor	allow	npm doctor
+npm licenses	allow	npm licenses
+npm completion	allow	npm completion
+npm diff	allow	npm diff
+npm find-dupes	allow	npm find-dupes
+npm query	allow	npm query
+npm stars	allow	npm stars
+npm sbom	allow	npm sbom
+npm config list	allow	npm config list
+npm config ls	allow	npm config ls
+npm config get	allow	npm config get
+npm c list	allow	npm config list
+npm c ls	allow	npm config ls
+npm c get	allow	npm config get
+npm cache ls	allow	npm cache ls
+npm cache list	allow	npm cache list
+npm run	allow	npm run (list)
+npm audit	allow	npm audit
+cd -	allow	cd - (previous directory)
+cd /tmp	allow	cd within allowed scope
+gzip --stdout file.txt	allow	gzip --stdout
+gzip -c file.txt	allow	gzip -c
+gzip --list archive.gz	allow	gzip --list
+gzip -l archive.gz	allow	gzip -l
+gzip --test archive.gz	allow	gzip --test
+gzip -t archive.gz	allow	gzip -t
+gzip --help	allow	gzip help/version
+just -l	allow	just (introspection)
+just --variables	allow	just (introspection)
+just --evaluate	allow	just (introspection)
+just -s build	allow	just (introspection)
+mise list	allow	mise list
+mise dr	allow	mise dr
+mise where	allow	mise where
+mise which	allow	mise which
+mise bin-paths	allow	mise bin-paths
+mise ls-remote	allow	mise ls-remote
+mise version	allow	mise version
+mkdir /tmp/rippy-demo	allow	mkdir within allowed scope
+python -m calendar	allow	python -m calendar
+python -m this	allow	python -m this
+python -m antigravity	allow	python -m antigravity
+sqlite3 --help	allow	sqlite3 help/version
+echo hi | tee	allow	tee (stdout only)
+tokf info	allow	tokf info
+tokf gain	allow	tokf gain
+tokf check	allow	tokf check
+tokf apply	allow	tokf apply
+tokf verify	allow	tokf verify
+tokf discover	allow	tokf discover
+tokf doctor	allow	tokf doctor
+tokf completions	allow	tokf completions
+unzip l archive.zip	allow	archive l
+unzip t archive.zip	allow	archive t
+unzip --help	allow	unzip help/version
+uv lock	allow	uv lock
+uv tree	allow	uv tree
+uv version	allow	uv version
+uv help	allow	uv help
+uv venv	allow	uv venv
+uv export	allow	uv export
+uv pip freeze	allow	uv pip freeze
+uv pip show	allow	uv pip show
+uv pip check	allow	uv pip check
+uv pip tree	allow	uv pip tree
+uv python list	allow	uv python list
+uv python find	allow	uv python find
+uv python dir	allow	uv python dir
+uv cache dir	allow	uv cache dir
 foo $( ( bar	ask	rippy could not parse this command; approve manually
 echo $( ( unbalanced	ask	rippy could not parse this command; approve manually

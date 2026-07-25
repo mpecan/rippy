@@ -123,6 +123,11 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
   `tests/catalog_runner.rs` asserts `verdict.decision`), so they test the actual
   user-facing verdict and are immune to `HandlerContext` struct refactors. New
   handlers add catalog cases first.
+- **Every new `allow_surface()` entry ships a pair.** A `decision = "allow"`
+  case exercising it, and — for the namespace it lives in — a dangerous-neighbor
+  `ask`/`deny` case marking where the approval stops.
+  `tests/allow_completeness.rs` fails CI otherwise, and its two exemption
+  tables are the only escape hatch (each entry needs a why and a citation).
 - **Reserve white-box `HandlerContext` tests for what a command string cannot
   reach:** internal helpers, and behavior that depends on injected state —
   `working_directory`/cwd-relative resolution, `remote = true`, non-empty

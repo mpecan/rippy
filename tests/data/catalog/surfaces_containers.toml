@@ -1,0 +1,274 @@
+[meta]
+description = "Declared docker / docker-compose allow surfaces, one observed allow case each"
+
+[[case]]
+command = 'docker help'
+decision = "allow"
+
+[[case]]
+command = 'docker info'
+decision = "allow"
+
+[[case]]
+command = 'docker stats'
+decision = "allow"
+
+[[case]]
+command = 'docker top'
+decision = "allow"
+
+[[case]]
+command = 'docker port'
+decision = "allow"
+
+[[case]]
+command = 'docker diff'
+decision = "allow"
+
+[[case]]
+command = 'docker history'
+decision = "allow"
+
+[[case]]
+command = 'docker search nginx'
+decision = "allow"
+
+[[case]]
+command = 'docker events'
+decision = "allow"
+
+[[case]]
+command = 'docker image list'
+decision = "allow"
+
+[[case]]
+command = 'docker image inspect'
+decision = "allow"
+
+[[case]]
+command = 'docker image df'
+decision = "allow"
+
+[[case]]
+command = 'docker image history'
+decision = "allow"
+
+[[case]]
+command = 'docker image events'
+decision = "allow"
+
+[[case]]
+command = 'docker image info'
+decision = "allow"
+
+[[case]]
+command = 'docker image show'
+decision = "allow"
+
+[[case]]
+command = 'docker system ls'
+decision = "allow"
+
+[[case]]
+command = 'docker system list'
+decision = "allow"
+
+[[case]]
+command = 'docker system inspect'
+decision = "allow"
+
+[[case]]
+command = 'docker system history'
+decision = "allow"
+
+[[case]]
+command = 'docker system events'
+decision = "allow"
+
+[[case]]
+command = 'docker system info'
+decision = "allow"
+
+[[case]]
+command = 'docker system show'
+decision = "allow"
+
+[[case]]
+command = 'docker network list'
+decision = "allow"
+
+[[case]]
+command = 'docker network inspect'
+decision = "allow"
+
+[[case]]
+command = 'docker network df'
+decision = "allow"
+
+[[case]]
+command = 'docker network history'
+decision = "allow"
+
+[[case]]
+command = 'docker network events'
+decision = "allow"
+
+[[case]]
+command = 'docker network info'
+decision = "allow"
+
+[[case]]
+command = 'docker network show'
+decision = "allow"
+
+[[case]]
+command = 'docker volume list'
+decision = "allow"
+
+[[case]]
+command = 'docker volume inspect'
+decision = "allow"
+
+[[case]]
+command = 'docker volume df'
+decision = "allow"
+
+[[case]]
+command = 'docker volume history'
+decision = "allow"
+
+[[case]]
+command = 'docker volume events'
+decision = "allow"
+
+[[case]]
+command = 'docker volume info'
+decision = "allow"
+
+[[case]]
+command = 'docker volume show'
+decision = "allow"
+
+[[case]]
+command = 'docker config list'
+decision = "allow"
+
+[[case]]
+command = 'docker config inspect'
+decision = "allow"
+
+[[case]]
+command = 'docker config df'
+decision = "allow"
+
+[[case]]
+command = 'docker config history'
+decision = "allow"
+
+[[case]]
+command = 'docker config events'
+decision = "allow"
+
+[[case]]
+command = 'docker config info'
+decision = "allow"
+
+[[case]]
+command = 'docker config show'
+decision = "allow"
+
+[[case]]
+command = 'docker context list'
+decision = "allow"
+
+[[case]]
+command = 'docker context inspect'
+decision = "allow"
+
+[[case]]
+command = 'docker context df'
+decision = "allow"
+
+[[case]]
+command = 'docker context history'
+decision = "allow"
+
+[[case]]
+command = 'docker context events'
+decision = "allow"
+
+[[case]]
+command = 'docker context info'
+decision = "allow"
+
+[[case]]
+command = 'docker context show'
+decision = "allow"
+
+[[case]]
+command = 'docker compose logs'
+decision = "allow"
+
+[[case]]
+command = 'docker compose config'
+decision = "allow"
+
+[[case]]
+command = 'docker compose images'
+decision = "allow"
+
+[[case]]
+command = 'docker compose ls'
+decision = "allow"
+
+[[case]]
+command = 'docker compose top'
+decision = "allow"
+
+[[case]]
+command = 'docker compose version'
+decision = "allow"
+
+[[case]]
+command = 'docker compose port'
+decision = "allow"
+
+[[case]]
+command = 'docker compose events'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose ps'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose logs'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose config'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose images'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose ls'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose top'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose version'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose port'
+decision = "allow"
+
+[[case]]
+command = 'docker-compose events'
+decision = "allow"
