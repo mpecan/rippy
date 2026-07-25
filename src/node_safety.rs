@@ -1,6 +1,10 @@
 //! Heuristic safety analysis for inline Node.js / JavaScript source code.
 //!
-//! Scans for dangerous `require()` calls, globals, and method calls.
+//! Scans for dangerous `require()` calls, globals, and method calls. Also shared by the
+//! `deno` handler (`src/handlers/node.rs`): Deno exposes its filesystem/process/network/FFI
+//! API as a bare `Deno.*` global with no `require()`/`import` checkpoint the way Node's
+//! modules have, so it needs its own enumerated denylist (`DANGEROUS_DENO_GLOBALS`) rather
+//! than reusing the Node-idiom lists (see #186).
 //! Returns `true` if no dangerous patterns are found.
 
 const DANGEROUS_REQUIRES: &[&str] = &[
@@ -33,6 +37,49 @@ const DANGEROUS_GLOBALS: &[&str] = &[
     "WebSocket",
     "XMLHttpRequest",
     "import(",
+];
+
+// Deno's built-in global namespace — see the module doc comment for why this list
+// exists separately from `DANGEROUS_GLOBALS`.
+const DANGEROUS_DENO_GLOBALS: &[&str] = &[
+    "Deno.run(",
+    "Deno.Command(",
+    "Deno.remove(",
+    "Deno.removeSync(",
+    "Deno.write(",
+    "Deno.writeSync(",
+    "Deno.writeFile(",
+    "Deno.writeFileSync(",
+    "Deno.writeTextFile(",
+    "Deno.writeTextFileSync(",
+    "Deno.open(",
+    "Deno.openSync(",
+    "Deno.create(",
+    "Deno.createSync(",
+    "Deno.env",
+    "Deno.readFile(",
+    "Deno.readFileSync(",
+    "Deno.readTextFile(",
+    "Deno.readTextFileSync(",
+    "Deno.connect(",
+    "Deno.connectTls(",
+    "Deno.listen(",
+    "Deno.serve(",
+    "Deno.dlopen(",
+    "Deno.exit(",
+    "Deno.kill(",
+    "Deno.mkdir(",
+    "Deno.mkdirSync(",
+    "Deno.rename(",
+    "Deno.renameSync(",
+    "Deno.chmod(",
+    "Deno.chmodSync(",
+    "Deno.symlink(",
+    "Deno.symlinkSync(",
+    "Deno.copyFile(",
+    "Deno.copyFileSync(",
+    "Deno.truncate(",
+    "Deno.truncateSync(",
 ];
 
 const DANGEROUS_METHODS: &[&str] = &[
@@ -84,6 +131,7 @@ fn has_dangerous_requires(source: &str) -> bool {
 
 fn has_dangerous_globals(source: &str) -> bool {
     DANGEROUS_GLOBALS.iter().any(|g| source.contains(g))
+        || DANGEROUS_DENO_GLOBALS.iter().any(|g| source.contains(g))
 }
 
 fn has_dangerous_methods(source: &str) -> bool {
@@ -227,5 +275,61 @@ mod tests {
         // Static `import` (no paren) of nothing dangerous stays safe; only the
         // dynamic `import(` form is treated as a code-loading vector.
         assert!(is_node_source_safe("const x = 1; console.log(x)"));
+    }
+
+    #[test]
+    fn deno_remove_sync_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.removeSync('/tmp/x')"));
+    }
+
+    #[test]
+    fn deno_run_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.run({cmd:['id']})"));
+    }
+
+    #[test]
+    fn deno_command_is_dangerous() {
+        assert!(!is_node_source_safe("new Deno.Command('id').outputSync()"));
+    }
+
+    #[test]
+    fn deno_env_get_is_dangerous() {
+        assert!(!is_node_source_safe(
+            "console.log(Deno.env.get('AWS_SECRET_ACCESS_KEY'))"
+        ));
+    }
+
+    #[test]
+    fn deno_read_text_file_sync_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.readTextFileSync('/etc/passwd')"));
+    }
+
+    #[test]
+    fn deno_connect_is_dangerous() {
+        assert!(!is_node_source_safe(
+            "Deno.connect({hostname:'evil.example',port:80})"
+        ));
+    }
+
+    #[test]
+    fn deno_serve_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.serve(() => new Response('hi'))"));
+    }
+
+    #[test]
+    fn deno_dlopen_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.dlopen('/tmp/lib.so', {})"));
+    }
+
+    #[test]
+    fn deno_exit_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.exit(1)"));
+    }
+
+    #[test]
+    fn deno_args_and_cwd_are_safe() {
+        // Not in the denylist -- proves the fix doesn't blanket-block `Deno.*`.
+        assert!(is_node_source_safe("console.log(Deno.args)"));
+        assert!(is_node_source_safe("console.log(Deno.cwd())"));
     }
 }
