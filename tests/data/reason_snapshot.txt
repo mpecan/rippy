@@ -97,7 +97,9 @@ az vm list	allow	az ... list
 az group show --name foo	allow	az ... show
 az group delete --name list --yes	ask	az group delete --name list --yes
 ansible-doc module_name	allow	ansible-doc (read-only)
+ansible-doc -M /tmp/mods ping	ask	ansible-doc -M/--module-path (imports from attacker dir)
 ansible-lint playbook.yml	allow	ansible-lint (read-only)
+ansible-lint --fix playbook.yml	ask	ansible-lint --fix/--write (rewrites playbook)
 ansible all -m ping --check	allow	ansible dry-run/inspection
 ansible all -m ping -C	allow	ansible dry-run/inspection
 ansible all --list-hosts	allow	ansible dry-run/inspection
@@ -1024,8 +1026,8 @@ helm template ./chart	allow	helm template
 helm verify ./chart	allow	helm verify
 helm version	allow	helm version
 helm uninstall myrelease --dry-run	allow	helm uninstall --dry-run
-helm dependency update	allow	helm dependency update
-helm dependency build	allow	helm dependency build
+helm dependency update	ask	helm dependency update
+helm dependency build	ask	helm dependency build
 kubectl describe	allow	kubectl describe
 kubectl explain	allow	kubectl explain
 kubectl logs	allow	kubectl logs
@@ -1034,7 +1036,9 @@ kubectl cluster-info	allow	kubectl cluster-info
 kubectl version	allow	kubectl version
 kubectl api-resources	allow	kubectl api-resources
 kubectl api-versions	allow	kubectl api-versions
-kubectl auth	allow	kubectl auth
+kubectl auth reconcile -f rbac.yaml	ask	kubectl auth reconcile
+kubectl auth can-i --list	allow	kubectl auth can-i
+kubectl auth whoami	allow	kubectl auth whoami
 kubectl wait	allow	kubectl wait
 kubectl diff	allow	kubectl diff
 kubectl plugin	allow	kubectl plugin

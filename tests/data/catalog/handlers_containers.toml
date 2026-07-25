@@ -207,8 +207,16 @@ command = "ansible-doc module_name"
 decision = "allow"
 
 [[case]]
+command = "ansible-doc -M /tmp/mods ping"
+decision = "ask"
+
+[[case]]
 command = "ansible-lint playbook.yml"
 decision = "allow"
+
+[[case]]
+command = "ansible-lint --fix playbook.yml"
+decision = "ask"
 
 [[case]]
 command = "ansible all -m ping --check"

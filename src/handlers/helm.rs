@@ -30,7 +30,7 @@ const DRY_RUN_SUBCOMMANDS: &[&str] = &["install", "upgrade", "uninstall", "rollb
 
 /// Nested subcommands where the second arg determines safety.
 const NESTED_SAFE: &[(&str, &[&str])] = &[
-    ("dependency", &["list", "update", "build"]),
+    ("dependency", &["list"]),
     ("repo", &["list"]),
     ("plugin", &["list"]),
     ("registry", &[]),
