@@ -59,6 +59,13 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#string-rule-chokepoint` | An allow-ruled leaf with a redirect still reaches `self_protect` and the safe-dir check | `tests/security_invariants.rs::allow_rule_leaf_with_redirect_still_self_protects`, `tests/data/catalog/injection_string_rule_chokepoint.toml` |
 | `#string-rule-chokepoint` | The dangerous-env gate runs before `leaf_string_rule`, so a code-influencing prefix is never allow-listed | `tests/security_invariants.rs::env_prefix_dangerous_var_asks_even_when_command_is_allow_ruled`, `tests/data/catalog/injection_string_rule_chokepoint.toml` |
 | `#string-rule-chokepoint` | A leaf carrying a word expansion skips the string match and is resolved first | `tests/ast_invariants.rs::is_single_plain_command_matches_only_bare_simple_commands`, `tests/data/catalog/injection_string_rule_chokepoint.toml` |
+| `#inspect-delegation` | The explain path reports the analyzer's decision across the routing shapes the old parallel implementation got wrong | `src/inspect_tests.rs::trace_decision_matches_analyzer_across_spread`, `tests/inspect_delegation.rs::inspect_binary_agrees_with_hook_binary` |
+| `#inspect-delegation` | A dangerous env prefix is not approved on the command name (#dangerous-env-name) | `src/inspect_tests.rs::trace_dangerous_env_prefix_is_not_allowed` |
+| `#inspect-delegation` | A whole-string allow rule does not cover a compound command (#string-rule-chokepoint) | `src/inspect_tests.rs::trace_whole_string_allow_does_not_cover_compound`, `tests/inspect_delegation.rs::inspect_binary_agrees_on_a_whole_string_allow_rule` |
+| `#inspect-delegation` | Rule `when` conditions are evaluated with a real `MatchContext`, so conditional rules fire | `src/inspect_tests.rs::trace_evaluates_rule_conditions`, `tests/inspect_delegation.rs::inspect_binary_agrees_on_a_conditional_rule` |
+| `#inspect-delegation` | The rendered provenance names the same approval route as the verdict's `AllowReason` | `src/inspect_tests.rs::trace_provenance_matches_allow_reason`, `src/inspect_tests.rs::trace_provenance_names_the_approval_route` |
+| `#inspect-delegation` | Every gate that can decide emits an event, so the trace never ends on a step contradicting the verdict | `src/inspect_tests.rs::trace_records_the_deciding_gate`, `src/inspect_tests.rs::trace_explains_every_non_allow_verdict` |
+| `#inspect-delegation` | A withheld whole-string ALLOW is recorded as a non-match, never as a hit | `src/inspect_tests.rs::trace_env_prefix_pipeline_records_withheld_allow_rule` |
 
 ## env-prefix-strip
 
