@@ -2,6 +2,7 @@ use super::{
     Classification, Handler, HandlerContext, get_flag_value, has_flag, has_flag_or_prefixed,
     is_sole_help_flag,
 };
+use crate::verdict::AllowReason;
 
 pub(crate) static CURL_HANDLER: CurlHandler = CurlHandler;
 
@@ -56,7 +57,7 @@ impl Handler for CurlHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
-            return Classification::Allow("curl help/version".into());
+            return Classification::Allow(AllowReason::handler("curl help/version"));
         }
 
         // Data flags mean a write request
@@ -79,8 +80,7 @@ impl Handler for CurlHandler {
         // -o/--output: report redirect targets
         if let Some(output) = get_flag_value(ctx.args, &["-o", "--output"]) {
             return Classification::WithRedirects(
-                crate::verdict::Decision::Allow,
-                "curl with output file".into(),
+                AllowReason::handler("curl with output file"),
                 vec![output],
             );
         }
@@ -102,7 +102,7 @@ impl Handler for CurlHandler {
             return Classification::Ask("curl with server-named output (write request)".into());
         }
 
-        Classification::Allow("curl (GET request)".into())
+        Classification::Allow(AllowReason::handler("curl (GET request)"))
     }
 }
 
@@ -122,6 +122,6 @@ mod tests {
             "https://example.com".into(),
         ];
         let result = CURL_HANDLER.classify(&HandlerContext::test("curl", &args));
-        assert!(matches!(result, Classification::WithRedirects(_, _, _)));
+        assert!(matches!(result, Classification::WithRedirects(..)));
     }
 }

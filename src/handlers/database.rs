@@ -3,6 +3,7 @@ use super::{
     positional_args,
 };
 use crate::sql::classify_sql;
+use crate::verdict::AllowReason;
 
 // psql
 
@@ -17,10 +18,10 @@ impl Handler for PsqlHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-?", "--version", "-V"]) {
-            return Classification::Allow("psql help/version".into());
+            return Classification::Allow(AllowReason::handler("psql help/version"));
         }
         if has_flag(ctx.args, &["--list", "-l"]) {
-            return Classification::Allow("psql list databases".into());
+            return Classification::Allow(AllowReason::handler("psql list databases"));
         }
         // -c SQL
         if let Some(sql) = get_flag_value(ctx.args, &["-c", "--command"]) {
@@ -50,7 +51,7 @@ impl Handler for MysqlHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "--version", "-V"]) {
-            return Classification::Allow("mysql help/version".into());
+            return Classification::Allow(AllowReason::handler("mysql help/version"));
         }
         if let Some(sql) = get_flag_value(ctx.args, &["-e", "--execute"]) {
             return classify_sql_command("mysql", &sql);
@@ -72,10 +73,10 @@ impl Handler for Sqlite3Handler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         if is_sole_help_flag(ctx.args, &["--help", "-help", "--version"]) {
-            return Classification::Allow("sqlite3 help/version".into());
+            return Classification::Allow(AllowReason::handler("sqlite3 help/version"));
         }
         if has_flag(ctx.args, &["-readonly", "-safe"]) {
-            return Classification::Allow("sqlite3 (readonly mode)".into());
+            return Classification::Allow(AllowReason::handler("sqlite3 (readonly mode)"));
         }
         // Look for SQL after the database file argument
         let positionals = positional_args(ctx.args);
@@ -88,7 +89,9 @@ impl Handler for Sqlite3Handler {
 
 fn classify_sql_command(tool: &str, sql: &str) -> Classification {
     match classify_sql(sql) {
-        Some(true) => Classification::Allow(format!("{tool} (read-only SQL)")),
+        Some(true) => {
+            Classification::Allow(AllowReason::handler(format!("{tool} (read-only SQL)")))
+        }
         Some(false) => Classification::Ask(format!("{tool} (write SQL)")),
         None => Classification::Ask(format!("{tool} (ambiguous SQL)")),
     }

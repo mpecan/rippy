@@ -12,7 +12,7 @@ use crate::error::RippyError;
 use crate::handlers::is_sole_help_flag;
 use crate::parser::BashParser;
 use crate::resolve::{self, LocalBinding, VarLookup};
-use crate::verdict::{Decision, Verdict};
+use crate::verdict::{AllowReason, Decision, Verdict};
 
 const MAX_DEPTH: usize = 256;
 
@@ -204,7 +204,7 @@ impl Analyzer {
 
     fn analyze_nodes(&mut self, nodes: &[Node], cwd: &Path, depth: usize) -> Verdict {
         if nodes.is_empty() {
-            return Verdict::allow("");
+            return Verdict::allow(AllowReason::Empty);
         }
         let verdicts: Vec<Verdict> = nodes
             .iter()
@@ -313,7 +313,7 @@ impl Analyzer {
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
                 Verdict::combine(&verdicts)
             }
-            _ => Verdict::allow(""),
+            _ => Verdict::allow(AllowReason::Empty),
         }
     }
 
@@ -573,7 +573,7 @@ impl Analyzer {
         }
 
         let Some(raw_name) = ast::command_name_from_words(words) else {
-            return Verdict::allow("empty command");
+            return Verdict::allow(AllowReason::EmptyCommand);
         };
         let name = raw_name.to_owned();
         let args = ast::command_args_from_words(words);
@@ -591,7 +591,7 @@ impl Analyzer {
 
         if allowlists::is_wrapper(&cmd_name) {
             if args.is_empty() {
-                return Verdict::allow(format!("{cmd_name} (no inner command)"));
+                return Verdict::allow(AllowReason::Wrapper(cmd_name.clone()));
             }
             let inner = args.join(" ");
             return self.analyze_inner_command(&inner, cwd, depth);
@@ -602,7 +602,7 @@ impl Analyzer {
                 eprintln!("[rippy] allowlist: {cmd_name} is safe");
             }
             return self.with_redirects(
-                Verdict::allow(format!("{cmd_name} is safe")),
+                Verdict::allow(AllowReason::SimpleSafe(cmd_name.clone())),
                 redirects,
                 cwd,
             );
@@ -612,7 +612,7 @@ impl Analyzer {
         // matching it anywhere let a dangerous operand ride along (#149). Bare `-h`
         // is dropped (commands overload it as `-h <host>`), so a lone `-h` Asks.
         if is_sole_help_flag(&args, &["--help", "--version"]) {
-            return Verdict::allow(format!("{cmd_name} help/version"));
+            return Verdict::allow(AllowReason::HelpFlag(cmd_name.clone()));
         }
 
         let handler_verdict = self.classify_with_handler(&cmd_name, &args, cwd, depth);
@@ -624,15 +624,10 @@ impl Analyzer {
 mod dispatch;
 
 fn cc_decision_to_verdict(decision: Decision, command: &str) -> Verdict {
-    let reason = match decision {
-        Decision::Allow => format!("{command} (CC permission: allow)"),
-        Decision::Ask => format!("{command} (CC permission: ask)"),
-        Decision::Deny => format!("{command} (CC permission: deny)"),
-    };
-    Verdict {
-        decision,
-        reason,
-        resolved_command: None,
+    match decision {
+        Decision::Allow => Verdict::allow(AllowReason::CcPermission(command.to_owned())),
+        Decision::Ask => Verdict::ask(format!("{command} (CC permission: ask)")),
+        Decision::Deny => Verdict::deny(format!("{command} (CC permission: deny)")),
     }
 }
 

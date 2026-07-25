@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::LazyLock;
 
-use crate::verdict::Decision;
+use crate::verdict::AllowReason;
 
 /// Context passed to handlers for classification.
 pub(crate) struct HandlerContext<'a> {
@@ -101,8 +101,9 @@ impl HandlerContext<'_> {
 /// The result of classifying a command.
 #[derive(Debug, Clone)]
 pub(crate) enum Classification {
-    /// Auto-approve with description.
-    Allow(String),
+    /// Auto-approve, carrying typed provenance (always
+    /// [`AllowReason::Handler`] when minted by a handler).
+    Allow(AllowReason),
     /// Needs user confirmation with description.
     Ask(String),
     /// Block with description. Wired to `Verdict::deny` in `apply_classification`;
@@ -116,8 +117,9 @@ pub(crate) enum Classification {
     Recurse(String),
     /// Re-parse inner command with remote=true (for docker exec, kubectl exec).
     RecurseRemote(String),
-    /// Decision with redirect targets that need config rule checking.
-    WithRedirects(Decision, String, Vec<String>),
+    /// Approve the command itself, but route these redirect targets through
+    /// the redirect safety pipeline (self-protect, safe-dir, config rules).
+    WithRedirects(AllowReason, Vec<String>),
 }
 
 /// Trait for command handlers.
@@ -162,11 +164,14 @@ impl Handler for SubcommandHandler {
 
         // Check --help/--version first (only when it is the sole argument).
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
-            return Classification::Allow(format!("{} help/version", self.desc_prefix));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} help/version",
+                self.desc_prefix
+            )));
         }
 
         if self.safe.contains(&sub) {
-            Classification::Allow(desc)
+            Classification::Allow(AllowReason::handler(desc))
         } else if self.ask.contains(&sub) {
             Classification::Ask(desc)
         } else if sub.is_empty() {

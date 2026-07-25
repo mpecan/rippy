@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, has_flag};
+use crate::verdict::AllowReason;
 
 pub(crate) static FIND_HANDLER: FindHandler = FindHandler;
 
@@ -37,7 +38,7 @@ impl Handler for FindHandler {
             }
         }
 
-        Classification::Allow("find (search only)".into())
+        Classification::Allow(AllowReason::handler("find (search only)"))
     }
 }
 

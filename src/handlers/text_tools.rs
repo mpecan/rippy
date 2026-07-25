@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use crate::verdict::AllowReason;
 
 // sed
 
@@ -21,7 +22,7 @@ impl Handler for SedHandler {
             return Classification::Ask(reason);
         }
 
-        Classification::Allow("sed (filter)".into())
+        Classification::Allow(AllowReason::handler("sed (filter)"))
     }
 }
 
@@ -139,7 +140,10 @@ impl Handler for AwkHandler {
             return Classification::Ask(reason);
         }
 
-        Classification::Allow(format!("{} (filter)", ctx.command_name))
+        Classification::Allow(AllowReason::handler(format!(
+            "{} (filter)",
+            ctx.command_name
+        )))
     }
 }
 
@@ -154,7 +158,7 @@ fn check_awk_source(program: &str, cmd_name: &str) -> Classification {
     if awk_has_file_redirect(program) {
         return Classification::Ask(format!("{cmd_name} -f file redirect"));
     }
-    Classification::Allow(format!("{cmd_name} -f (safe script)"))
+    Classification::Allow(AllowReason::handler(format!("{cmd_name} -f (safe script)")))
 }
 
 /// Check awk program arguments for `system()`, pipe-to-command, and file redirects.

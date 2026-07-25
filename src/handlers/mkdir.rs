@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::{Classification, Handler, HandlerContext, is_within_scope, normalize_path};
+use crate::verdict::AllowReason;
 
 pub(crate) static MKDIR_HANDLER: MkdirHandler = MkdirHandler;
 
@@ -60,7 +61,7 @@ impl Handler for MkdirHandler {
         }
 
         if has_targets {
-            Classification::Allow("mkdir within allowed scope".into())
+            Classification::Allow(AllowReason::handler("mkdir within allowed scope"))
         } else {
             Classification::Ask("mkdir (no directory specified)".into())
         }

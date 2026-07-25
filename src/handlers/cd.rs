@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::{Classification, Handler, HandlerContext, is_within_scope, normalize_path};
+use crate::verdict::AllowReason;
 
 pub(crate) static CD_HANDLER: CdHandler = CdHandler;
 
@@ -54,7 +55,10 @@ impl Handler for CdHandler {
         };
 
         if target == "-" {
-            return Classification::Allow(format!("{} - (previous directory)", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} - (previous directory)",
+                ctx.command_name
+            )));
         }
 
         // Can't statically resolve the destination
@@ -74,7 +78,10 @@ impl Handler for CdHandler {
 
         let normalized_cwd = normalize_path(ctx.working_directory);
         if is_within_scope(&resolved, &normalized_cwd, ctx.safe_scopes) {
-            Classification::Allow(format!("{} within allowed scope", ctx.command_name))
+            Classification::Allow(AllowReason::handler(format!(
+                "{} within allowed scope",
+                ctx.command_name
+            )))
         } else {
             Classification::Ask(format!("{} to {target}", ctx.command_name))
         }

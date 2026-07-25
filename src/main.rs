@@ -11,7 +11,7 @@ use rippy_cli::error::RippyError;
 use rippy_cli::mode::{HookType, Mode};
 use rippy_cli::payload::{FileOp, Payload};
 use rippy_cli::setup;
-use rippy_cli::verdict::{ClaudeContext, Decision, Verdict};
+use rippy_cli::verdict::{AllowReason, ClaudeContext, Decision, Verdict};
 
 /// Evaluate a payload. Returns `None` for passthrough (file tools with no matching rule).
 fn evaluate(
@@ -74,11 +74,12 @@ fn evaluate_pre_tool(
 
 fn evaluate_post_tool(payload: &Payload, config: &Config) -> Verdict {
     payload.command.as_ref().map_or_else(
-        || Verdict::allow(""),
+        || Verdict::allow(AllowReason::Empty),
         |command| {
-            config
-                .match_after(command)
-                .map_or_else(|| Verdict::allow(""), Verdict::allow)
+            config.match_after(command).map_or_else(
+                || Verdict::allow(AllowReason::Empty),
+                |msg| Verdict::allow(AllowReason::AfterRule(msg)),
+            )
         },
     )
 }

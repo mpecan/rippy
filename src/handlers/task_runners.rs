@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, first_positional};
+use crate::verdict::AllowReason;
 
 // just
 
@@ -38,7 +39,7 @@ impl Handler for JustHandler {
             .take_while(|a| a.starts_with('-'))
             .any(|a| READONLY_JUST_FLAGS.contains(&a.as_str()));
         if introspection {
-            return Classification::Allow("just (introspection)".into());
+            return Classification::Allow(AllowReason::handler("just (introspection)"));
         }
         // Bare `just` or a bare recipe name both run arbitrary code: Ask.
         let sub = ctx.args.first().map_or("", String::as_str);
@@ -86,7 +87,7 @@ impl Handler for MiseHandler {
             return classify_mise_tasks(ctx);
         }
         if MISE_SAFE.contains(&sub) {
-            return Classification::Allow(format!("mise {sub}"));
+            return Classification::Allow(AllowReason::handler(format!("mise {sub}")));
         }
         Classification::Ask(format!("mise {sub}"))
     }
@@ -101,9 +102,9 @@ fn classify_mise_tasks(ctx: &HandlerContext) -> Classification {
         return Classification::Ask(format!("mise tasks {child}"));
     }
     if child.is_empty() {
-        Classification::Allow("mise tasks".into())
+        Classification::Allow(AllowReason::handler("mise tasks"))
     } else {
-        Classification::Allow(format!("mise tasks {child}"))
+        Classification::Allow(AllowReason::handler(format!("mise tasks {child}")))
     }
 }
 
@@ -143,7 +144,7 @@ impl Handler for TokfHandler {
         let sub = ctx.args.first().map_or("", String::as_str);
 
         if TOKF_SAFE.contains(&sub) {
-            return Classification::Allow(format!("tokf {sub}"));
+            return Classification::Allow(AllowReason::handler(format!("tokf {sub}")));
         }
 
         if TOKF_WRAPPERS.contains(&sub) {

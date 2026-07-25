@@ -1,4 +1,5 @@
 use super::{Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag};
+use crate::verdict::AllowReason;
 
 pub(crate) static DOCKER_HANDLER: DockerHandler = DockerHandler;
 
@@ -30,7 +31,10 @@ impl Handler for DockerHandler {
         let desc = format!("{} {sub}", ctx.command_name);
 
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version"]) {
-            return Classification::Allow(format!("{} help/version", ctx.command_name));
+            return Classification::Allow(AllowReason::handler(format!(
+                "{} help/version",
+                ctx.command_name
+            )));
         }
 
         if sub == "exec" {
@@ -51,7 +55,7 @@ impl Handler for DockerHandler {
         }
 
         if SAFE.contains(&sub) {
-            Classification::Allow(desc)
+            Classification::Allow(AllowReason::handler(desc))
         } else {
             Classification::Ask(desc)
         }
@@ -62,7 +66,7 @@ fn classify_grouped_noun(ctx: &HandlerContext, noun: &str) -> Classification {
     let action = ctx.args.get(1).map_or("", String::as_str);
     let desc = format!("{} {noun} {action}", ctx.command_name);
     if GROUP_SAFE_ACTIONS.contains(&action) {
-        Classification::Allow(desc)
+        Classification::Allow(AllowReason::handler(desc))
     } else {
         Classification::Ask(desc)
     }
@@ -106,12 +110,14 @@ fn classify_exec(ctx: &HandlerContext) -> Classification {
 fn classify_export_save(ctx: &HandlerContext, sub: &str) -> Classification {
     if let Some(output) = get_flag_value(ctx.args, &["-o", "--output"]) {
         return Classification::WithRedirects(
-            crate::verdict::Decision::Allow,
-            format!("{} {sub} with output file", ctx.command_name),
+            AllowReason::handler(format!("{} {sub} with output file", ctx.command_name)),
             vec![output],
         );
     }
-    Classification::Allow(format!("{} {sub} (stdout)", ctx.command_name))
+    Classification::Allow(AllowReason::handler(format!(
+        "{} {sub} (stdout)",
+        ctx.command_name
+    )))
 }
 
 fn classify_compose(ctx: &HandlerContext) -> Classification {
@@ -127,7 +133,7 @@ fn classify_compose(ctx: &HandlerContext) -> Classification {
     };
 
     if COMPOSE_SAFE.contains(&sub) {
-        Classification::Allow(format!("compose {sub}"))
+        Classification::Allow(AllowReason::handler(format!("compose {sub}")))
     } else {
         Classification::Ask(format!("compose {sub}"))
     }
