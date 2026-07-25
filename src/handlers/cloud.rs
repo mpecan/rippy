@@ -129,6 +129,9 @@ const KUBECTL_AUTH_SAFE: &[&str] = &["can-i", "whoami"];
 
 fn classify_kubectl_auth(ctx: &HandlerContext) -> Classification {
     let child = ctx.arg(1);
+    if child.is_empty() {
+        return Classification::Ask("kubectl auth (no subcommand)".into());
+    }
     if KUBECTL_AUTH_SAFE.contains(&child) {
         Classification::Allow(AllowReason::handler(format!("kubectl auth {child}")))
     } else {

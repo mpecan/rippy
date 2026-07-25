@@ -194,6 +194,33 @@ command = "awk --include=inplace '{print}' file.txt"
 decision = "ask"
 reason_contains = "inplace"
 
+# #184 follow-up: gawk's -l/--load dlopens a shared library (native code), and
+# -f's glued/= spellings load a script exactly like the spaced form does.
+[[case]]
+command = "awk -l /tmp/evil.so '{print}' file.txt"
+decision = "ask"
+reason_contains = "shared library"
+
+[[case]]
+command = "gawk --load /tmp/evil.so '{print}' file.txt"
+decision = "ask"
+reason_contains = "shared library"
+
+[[case]]
+command = "awk -l/tmp/evil.so '{print}' file.txt"
+decision = "ask"
+reason_contains = "shared library"
+
+[[case]]
+command = "awk -f/tmp/script.awk file.txt"
+decision = "ask"
+reason_contains = "script file"
+
+[[case]]
+command = "awk --file=/tmp/script.awk file.txt"
+decision = "ask"
+reason_contains = "script file"
+
 # ---- find ----
 [[case]]
 command = "find . -name '*.tmp' -delete"
@@ -369,6 +396,16 @@ decision = "ask"
 
 [[case]]
 command = "dos2unix -n onlyone.txt"
+decision = "ask"
+
+# A value-taking flag's value is not a file operand, so `-c mac` must not make
+# the in/out pair count odd and turn a paired invocation into a nag.
+[[case]]
+command = "dos2unix -n -c mac old.txt /tmp/new.txt"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -n -c mac old.txt new.txt"
 decision = "ask"
 
 # ---- sort ----

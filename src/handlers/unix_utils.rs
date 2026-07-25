@@ -114,20 +114,60 @@ impl Handler for UnzipHandler {
         if is_sole_help_flag(ctx.args, &["--help", "-h", "--version", "-V"]) {
             return Classification::Allow(AllowReason::handler("unzip help/version"));
         }
-        if has_flag(ctx.args, &["-l", "-t", "-v"]) {
+        if has_leading_unzip_mode_flag(ctx.args) {
             return Classification::Allow(AllowReason::handler("unzip (list/test)"));
         }
         Classification::Ask("unzip (extract)".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
+        let guard = "flag appears in the option run before the archive operand";
         vec![
             AllowEntry::guarded("unzip --help|-h|--version|-V", "sole argument"),
-            AllowEntry::new("unzip -l"),
-            AllowEntry::new("unzip -t"),
-            AllowEntry::new("unzip -v"),
+            AllowEntry::guarded("unzip -l", guard),
+            AllowEntry::guarded("unzip -t", guard),
+            AllowEntry::guarded("unzip -v", guard),
+            AllowEntry::guarded("unzip -Z", guard),
         ]
     }
+}
+
+/// unzip mode letters that make the invocation read-only: list, test, verbose
+/// list and zipinfo mode.
+const UNZIP_MODE_LETTERS: &[char] = &['l', 't', 'v', 'Z'];
+
+/// unzip letters whose value may be glued to them (`-dlogs`, `-Psecret`), so the
+/// rest of the token is data rather than more clustered flags.
+const UNZIP_VALUE_LETTERS: &[char] = &['d', 'O', 'I', 'P'];
+
+/// Whether a read-only mode flag appears in the option run that precedes the
+/// archive operand, which is the only place unzip treats it as an option: words
+/// after the archive are member filespecs, so a trailing `-l` is consumed as a
+/// (non-matching) member name while the rest of argv still extracts (#190).
+fn has_leading_unzip_mode_flag(args: &[String]) -> bool {
+    let mut skip_value = false;
+    for arg in args {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        if arg.starts_with("--") {
+            return false; // unknown long option: fail closed
+        }
+        let Some(letters) = arg.strip_prefix('-') else {
+            return false; // the archive operand ends the option run
+        };
+        for (i, ch) in letters.char_indices() {
+            if UNZIP_MODE_LETTERS.contains(&ch) {
+                return true;
+            }
+            if UNZIP_VALUE_LETTERS.contains(&ch) {
+                skip_value = i + ch.len_utf8() == letters.len();
+                break;
+            }
+        }
+    }
+    false
 }
 
 // 7z / 7za / 7zr / 7zz — bare subcommand verbs (`7z l archive.7z`), unlike unzip.
@@ -354,7 +394,7 @@ impl Handler for Dos2UnixHandler {
 /// pairs. Each output path is routed through the redirect safety pipeline
 /// rather than trusted outright.
 fn classify_newfile(ctx: &HandlerContext) -> Classification {
-    let files = positional_args(ctx.args);
+    let files = dos2unix_file_operands(ctx.args);
     if files.is_empty() || !files.len().is_multiple_of(2) {
         return Classification::Ask(format!("{} -n (unpaired file operands)", ctx.command_name));
     }
@@ -368,6 +408,27 @@ fn classify_newfile(ctx: &HandlerContext) -> Classification {
         AllowReason::handler(format!("{} -n (new-file mode)", ctx.command_name)),
         outputs,
     )
+}
+
+/// dos2unix options that consume the following word, which is therefore a value
+/// and not a file operand.
+const DOS2UNIX_VALUE_FLAGS: &[&str] = &["-c", "--convmode", "-D", "--display-enc"];
+
+/// Split argv into file operands for `-n` pairing. `positional_args` would count
+/// the value of a flag such as `-c mac` as a file and make the pair count odd.
+fn dos2unix_file_operands(args: &[String]) -> Vec<&str> {
+    let mut files = Vec::new();
+    let mut skip_value = false;
+    for arg in args {
+        if skip_value {
+            skip_value = false;
+        } else if arg.starts_with('-') {
+            skip_value = DOS2UNIX_VALUE_FLAGS.contains(&arg.as_str());
+        } else {
+            files.push(arg.as_str());
+        }
+    }
+    files
 }
 
 // Behavioral coverage (tar list/extract, wget, mktemp, open, yq, unzip, dos2unix) lives in

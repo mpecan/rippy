@@ -146,6 +146,33 @@ decision = "ask"
 command = 'unzip archive.zip'
 decision = "ask"
 
+# bounds `unzip -l|-t|-v|-Z` -- a mode flag only counts before the archive
+# operand: after it, unzip reads the word as a member filespec and still
+# extracts -- observed reason: unzip (extract)
+[[case]]
+command = "unzip -o archive.zip '*' -d /tmp/out -l"
+decision = "ask"
+
+[[case]]
+command = 'unzip -o archive.zip payload.txt -d /tmp/out -l'
+decision = "ask"
+
+# a glued `-d<exdir>` value is not a cluster of mode letters -- observed
+# reason: unzip (extract)
+[[case]]
+command = 'unzip -o -dlogs archive.zip'
+decision = "ask"
+
+# `l`/`t` are 7z-style bare verbs, not unzip modes (#190) -- observed reason:
+# unzip (extract)
+[[case]]
+command = 'unzip l archive.zip'
+decision = "ask"
+
+[[case]]
+command = 'unzip t archive.zip'
+decision = "ask"
+
 # bounds `7z l archive.7z` / `7z t archive.7z` -- observed reason: 7z a
 [[case]]
 command = '7z a archive.7z file.txt'
@@ -185,6 +212,21 @@ decision = "ask"
 # denylists (#186) -- observed reason: deno -e (potentially dangerous code)
 [[case]]
 command = "deno eval 'Deno.removeSync(\"/tmp/x\")'"
+decision = "ask"
+
+# bounds `deno eval <code>` -- the same removal written three ways a substring
+# denylist misses: a space before the paren, computed member access, and an
+# alias of the global -- observed reason: deno -e (potentially dangerous code)
+[[case]]
+command = "deno eval 'Deno.removeSync (\"/tmp/x\")'"
+decision = "ask"
+
+[[case]]
+command = "deno eval 'Deno[\"removeSync\"](\"/tmp/x\")'"
+decision = "ask"
+
+[[case]]
+command = "deno eval 'const d=Deno; d.removeSync(\"/tmp/x\")'"
 decision = "ask"
 
 # bounds `deno eval <code>` -- Deno.run is process execution -- observed reason:

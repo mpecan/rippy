@@ -16,12 +16,16 @@ fn mcp_tool_asks_by_default() {
 
 // Error handling
 
+/// A terminal error on the hook path must not answer with a bare
+/// `{"error":...}` + exit 1: Claude Code reads that as a non-blocking hook
+/// failure and runs the command un-gated (#182).
 #[test]
-fn malformed_json_returns_error() {
+fn malformed_json_asks_instead_of_erroring() {
     let (stdout, code) = run_rippy("not json", "claude", &[]);
-    assert_eq!(code, 1);
+    assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert!(v["error"].as_str().is_some());
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "ask");
+    assert!(v["error"].as_str().is_none(), "{stdout}");
 }
 
 // Verbose mode tests
@@ -58,16 +62,24 @@ fn verbose_handler_trace() {
 // Resource limit tests (Issue #3)
 
 #[test]
-fn oversized_input_returns_error() {
+fn oversized_input_asks_instead_of_erroring() {
     // Send > 1MB of input
     let big_json = format!(
         r#"{{"tool_name":"Bash","tool_input":{{"command":"echo {}"}}}}"#,
         "x".repeat(1_100_000)
     );
     let (stdout, code) = run_rippy(&big_json, "claude", &[]);
-    assert_eq!(code, 1);
+    assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert!(v["error"].as_str().unwrap().contains("limit"));
+    let out = &v["hookSpecificOutput"];
+    assert_eq!(out["permissionDecision"], "ask");
+    assert!(
+        out["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("limit"),
+        "{stdout}"
+    );
 }
 
 // Fail-closed on unparseable command (Issue #150): a valid payload carrying a

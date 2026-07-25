@@ -39,47 +39,38 @@ const DANGEROUS_GLOBALS: &[&str] = &[
     "import(",
 ];
 
-// Deno's built-in global namespace — see the module doc comment for why this list
-// exists separately from `DANGEROUS_GLOBALS`.
-const DANGEROUS_DENO_GLOBALS: &[&str] = &[
-    "Deno.run(",
-    "Deno.Command(",
-    "Deno.remove(",
-    "Deno.removeSync(",
-    "Deno.write(",
-    "Deno.writeSync(",
-    "Deno.writeFile(",
-    "Deno.writeFileSync(",
-    "Deno.writeTextFile(",
-    "Deno.writeTextFileSync(",
-    "Deno.open(",
-    "Deno.openSync(",
-    "Deno.create(",
-    "Deno.createSync(",
-    "Deno.env",
-    "Deno.readFile(",
-    "Deno.readFileSync(",
-    "Deno.readTextFile(",
-    "Deno.readTextFileSync(",
-    "Deno.connect(",
-    "Deno.connectTls(",
-    "Deno.listen(",
-    "Deno.serve(",
-    "Deno.dlopen(",
-    "Deno.exit(",
-    "Deno.kill(",
-    "Deno.mkdir(",
-    "Deno.mkdirSync(",
-    "Deno.rename(",
-    "Deno.renameSync(",
-    "Deno.chmod(",
-    "Deno.chmodSync(",
-    "Deno.symlink(",
-    "Deno.symlinkSync(",
-    "Deno.copyFile(",
-    "Deno.copyFileSync(",
-    "Deno.truncate(",
-    "Deno.truncateSync(",
+/// Members of Deno's built-in global namespace that reach the filesystem,
+/// processes, network or FFI. Matched as a prefix of the member name, so `write`
+/// also covers `writeSync`/`writeTextFile` and `env` covers `env.get(...)`.
+/// See the module doc comment for why this list exists separately from
+/// `DANGEROUS_GLOBALS`.
+const DANGEROUS_DENO_MEMBERS: &[&str] = &[
+    "run",
+    "Command",
+    "remove",
+    "write",
+    "open",
+    "create",
+    "env",
+    "read",
+    "connect",
+    "listen",
+    "serve",
+    "dlopen",
+    "exit",
+    "kill",
+    "mkdir",
+    "rename",
+    "chmod",
+    "symlink",
+    "link",
+    "copyFile",
+    "truncate",
+    "umask",
+    "chdir",
+    "makeTemp",
+    "watchFs",
+    "permissions",
 ];
 
 const DANGEROUS_METHODS: &[&str] = &[
@@ -130,8 +121,35 @@ fn has_dangerous_requires(source: &str) -> bool {
 }
 
 fn has_dangerous_globals(source: &str) -> bool {
-    DANGEROUS_GLOBALS.iter().any(|g| source.contains(g))
-        || DANGEROUS_DENO_GLOBALS.iter().any(|g| source.contains(g))
+    DANGEROUS_GLOBALS.iter().any(|g| source.contains(g)) || has_dangerous_deno_usage(source)
+}
+
+const fn is_js_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+}
+
+/// Whether the source touches the `Deno` global in a way that is not provably
+/// inert. Substring matching on `Deno.member(` falls to trivial rewrites
+/// (`Deno.removeSync (x)`, `Deno["removeSync"](x)`, `const d=Deno`), so instead
+/// every `Deno` identifier must resolve to a statically named safe member:
+/// computed access and bare uses (aliasing) are treated as dangerous.
+fn has_dangerous_deno_usage(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    for (i, _) in source.match_indices("Deno") {
+        if i > 0 && bytes.get(i - 1).copied().is_some_and(is_js_word_byte) {
+            continue;
+        }
+        let Some(after) = source.get(i + 4..).map(str::trim_start) else {
+            continue;
+        };
+        let Some(member) = after.strip_prefix('.').map(str::trim_start) else {
+            return true;
+        };
+        if DANGEROUS_DENO_MEMBERS.iter().any(|m| member.starts_with(m)) {
+            return true;
+        }
+    }
+    false
 }
 
 fn has_dangerous_methods(source: &str) -> bool {

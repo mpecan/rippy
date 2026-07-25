@@ -359,6 +359,11 @@ command = 'kubectl auth reconcile -f rbac.yaml'
 decision = "ask"
 
 [[case]]
+command = 'kubectl auth'
+decision = "ask"
+reason_contains = "no subcommand"
+
+[[case]]
 command = 'kubectl auth can-i --list'
 decision = "allow"
 

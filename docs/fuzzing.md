@@ -86,27 +86,6 @@ command-position dynamic branch in `src/analyzer_dispatch.rs` returns `Ask`
 dominates, so the resolved string can omit the redirect that drove the decision.
 Only the monotone direction expresses "never fail open".
 
-## Known fail-opens
-
-### Non-ASCII in a ruby/perl inline script panics the hook — [#182](https://github.com/mpecan/rippy/issues/182)
-
-Found by the `analyze` target within 30 seconds of its first run.
-
-```
-ruby -e '%x+їd/'     -> panic at src/ruby_safety.rs:124, exit 101
-perl -e 'їopen'      -> panic at src/perl_safety.rs:74
-```
-
-`contains_word` indexes a `&str` with byte offsets taken from `as_bytes()`, so a
-multi-byte character splits mid-scalar. No verdict is written and the process
-exits 101, which Claude Code treats as a non-blocking error — the command runs
-un-gated, making this a fail-open rather than a mere crash.
-
-`tests/proptest_robustness.rs::interpreter_scanners_must_not_panic_on_non_ascii`
-pins the reproducers as an `#[ignore]`d failing test. Until #182 is fixed the
-nightly `analyze` job will keep rediscovering this crash and failing; that is the
-intended behavior of a scheduled fuzz job with a known open bug.
-
 ## Running the harnesses
 
 The proptests are part of the normal gate:
@@ -168,14 +147,14 @@ from `tests/`.
 
 The counterexamples found so far ([#181](https://github.com/mpecan/rippy/issues/181),
 [#182](https://github.com/mpecan/rippy/issues/182)) were pinned as `#[ignore]`d
-reproducers plus tracked issues rather than as committed seed files, so
+reproducers plus tracked issues rather than as committed seed files, and both
+became un-`#[ignore]`d regression tests once the fail-open was closed, so
 `proptest-regressions/` is still empty. A seed only replays one shrunk input and
 says nothing about why it is accepted; the named carve-out predicate plus the
-`#[ignore]`d test states the exact command, keeps it in the file a reader of the
-invariant will open, and fails loudly the day the fail-open is closed — which is
-how #181's pin became an un-`#[ignore]`d regression test. Prefer that shape for
-a *known* fail-open, and commit the seed file for a genuine regression that the
-invariants are meant to catch.
+pinned test states the exact command, keeps it in the file a reader of the
+invariant will open, and fails loudly the day the fail-open is closed. Prefer
+that shape for a *known* fail-open, and commit the seed file for a genuine
+regression that the invariants are meant to catch.
 
 ## Authoring catalog cases
 

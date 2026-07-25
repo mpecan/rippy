@@ -150,6 +150,14 @@ command = 'unzip -v archive.zip'
 decision = "allow"
 
 [[case]]
+command = 'unzip -Z archive.zip'
+decision = "allow"
+
+[[case]]
+command = 'unzip -ol archive.zip'
+decision = "allow"
+
+[[case]]
 command = 'unzip --help'
 decision = "allow"
 

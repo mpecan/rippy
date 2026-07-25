@@ -100,8 +100,8 @@ Rows are written with `awk`; unless a row says otherwise they apply the same way
 
 | Approved invocation | Condition |
 | --- | --- |
-| `awk <program> [<file>...]` | no system() call, pipe-to-command or file redirect in the program, and no -i/--include flag |
-| `awk -f <script>` | script readable from the working directory; no system() call, pipe-to-command or file redirect in the program, and no -i/--include flag |
+| `awk <program> [<file>...]` | no system() call, pipe-to-command or file redirect in the program, and no -i/--include or -l/--load flag |
+| `awk -f <script>` | script readable from the working directory; no system() call, pipe-to-command or file redirect in the program, and no -i/--include or -l/--load flag |
 
 ### `aws`
 
@@ -846,9 +846,10 @@ Rows are written with `ruby`; unless a row says otherwise they apply the same wa
 | Approved invocation | Condition |
 | --- | --- |
 | `unzip --help\|-h\|--version\|-V` | sole argument |
-| `unzip -l` | — |
-| `unzip -t` | — |
-| `unzip -v` | — |
+| `unzip -l` | flag appears in the option run before the archive operand |
+| `unzip -t` | flag appears in the option run before the archive operand |
+| `unzip -v` | flag appears in the option run before the archive operand |
+| `unzip -Z` | flag appears in the option run before the archive operand |
 
 ### `uv`, `uvx`
 

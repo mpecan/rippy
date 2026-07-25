@@ -1,4 +1,7 @@
-use super::{AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag};
+use super::{
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag,
+    has_flag_or_prefixed, has_glued_short_flag,
+};
 use crate::verdict::AllowReason;
 
 // sed
@@ -136,11 +139,16 @@ impl Handler for AwkHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        if let Some(path) = get_flag_value(ctx.args, &["-f"]) {
-            if let Some(program) = ctx.read_file(&path) {
-                return check_awk_source(&program, ctx.command_name);
-            }
-            return Classification::Ask(format!("{} -f (script file)", ctx.command_name));
+        if has_awk_flag(ctx.args, "-f", &["-f", "--file"]) {
+            let program = awk_script_path(ctx.args).and_then(|path| ctx.read_file(&path));
+            return program.map_or_else(
+                || Classification::Ask(format!("{} -f (script file)", ctx.command_name)),
+                |program| check_awk_source(&program, ctx.command_name),
+            );
+        }
+
+        if has_awk_flag(ctx.args, "-l", &["-l", "--load"]) {
+            return Classification::Ask(format!("{} -l (loads shared library)", ctx.command_name));
         }
 
         if let Some(reason) = check_awk_include(ctx.args, ctx.command_name) {
@@ -159,7 +167,7 @@ impl Handler for AwkHandler {
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
         let guard = "no system() call, pipe-to-command or file redirect in the program, and no \
-                     -i/--include flag";
+                     -i/--include or -l/--load flag";
         vec![
             AllowEntry::guarded("awk <program> [<file>...]", guard),
             AllowEntry::guarded(
@@ -170,13 +178,26 @@ impl Handler for AwkHandler {
     }
 }
 
+/// Whether a code-loading flag is present in any spelling: bare (`-f`),
+/// `flag=value`, or glued short (`-fscript`). A flag with no value at all still
+/// counts, so a malformed invocation cannot fall through to the filter surface.
+fn has_awk_flag(args: &[String], short: &str, spellings: &[&str]) -> bool {
+    has_flag_or_prefixed(args, spellings) || has_glued_short_flag(args, &[short])
+}
+
+/// Extract the script path from any spelling of `-f`: `-f s`, `-fs`,
+/// `--file s`, `--file=s`.
+fn awk_script_path(args: &[String]) -> Option<String> {
+    get_flag_value(args, &["-f", "--file"]).or_else(|| attached_flag_value(args, "-f", "--file="))
+}
+
 /// Check for gawk's `-i`/`--include`, which either rewrites the input file in
 /// place (`-i inplace`) or loads an arbitrary awk source file. Unlike `-f`'s
 /// plain relative path, `-i` searches `AWKPATH`, so a same-named local file is
 /// not trustworthy evidence of what gawk actually loads — always Ask.
 fn check_awk_include(args: &[String], cmd_name: &str) -> Option<String> {
-    let value =
-        get_flag_value(args, &["-i", "--include"]).or_else(|| attached_include_value(args))?;
+    let value = get_flag_value(args, &["-i", "--include"])
+        .or_else(|| attached_flag_value(args, "-i", "--include="))?;
     if value == "inplace" || value.starts_with("inplace:") {
         Some(format!("{cmd_name} -i inplace (rewrites file)"))
     } else {
@@ -184,14 +205,14 @@ fn check_awk_include(args: &[String], cmd_name: &str) -> Option<String> {
     }
 }
 
-/// Extract the value from an attached `-i`/`--include` flag: `-iinplace` (glued
-/// short form) or `--include=inplace` (long form).
-fn attached_include_value(args: &[String]) -> Option<String> {
+/// Extract the value attached to a flag: glued to the short form (`-iinplace`)
+/// or joined to the long form with `=` (`--include=inplace`).
+fn attached_flag_value(args: &[String], short: &str, long_prefix: &str) -> Option<String> {
     for arg in args {
-        if let Some(value) = arg.strip_prefix("--include=") {
+        if let Some(value) = arg.strip_prefix(long_prefix) {
             return Some(value.to_owned());
         }
-        if let Some(value) = arg.strip_prefix("-i")
+        if let Some(value) = arg.strip_prefix(short)
             && !value.is_empty()
         {
             return Some(value.to_owned());

@@ -359,6 +359,11 @@ awk -i inplace '{print}' file.txt	ask	awk -i inplace (rewrites file)
 awk -i /tmp/lib.awk '{print}' file.txt	ask	awk -i (include file)
 awk -iinplace '{print}' file.txt	ask	awk -i inplace (rewrites file)
 awk --include=inplace '{print}' file.txt	ask	awk -i inplace (rewrites file)
+awk -l /tmp/evil.so '{print}' file.txt	ask	awk -l (loads shared library)
+gawk --load /tmp/evil.so '{print}' file.txt	ask	gawk -l (loads shared library)
+awk -l/tmp/evil.so '{print}' file.txt	ask	awk -l (loads shared library)
+awk -f/tmp/script.awk file.txt	ask	awk -f (script file)
+awk --file=/tmp/script.awk file.txt	ask	awk -f (script file)
 find . -name '*.tmp' -delete	ask	find -delete
 find . -ok rm {} ;	ask	find -ok (interactive)
 find . -name '*.rs' -exec wc -l {} ;	allow	wc is safe
@@ -398,6 +403,8 @@ dos2unix -h	allow	dos2unix help/version
 dos2unix -n old.txt /tmp/new.txt	allow	redirect to /tmp/new.txt (safe dir)
 dos2unix -n old.txt new.txt	ask	redirect to new.txt
 dos2unix -n onlyone.txt	ask	dos2unix -n (unpaired file operands)
+dos2unix -n -c mac old.txt /tmp/new.txt	allow	redirect to /tmp/new.txt (safe dir)
+dos2unix -n -c mac old.txt new.txt	ask	redirect to new.txt
 sort input	allow	sort
 sort -o /tmp/x input	allow	redirect to /tmp/x (safe dir)
 sort -oout.txt input	ask	redirect to out.txt
@@ -977,6 +984,11 @@ uv cache clean	ask	uv cache clean
 mktemp -p /etc	ask	mktemp
 gzip -d archive.gz	ask	gzip -d
 unzip archive.zip	ask	unzip (extract)
+unzip -o archive.zip '*' -d /tmp/out -l	ask	unzip (extract)
+unzip -o archive.zip payload.txt -d /tmp/out -l	ask	unzip (extract)
+unzip -o -dlogs archive.zip	ask	unzip (extract)
+unzip l archive.zip	ask	unzip (extract)
+unzip t archive.zip	ask	unzip (extract)
 7z a archive.7z file.txt	ask	7z a
 awk -f /tmp/script.awk notes.txt	ask	awk -f (script file)
 cd /etc	ask	cd to /etc
@@ -985,6 +997,9 @@ curl -o /etc/hosts https://example.com	ask	redirect to /etc/hosts
 deno run script.ts	ask	deno script execution
 deno eval 'process.env.AWS_SECRET_ACCESS_KEY'	ask	deno -e (potentially dangerous code)
 deno eval 'Deno.removeSync("/tmp/x")'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno.removeSync ("/tmp/x")'	ask	deno -e (potentially dangerous code)
+deno eval 'Deno["removeSync"]("/tmp/x")'	ask	deno -e (potentially dangerous code)
+deno eval 'const d=Deno; d.removeSync("/tmp/x")'	ask	deno -e (potentially dangerous code)
 deno eval 'Deno.run({cmd:["id"]})'	ask	deno -e (potentially dangerous code)
 deno eval 'new Deno.Command("id").outputSync()'	ask	deno -e (potentially dangerous code)
 deno eval 'Deno.writeTextFileSync("/tmp/x","d")'	ask	deno -e (potentially dangerous code)
@@ -1096,6 +1111,7 @@ kubectl version	allow	kubectl version
 kubectl api-resources	allow	kubectl api-resources
 kubectl api-versions	allow	kubectl api-versions
 kubectl auth reconcile -f rbac.yaml	ask	kubectl auth reconcile
+kubectl auth	ask	kubectl auth (no subcommand)
 kubectl auth can-i --list	allow	kubectl auth can-i
 kubectl auth whoami	allow	kubectl auth whoami
 kubectl wait	allow	kubectl wait
@@ -1416,6 +1432,8 @@ tokf completions	allow	tokf completions
 unzip -l archive.zip	allow	unzip (list/test)
 unzip -t archive.zip	allow	unzip (list/test)
 unzip -v archive.zip	allow	unzip (list/test)
+unzip -Z archive.zip	allow	unzip (list/test)
+unzip -ol archive.zip	allow	unzip (list/test)
 unzip --help	allow	unzip help/version
 7z l archive.7z	allow	7z l
 7z t archive.7z	allow	7z t
