@@ -12,17 +12,26 @@ pub(crate) struct NodeHandler;
 // Deno's permission model grants capability explicitly via flags, independent of what
 // the script does; a static content scan cannot override an explicit capability grant
 // (see #186), so any of these force Ask before `deno eval` content analysis runs.
+/// Deno 2 added a short alias for most of these, so listing only the long form
+/// left `deno eval -R …` approved while `--allow-read` Asked.
 const DENO_PERMISSION_FLAGS: &[&str] = &[
     "-A",
     "--allow-all",
     "--allow-run",
     "--allow-read",
+    "-R",
     "--allow-write",
+    "-W",
     "--allow-net",
+    "-N",
     "--allow-env",
+    "-E",
     "--allow-sys",
+    "-S",
     "--allow-ffi",
     "--allow-hrtime",
+    "--allow-import",
+    "--allow-scripts",
 ];
 
 fn has_deno_permission_flag(args: &[String]) -> bool {

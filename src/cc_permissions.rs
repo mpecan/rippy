@@ -260,7 +260,12 @@ fn find_word(cmd: &str, from: usize, needle: &str) -> Option<usize> {
         if left_ok && right_ok {
             return Some(abs_end);
         }
+        // +1 can land inside a multi-byte scalar, which panics the next slice;
+        // see docs/security-invariants.md#non-ascii-inline-code.
         search_from += idx + 1;
+        while search_from < haystack.len() && !haystack.is_char_boundary(search_from) {
+            search_from += 1;
+        }
     }
     None
 }
@@ -271,6 +276,17 @@ mod tests {
     use super::*;
 
     // Pattern matching
+
+    /// A non-ASCII segment used to panic the wildcard walk: advancing one byte
+    /// past a match landed inside a scalar, and the next slice panicked. A
+    /// panic here is a fail-open, since the hook exits with no verdict.
+    /// See docs/security-invariants.md#non-ascii-inline-code.
+    #[test]
+    fn non_ascii_rule_is_matched_without_panicking() {
+        assert!(!command_matches_pattern("git їx log", "git *ї*log*"));
+        assert!(command_matches_pattern("git ї log", "git *ї*log*"));
+        assert!(!command_matches_pattern("git status", "git *ї*log*"));
+    }
 
     #[test]
     fn exact_match() {

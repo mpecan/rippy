@@ -410,3 +410,17 @@ decision = "allow"
 [[case]]
 command = 'kubectl config get-context'
 decision = "allow"
+
+# #189: `-u` fetches remote chart dependencies and writes them into charts/,
+# reaching past the bounded `helm dependency update` surface.
+[[case]]
+command = "helm template -u ./chart"
+decision = "ask"
+
+[[case]]
+command = "helm template --dependency-update ./chart"
+decision = "ask"
+
+[[case]]
+command = "helm template ./chart"
+decision = "allow"

@@ -142,3 +142,17 @@ decision = "allow"
 [[case]]
 command = 'npm audit'
 decision = "allow"
+
+# #186: Deno 2 added short aliases for the permission flags, so listing only the
+# long spelling left `deno eval -R …` approved while `--allow-read` Asked.
+[[case]]
+command = "deno eval -R 'console.log(1)'"
+decision = "ask"
+
+[[case]]
+command = "deno eval -W 'console.log(1)'"
+decision = "ask"
+
+[[case]]
+command = "deno eval --allow-import 'console.log(1)'"
+decision = "ask"

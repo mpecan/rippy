@@ -39,7 +39,8 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#fd-dup-remap` | A path target is re-mapped to `Write` and runs the full write pipeline (safe-dir check and self-protection) | `src/analyzer_tests.rs::fd_dup_to_unsafe_file_asks`, `src/analyzer_tests.rs::fd_dup_to_safe_dir_allows`, `src/analyzer_tests.rs::fd_dup_to_self_protected_denies` |
 | `#wrapper-redirects` | A wrapper prefix never launders a redirect or heredoc past the write pipeline, including nested wrappers, chained lists, and the no-inner-command form | `tests/data/catalog/injection_wrappers.toml`, `tests/proptest_metamorphic.rs::wrapper_must_not_drop_the_redirect_guard`, `tests/metamorphic/invariants.rs::redirect_inject` |
 | `#wrapper-redirects` | A safe wrapped redirect still Allows, so the guard is not a blanket Ask | `tests/data/catalog/injection_wrappers.toml` |
-| `#wrapper-redirects` | `timeout`'s options and DURATION are skipped so the inner command is analyzed, and an argv that does not match that grammar is left unchanged | `src/allowlists.rs::timeout_duration_and_options_are_skipped`, `src/allowlists.rs::unparseable_timeout_argv_falls_back_to_the_whole_slice`, `src/allowlists.rs::non_timeout_wrappers_keep_their_whole_argv` |
+| `#wrapper-redirects` | `timeout`'s options and DURATION are skipped so the inner command is analyzed, and an argv that does not match that grammar is left unchanged | `src/allowlists.rs::timeout_duration_and_options_are_skipped`, `src/allowlists.rs::unparseable_timeout_argv_falls_back_to_the_whole_slice`, `src/allowlists.rs::wrappers_without_an_option_grammar_keep_their_whole_argv` |
+| `#wrapper-redirects` | `nice`'s adjustment options are skipped so the inner command is analyzed, and a malformed argv falls back to Asking | `src/allowlists.rs::nice_adjustment_options_are_skipped`, `src/allowlists.rs::incomplete_nice_argv_falls_back_to_the_whole_argv`, `tests/data/catalog/injection_wrappers.toml` |
 | `#tmp-symlink` | Targets whose runtime value is not statically known (expansions, `~`, globs) are rejected | `src/analyzer_tests.rs::redirect_dynamic_target_asks`, `src/analyzer_tests.rs::redirect_glob_target_asks` |
 | `#tmp-symlink` | `..` escapes and prefix-not-component matches are rejected | `src/analyzer_tests.rs::redirect_dotdot_escape_asks`, `src/analyzer_tests.rs::redirect_component_boundary_asks` |
 | `#tmp-symlink` | cwd exclusion: a target inside the working-directory subtree keeps asking even when cwd lives under a safe dir | `src/analyzer_tests.rs::redirect_into_cwd_under_safe_dir_asks` |
@@ -55,6 +56,8 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#git-undeclared-repo` | A git write inside a declared scope still Asks | `tests/scopes.rs::git_write_in_declared_scope_still_asks` |
 | `#non-ascii-inline-code` | Multi-byte inline source is classified instead of crashing the scanner, and a dangerous call inside it still Asks | `src/ruby_safety.rs::non_ascii_source_is_classified_without_panicking`, `src/perl_safety.rs::non_ascii_source_is_classified_without_panicking`, `tests/data/catalog/handlers_interpreters.toml` |
 | `#non-ascii-inline-code` | The CTE skipper derives byte offsets, so multi-byte SQL is classified by its real main statement | `src/sql.rs::cte_with_non_ascii_body_is_classified_without_panicking`, `tests/data/catalog/handlers_text_system.toml` |
+| `#non-ascii-inline-code` | A multi-byte sed delimiter is classified instead of panicking, and a `w`/`e` flag behind one is still caught | `src/handlers/text_tools.rs::non_ascii_sed_delimiter_is_classified_without_panicking`, `tests/data/catalog/handlers_text_system.toml` |
+| `#non-ascii-inline-code` | A non-ASCII segment in a Claude Code permission rule is matched instead of panicking the wildcard walk | `src/cc_permissions.rs::non_ascii_rule_is_matched_without_panicking` |
 | `#word-parts-trust` | A `Word` whose parts are all literal contains no expansion, even when its raw value has metacharacters | `tests/ast_invariants.rs::single_quoted_expansion_text_is_not_an_expansion`, `tests/data/catalog/safe_quoting.toml` |
 | `#word-parts-trust` | Real expansions still produce expansion nodes, and the textual scan agrees on parts-less inputs | `tests/ast_invariants.rs::every_source_level_expansion_produces_expansion_node`, `tests/ast_invariants.rs::has_expansions_agrees_on_simple_inputs` |
 | `#string-rule-chokepoint` | The whole-string check may only short-circuit an Allow for exactly one plain simple command | `tests/ast_invariants.rs::is_single_plain_command_matches_only_bare_simple_commands` |
@@ -227,6 +230,14 @@ without a verdict and the caller treats that as a non-blocking error, so
 produced from a character walk, use `char_indices()` rather than
 `chars().enumerate()`. Regression cases live in
 `tests/data/catalog/handlers_interpreters.toml` and `handlers_text_system.toml`.
+
+The same shape appears wherever an offset derived from bytes indexes a `str`, so
+it is not confined to the inline-code scanners. Two further sites carried it: the
+sed delimiter scan read the delimiter as a single byte (`cmd.as_bytes()[1]`), so a
+multi-byte delimiter matched its own lead byte and produced a flags offset inside a
+scalar; and the Claude Code permission matcher advanced `search_from += idx + 1`,
+one byte past a boundary. When a scan must step past a match, step by
+`char::len_utf8` or skip to the next `is_char_boundary`.
 
 ## word-parts-trust
 

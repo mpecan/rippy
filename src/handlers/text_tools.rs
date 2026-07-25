@@ -105,26 +105,24 @@ fn is_bare_e_command(rest: &str) -> bool {
 /// Avoids false positives like `s/foo/w bar/` where `w` is in the replacement.
 fn sed_has_dangerous_flag(expr: &str) -> bool {
     let cmd = expr.trim();
-    if !cmd.starts_with('s') || cmd.len() < 4 {
+    let mut chars = cmd.char_indices();
+    if chars.next().map(|(_, c)| c) != Some('s') {
         return false;
     }
-    // The delimiter is the character after 's'
-    let delim = cmd.as_bytes()[1];
-    // Find the 3rd occurrence of the delimiter (end of replacement)
+    // A byte delimiter would match the lead byte of a multi-byte scalar and
+    // then slice mid-character; see docs/security-invariants.md#non-ascii-inline-code.
+    let Some((_, delim)) = chars.next() else {
+        return false;
+    };
     let mut count = 0u8;
-    let mut flags_start = None;
-    for (i, &b) in cmd.as_bytes()[1..].iter().enumerate() {
-        if b == delim {
+    for (i, c) in chars {
+        if c == delim {
             count += 1;
-            if count == 3 {
-                flags_start = Some(i + 2); // +1 for skip, +1 for after delim
-                break;
+            if count == 2 {
+                let flags = &cmd[i + delim.len_utf8()..];
+                return flags.contains('w') || flags.contains('e');
             }
         }
-    }
-    if let Some(start) = flags_start {
-        let flags = &cmd[start..];
-        return flags.contains('w') || flags.contains('e');
     }
     false
 }
@@ -398,6 +396,18 @@ mod tests {
     // Inline sed/awk command->decision cases are covered by
     // tests/data/catalog/handlers_text_system.toml. The awk `-f` tests below
     // exercise read_file on real script content, which the catalog cannot inject.
+
+    /// A multi-byte delimiter used to panic here: the delimiter was read as a
+    /// single byte, so it matched the lead byte of each `ї` and produced a
+    /// flags offset inside a scalar. See docs/security-invariants.md#non-ascii-inline-code.
+    #[test]
+    fn non_ascii_sed_delimiter_is_classified_without_panicking() {
+        assert!(!sed_has_dangerous_flag("sїaїbїc"));
+        assert!(sed_has_dangerous_flag("sїaїbїw"));
+        assert!(!sed_has_dangerous_flag("s/foo/w bar/"));
+        assert!(sed_has_dangerous_flag("s/foo/bar/gw out.txt"));
+    }
+
     #[test]
     fn awk_f_safe_file_allows() {
         let dir = tempfile::tempdir().unwrap();

@@ -147,3 +147,26 @@ reason_contains = "redirect to /etc/passwd"
 [[case]]
 command = "nice ls > /tmp/x; echo done"
 decision = "allow"
+
+# `nice` puts its own options in front of the command, so without skipping them
+# the adjustment was read as the command name and an ordinary safe invocation
+# Asked. The redirect guard must still survive the skip.
+[[case]]
+command = "nice -n 10 ls"
+decision = "allow"
+
+[[case]]
+command = "nice -10 ls"
+decision = "allow"
+
+[[case]]
+command = "nice --adjustment=5 ls"
+decision = "allow"
+
+[[case]]
+command = "nice -n 10 ls > /etc/passwd"
+decision = "ask"
+
+[[case]]
+command = "nice -n"
+decision = "ask"

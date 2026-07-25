@@ -11,6 +11,21 @@ description = "Text / system / net handlers — command -> decision"
 command = "sed 's/x/y/' file.txt"
 decision = "allow"
 
+# #182: the delimiter was read as one byte, so a multi-byte delimiter matched its
+# own lead byte and produced a flags offset inside a scalar, crashing the hook.
+# The dangerous `w` flag behind such a delimiter must still be caught.
+[[case]]
+command = "sed -e sїaїbїc file.txt"
+decision = "allow"
+
+[[case]]
+command = "sed sїaїbїw out.txt"
+decision = "ask"
+
+[[case]]
+command = "sed -e sїaїbїe file.txt"
+decision = "ask"
+
 [[case]]
 command = "sed -i 's/x/y/' file.txt"
 decision = "ask"

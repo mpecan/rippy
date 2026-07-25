@@ -214,16 +214,42 @@ const TIMEOUT_FLAGS: &[&str] = &["--preserve-status", "--foreground", "-v", "--v
 
 /// The argv a wrapper actually executes, with the wrapper's own options removed.
 ///
-/// Only `timeout` puts options and a mandatory DURATION in front of the command;
-/// every other wrapper is passed through untouched on purpose.
-/// See docs/security-invariants.md#wrapper-redirects.
+/// Only `timeout` and `nice` put options in front of the command; every other
+/// wrapper is passed through untouched on purpose. Both fall back to the whole
+/// argv when the grammar does not match, which keeps the stray word as the
+/// command name and so Asks. See docs/security-invariants.md#wrapper-redirects.
 #[must_use]
 pub fn wrapper_inner_args<'a>(cmd: &str, args: &'a [String]) -> &'a [String] {
-    if cmd == "timeout" {
-        timeout_inner_args(args).unwrap_or(args)
-    } else {
-        args
+    match cmd {
+        "timeout" => timeout_inner_args(args).unwrap_or(args),
+        "nice" => nice_inner_args(args).unwrap_or(args),
+        _ => args,
     }
+}
+
+/// `nice [-n N | --adjustment=N | -N] COMMAND …`. Without this, `nice -n 10 ls`
+/// read `-n` as the command and Asked on an ordinary safe invocation.
+fn nice_inner_args(args: &[String]) -> Option<&[String]> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i).map(String::as_str) {
+        if arg == "-n" || arg == "--adjustment" {
+            i += 2;
+        } else if arg.starts_with("--adjustment=") || is_nice_adjustment(arg) {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    args.get(i..).filter(|rest| !rest.is_empty())
+}
+
+/// A bare adjustment such as `-10` or `-+5`, which `nice` accepts in place of
+/// `-n 10`. A flag like `-n` is not one, so it still consumes its value.
+fn is_nice_adjustment(arg: &str) -> bool {
+    arg.strip_prefix('-').is_some_and(|rest| {
+        let digits = rest.strip_prefix('+').unwrap_or(rest);
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    })
 }
 
 /// `None` when the argv does not match GNU timeout's grammar, which keeps the
@@ -339,11 +365,42 @@ mod tests {
         words.iter().map(|w| (*w).to_owned()).collect()
     }
 
+    /// A wrapper with no modelled option grammar keeps its whole argv, so a
+    /// leading option is read as the command name and Asks. That fail-closed
+    /// default is the point; only `timeout` and `nice` are modelled.
     #[test]
-    fn non_timeout_wrappers_keep_their_whole_argv() {
+    fn wrappers_without_an_option_grammar_keep_their_whole_argv() {
         let args = argv(&["-n", "10", "ls"]);
-        assert_eq!(wrapper_inner_args("nice", &args), args.as_slice());
         assert_eq!(wrapper_inner_args("strace", &args), args.as_slice());
+        assert_eq!(wrapper_inner_args("nohup", &args), args.as_slice());
+    }
+
+    #[test]
+    fn nice_adjustment_options_are_skipped() {
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["-n", "10", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["-10", "ls", "-la"])),
+            argv(&["ls", "-la"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["--adjustment=5", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["ls"])),
+            argv(&["ls"]).as_slice()
+        );
+    }
+
+    /// A malformed `nice` falls back to the whole argv rather than yielding an
+    /// empty command, so it stays on the Ask path.
+    #[test]
+    fn incomplete_nice_argv_falls_back_to_the_whole_argv() {
+        let args = argv(&["-n"]);
+        assert_eq!(wrapper_inner_args("nice", &args), args.as_slice());
     }
 
     #[test]
