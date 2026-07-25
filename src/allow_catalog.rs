@@ -143,7 +143,10 @@ fn render_allowlist(out: &mut String) {
     let _ = writeln!(
         out,
         "### Wrappers — {} commands\n\nApproved only with no inner command; otherwise the inner \
-         command is analyzed in their place.\n",
+         command is analyzed in their place. The wrapper's own redirects and heredocs are still \
+         evaluated, so `nice ls > /etc/passwd` asks. For `timeout`, its options and the mandatory \
+         DURATION are skipped first; an argv that does not match that grammar is analyzed \
+         unchanged, so the stray word reads as an unknown command.\n",
         wrappers.len()
     );
     render_command_list(&wrappers, out);

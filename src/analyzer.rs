@@ -508,15 +508,19 @@ impl Analyzer {
         };
         let args = ast::command_args_from_words(words);
 
+        // The unwrapped inner command never sees the outer node's redirects.
+        // See docs/security-invariants.md#wrapper-redirects.
         if allowlists::is_wrapper(&cmd_name) {
             self.trace(Stage::Allowlist, true, || {
                 format!("{cmd_name} is a wrapper")
             });
-            if args.is_empty() {
-                return Verdict::allow(AllowReason::Wrapper(cmd_name.clone()));
-            }
-            let inner = args.join(" ");
-            return self.analyze_inner_command(&inner, cwd, depth);
+            let inner_args = allowlists::wrapper_inner_args(&cmd_name, &args);
+            let verdict = if inner_args.is_empty() {
+                Verdict::allow(AllowReason::Wrapper(cmd_name.clone()))
+            } else {
+                self.analyze_inner_command(&inner_args.join(" "), cwd, depth)
+            };
+            return self.with_redirects(verdict, redirects, cwd);
         }
 
         if allowlists::is_simple_safe(&cmd_name) {

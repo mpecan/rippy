@@ -124,8 +124,7 @@ invariant_test!(
 invariant_test!(
     redirect_injection_never_allows,
     128,
-    invariants::redirect_inject,
-    invariants::redirect_guard_lost_by_wrapper
+    invariants::redirect_inject
 );
 invariant_test!(
     expansion_substitution_gated_on_dynamic_arg_safe,
@@ -205,11 +204,11 @@ proptest! {
     }
 }
 
-/// Confirmed fail-open found by invariant 3. Kept as a failing-but-ignored test
-/// so the gap is visible instead of hidden behind a softened invariant.
-/// See docs/fuzzing.md#known-fail-opens.
+/// Regression pin for #181: unwrapping a wrapper used to discard the outer
+/// node's redirects, so every shape below was auto-approved. The generated
+/// grammar cannot reach the bare-`timeout`, empty-args, nesting and heredoc
+/// forms, so they are enumerated here.
 #[test]
-#[ignore = "confirmed fail-open: wrapper commands lose the redirect guard"]
 fn wrapper_must_not_drop_the_redirect_guard() {
     let mut analyzer = isolated_analyzer();
     for cmd in [
@@ -219,11 +218,12 @@ fn wrapper_must_not_drop_the_redirect_guard() {
         "ltrace ls > /etc/passwd",
         "command echo pwned > /etc/sudoers",
         "builtin echo x >> /etc/hosts",
-        // The grammar only ever renders `timeout <duration> …`, which fails
-        // closed because the duration is read as the command name, so nothing
-        // else in the harness covers the bare form.
         "timeout ls > /etc/passwd",
+        "timeout 5 ls > /etc/passwd",
         "nice ls > /etc/passwd; echo done",
+        "nice nohup ls > /etc/passwd",
+        "nice > /etc/passwd",
+        "nice cat <<EOF\n$(id)\nEOF",
     ] {
         let verdict = invariants::decide(&mut analyzer, cmd);
         assert!(

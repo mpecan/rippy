@@ -207,6 +207,58 @@ pub fn is_wrapper(cmd: &str) -> bool {
     WRAPPER_COMMANDS.contains(cmd)
 }
 
+/// `timeout` flags that consume the following word as their value.
+const TIMEOUT_VALUE_FLAGS: &[&str] = &["-k", "--kill-after", "-s", "--signal"];
+
+/// `timeout` flags that stand alone.
+const TIMEOUT_FLAGS: &[&str] = &["--preserve-status", "--foreground", "-v", "--verbose"];
+
+/// The argv a wrapper actually executes, with the wrapper's own options removed.
+///
+/// Only `timeout` puts options and a mandatory DURATION in front of the command;
+/// every other wrapper is passed through untouched on purpose.
+/// See docs/security-invariants.md#wrapper-redirects.
+#[must_use]
+pub fn wrapper_inner_args<'a>(cmd: &str, args: &'a [String]) -> &'a [String] {
+    if cmd == "timeout" {
+        timeout_inner_args(args).unwrap_or(args)
+    } else {
+        args
+    }
+}
+
+/// `None` when the argv does not match GNU timeout's grammar, which keeps the
+/// caller on the fail-closed path of treating the stray word as the command.
+fn timeout_inner_args(args: &[String]) -> Option<&[String]> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i).map(String::as_str) {
+        if TIMEOUT_VALUE_FLAGS.contains(&arg) {
+            i += 2;
+        } else if TIMEOUT_FLAGS.contains(&arg) || is_timeout_joined_value(arg) {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    if is_timeout_duration(args.get(i)?) {
+        args.get(i + 1..)
+    } else {
+        None
+    }
+}
+
+fn is_timeout_joined_value(arg: &str) -> bool {
+    arg.starts_with("--kill-after=")
+        || arg.starts_with("--signal=")
+        || (arg.len() > 2 && (arg.starts_with("-k") || arg.starts_with("-s")))
+}
+
+fn is_timeout_duration(arg: &str) -> bool {
+    let body = arg.strip_suffix(['s', 'm', 'h', 'd']).unwrap_or(arg);
+    body.starts_with(|c: char| c.is_ascii_digit())
+        && body.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+}
+
 /// Check if a command is safe to auto-allow even when one of its arguments is a
 /// set-but-unknown (dynamic) value.
 ///
@@ -282,5 +334,54 @@ mod tests {
         assert!(is_wrapper("nice"));
         assert!(is_wrapper("nohup"));
         assert!(!is_wrapper("cat"));
+    }
+
+    fn argv(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| (*w).to_owned()).collect()
+    }
+
+    #[test]
+    fn non_timeout_wrappers_keep_their_whole_argv() {
+        let args = argv(&["-n", "10", "ls"]);
+        assert_eq!(wrapper_inner_args("nice", &args), args.as_slice());
+        assert_eq!(wrapper_inner_args("strace", &args), args.as_slice());
+    }
+
+    #[test]
+    fn timeout_duration_and_options_are_skipped() {
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["5", "ls", "-la"])),
+            argv(&["ls", "-la"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["-s", "KILL", "5", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["--kill-after=1", "5s", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["-sKILL", "1.5", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert!(wrapper_inner_args("timeout", &argv(&["5"])).is_empty());
+    }
+
+    #[test]
+    fn unparseable_timeout_argv_falls_back_to_the_whole_slice() {
+        for words in [
+            vec!["ls"],
+            vec!["1m30s", "ls"],
+            vec!["--bogus", "5", "ls"],
+            vec!["-s"],
+        ] {
+            let args = argv(&words);
+            assert_eq!(
+                wrapper_inner_args("timeout", &args),
+                args.as_slice(),
+                "{words:?} must not be reinterpreted"
+            );
+        }
     }
 }
