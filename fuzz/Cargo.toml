@@ -1,0 +1,31 @@
+[package]
+name = "rippy-cli-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Load-bearing: an empty workspace table makes this package its own workspace
+# root, so a future `[workspace]` in the root Cargo.toml can never pull the
+# nightly-only fuzz targets into the stable `cargo test` / `cargo clippy` build.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+rippy-cli = { path = "..", features = ["fuzzing"] }
+
+[[bin]]
+name = "analyze"
+path = "fuzz_targets/analyze.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "metamorphic"
+path = "fuzz_targets/metamorphic.rs"
+test = false
+doc = false
+bench = false

@@ -77,3 +77,20 @@ decision = "ask"
 [[case]]
 command = "cat script.sh | bash"
 decision = "ask"
+
+# Metamorphic invariants 1 and 6 (#168): the pipe-suffix and wrapper shapes the
+# generated-grammar proptests generalize. Observed via `isolated_analyzer()`.
+[[case]]
+command = "ls | sh"
+decision = "ask"
+reason_contains = "sh"
+
+[[case]]
+command = "time reboot"
+decision = "ask"
+reason_contains = "reboot"
+
+[[case]]
+command = "nice reboot"
+decision = "ask"
+reason_contains = "reboot"
