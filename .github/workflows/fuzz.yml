@@ -36,7 +36,15 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
 
       - name: Install cargo-fuzz
-        run: cargo binstall -y cargo-fuzz
+        run: cargo binstall -y --force cargo-fuzz
+
+      # cargo-fuzz defaults --target to the triple IT was built for, and binstall
+      # ships the musl-static build. musl links libc statically, which
+      # AddressSanitizer cannot use ("sanitizer is incompatible with statically
+      # linked libc"), so every target must be built for the host explicitly.
+      - name: Resolve host target triple
+        run: |
+          echo "HOST_TRIPLE=$(rustc -vV | sed -n 's/^host: //p')" >> "$GITHUB_ENV"
 
       - name: Generate seed corpus
         if: matrix.target == 'analyze'
@@ -51,7 +59,8 @@ jobs:
         if: matrix.target == 'analyze'
         run: |
           mkdir -p fuzz/corpus/analyze
-          cargo fuzz run analyze fuzz/corpus/analyze fuzz/seeds/analyze \
+          cargo fuzz run --target "$HOST_TRIPLE" \
+            analyze fuzz/corpus/analyze fuzz/seeds/analyze \
             -- -max_total_time=300
 
       # The decoder needs ~12 bytes per grammar stage, but libFuzzer keeps
@@ -60,7 +69,7 @@ jobs:
       - name: Fuzz metamorphic
         if: matrix.target == 'metamorphic'
         run: |
-          cargo fuzz run metamorphic \
+          cargo fuzz run --target "$HOST_TRIPLE" metamorphic \
             -- -max_total_time=300 -max_len=64 -len_control=0
 
       - name: Upload crash artifacts
