@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.2.1](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.0...rippy-cli-v0.2.1) (2026-07-26)
+
+
+### Features
+
+* allow output redirects to trusted safe dirs ([#143](https://github.com/mpecan/rippy/issues/143)) ([c2a1c3b](https://github.com/mpecan/rippy/commit/c2a1c3ba3ec11c83cc19319dbfb7ee99da667232))
+* coexist with Claude auto-mode via defer ([#128](https://github.com/mpecan/rippy/issues/128)) ([#129](https://github.com/mpecan/rippy/issues/129)) ([8597fc9](https://github.com/mpecan/rippy/commit/8597fc9fc47da062a75ed65ec3b2954512f5aad0))
+* opt-in safe-scope directories with plan-mode read widening ([#142](https://github.com/mpecan/rippy/issues/142)) ([73fb117](https://github.com/mpecan/rippy/commit/73fb117b3b1403824fe8c242e50844d3f81c8dc9))
+* recognize read-only task-runner invocations (just, mise, npm run, tokf) ([#140](https://github.com/mpecan/rippy/issues/140)) ([2fde475](https://github.com/mpecan/rippy/commit/2fde4752f0307f884b8f02c7799bedb3cccbf20b))
+* review-ease initiative — typed AllowReason, generated allow-catalog, completeness gate, fuzzing ([#163](https://github.com/mpecan/rippy/issues/163)-[#168](https://github.com/mpecan/rippy/issues/168)) ([#183](https://github.com/mpecan/rippy/issues/183)) ([a6daa61](https://github.com/mpecan/rippy/commit/a6daa61212040cc8486e3507832c9fddea3b10f9))
+* track locally-bound variables in the expansion resolver ([#144](https://github.com/mpecan/rippy/issues/144)) ([205f235](https://github.com/mpecan/rippy/commit/205f235249a3c5d7997da2af4802904c4820e28d))
+
+
+### Bug Fixes
+
+* emit hookEventName in Claude hook output ([#125](https://github.com/mpecan/rippy/issues/125)) ([#126](https://github.com/mpecan/rippy/issues/126)) ([c658241](https://github.com/mpecan/rippy/commit/c65824152e7cf51eed6bd3cc89bd524713e3e944))
+* repair main test build (task_runners uses renamed safe_scopes field) ([#145](https://github.com/mpecan/rippy/issues/145)) ([fe96c32](https://github.com/mpecan/rippy/commit/fe96c323cde10f696928ce02a9501d020c82d2a3))
+* route inspect/debug through the full analyzer pipeline ([#139](https://github.com/mpecan/rippy/issues/139)) ([652b7d4](https://github.com/mpecan/rippy/commit/652b7d4633af38d068e3c691247229f1940b89ff))
+* **security:** Ask on dangerous env-var assignments on safe commands ([#171](https://github.com/mpecan/rippy/issues/171)) ([e6caaeb](https://github.com/mpecan/rippy/commit/e6caaeb1cb268db18e2896a3c804a34c4659c406))
+* **security:** close embedded-language denylist bypasses (perl/ruby/node/awk/sed/SQL) ([#174](https://github.com/mpecan/rippy/issues/174)) ([486ac8e](https://github.com/mpecan/rippy/commit/486ac8e480344be284cb2a3441d6f0d91e3738be))
+* **security:** close the nine fail-opens found by the review-ease initiative ([#181](https://github.com/mpecan/rippy/issues/181), [#182](https://github.com/mpecan/rippy/issues/182), [#184](https://github.com/mpecan/rippy/issues/184)-[#190](https://github.com/mpecan/rippy/issues/190)) ([#191](https://github.com/mpecan/rippy/issues/191)) ([e159580](https://github.com/mpecan/rippy/commit/e1595809613a1f9fe5e5aedebe7493cda34da536))
+* **security:** fail closed on dangerous argv flags after safe-verb match ([#175](https://github.com/mpecan/rippy/issues/175)) ([5aa0c8f](https://github.com/mpecan/rippy/commit/5aa0c8f867074b38d92f75f44ec9fa3c063da486))
+* **security:** gate whole-string allow rules behind a single-command check ([#155](https://github.com/mpecan/rippy/issues/155)) ([#176](https://github.com/mpecan/rippy/issues/176)) ([45e191c](https://github.com/mpecan/rippy/commit/45e191cb4e9df1a346d74228fc51c509351d8026))
+* **security:** key hook-type detection off hook_event_name, not tool_result ([#169](https://github.com/mpecan/rippy/issues/169)) ([d5bc262](https://github.com/mpecan/rippy/commit/d5bc26290fff46a4c9fbdde8d60d6686e0a400d3))
+* **security:** resolver treats ${VAR:-$(cmd)} / $"$(cmd)" as inert literals ([#173](https://github.com/mpecan/rippy/issues/173)) ([c86de7d](https://github.com/mpecan/rippy/commit/c86de7de136babf93ccde20759b005b1df0f4e88))
+* **security:** scrutinize git -c config overrides and exec/write flags ([#172](https://github.com/mpecan/rippy/issues/172)) ([7b401d6](https://github.com/mpecan/rippy/commit/7b401d64581426fbdacc0f8cfc45e356336772ef))
+* strip env-var prefixes before handler dispatch ([#141](https://github.com/mpecan/rippy/issues/141)) ([847b347](https://github.com/mpecan/rippy/commit/847b34752169b3e1eb9c21a22b42c6fa8dc0fd9d))
+
+
+### Code Refactoring
+
+* restore the unreachable_pub / dead-code safety net ([#179](https://github.com/mpecan/rippy/issues/179)) ([bda31ff](https://github.com/mpecan/rippy/commit/bda31ffe1ba2abf3283b2b4bc69258cced7b8247))
+* split oversized analyzer/resolve modules under 700 lines ([#130](https://github.com/mpecan/rippy/issues/130)) ([#131](https://github.com/mpecan/rippy/issues/131)) ([b496777](https://github.com/mpecan/rippy/commit/b496777f9cd95364531b1568ed1ae9226e41ea1f))
+
 ## [0.2.0](https://github.com/mpecan/rippy/compare/rippy-cli-v0.1.3...rippy-cli-v0.2.0) (2026-04-15)
 
 
