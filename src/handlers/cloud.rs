@@ -51,7 +51,6 @@ const KUBECTL_SAFE: &[&str] = &[
     "version",
     "api-resources",
     "api-versions",
-    "auth",
     "wait",
     "diff",
     "plugin",
@@ -80,6 +79,10 @@ impl Handler for KubectlHandler {
             return classify_kubectl_config(ctx);
         }
 
+        if sub == "auth" {
+            return classify_kubectl_auth(ctx);
+        }
+
         if KUBECTL_SAFE.contains(&sub) {
             Classification::Allow(AllowReason::handler(desc))
         } else {
@@ -92,6 +95,7 @@ impl Handler for KubectlHandler {
         // approving, so it is not part of this surface.
         let mut entries = surface::subcommands("kubectl", KUBECTL_SAFE);
         entries.extend(surface::subcommands("kubectl config", KUBECTL_CONFIG_SAFE));
+        entries.extend(surface::subcommands("kubectl auth", KUBECTL_AUTH_SAFE));
         entries.push(AllowEntry::guarded(
             "kubectl --help|-h|--version",
             "sole argument",
@@ -115,6 +119,23 @@ fn classify_kubectl_config(ctx: &HandlerContext) -> Classification {
         Classification::Allow(AllowReason::handler(format!("kubectl config {child}")))
     } else {
         Classification::Ask(format!("kubectl config {child}"))
+    }
+}
+
+/// `kubectl auth` subcommands that only query permissions. `reconcile` (and
+/// anything else under `auth`) creates/updates RBAC objects in the live
+/// cluster, so it must fall through to Ask rather than ride the bare verb.
+const KUBECTL_AUTH_SAFE: &[&str] = &["can-i", "whoami"];
+
+fn classify_kubectl_auth(ctx: &HandlerContext) -> Classification {
+    let child = ctx.arg(1);
+    if child.is_empty() {
+        return Classification::Ask("kubectl auth (no subcommand)".into());
+    }
+    if KUBECTL_AUTH_SAFE.contains(&child) {
+        Classification::Allow(AllowReason::handler(format!("kubectl auth {child}")))
+    } else {
+        Classification::Ask(format!("kubectl auth {child}"))
     }
 }
 

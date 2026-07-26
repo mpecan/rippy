@@ -133,18 +133,6 @@ pub(crate) fn prefix_inject(
     check.at_least(analyzer, &format!("sudo {rendered}"), Decision::Ask)
 }
 
-/// Confirmed fail-open carve-out — see docs/fuzzing.md#known-fail-opens.
-///
-/// The invariant itself is unchanged; generation skips this one shape so the
-/// remaining space keeps being covered, and the exact reproducers are pinned as
-/// `#[ignore]`d tests in `tests/proptest_metamorphic.rs`. Delete once fixed.
-pub(crate) fn redirect_guard_lost_by_wrapper(spec: &CmdSpec) -> bool {
-    spec.stages
-        .last()
-        .and_then(|s| s.wrapper)
-        .is_some_and(|w| w != "time" && w != "timeout")
-}
-
 /// Invariant 3: redirecting output at a protected system file must never be
 /// auto-approved, whatever the command in front of it is.
 pub(crate) fn redirect_inject(
@@ -273,9 +261,7 @@ pub(crate) fn check_all(analyzer: &mut Analyzer, spec: &CmdSpec) -> Result<(), V
     let base = decide(analyzer, &rendered);
     suffix_inject(analyzer, spec, &base)?;
     prefix_inject(analyzer, spec, &base)?;
-    if !redirect_guard_lost_by_wrapper(spec) {
-        redirect_inject(analyzer, spec, &base)?;
-    }
+    redirect_inject(analyzer, spec, &base)?;
     expansion_substitution(analyzer, spec, &base)?;
     env_prefix_inject(analyzer, spec, &base)?;
     wrapper_monotonicity(analyzer, spec, &base)?;

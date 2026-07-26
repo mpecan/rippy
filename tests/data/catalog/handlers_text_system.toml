@@ -11,6 +11,21 @@ description = "Text / system / net handlers — command -> decision"
 command = "sed 's/x/y/' file.txt"
 decision = "allow"
 
+# #182: the delimiter was read as one byte, so a multi-byte delimiter matched its
+# own lead byte and produced a flags offset inside a scalar, crashing the hook.
+# The dangerous `w` flag behind such a delimiter must still be caught.
+[[case]]
+command = "sed -e sїaїbїc file.txt"
+decision = "allow"
+
+[[case]]
+command = "sed sїaїbїw out.txt"
+decision = "ask"
+
+[[case]]
+command = "sed -e sїaїbїe file.txt"
+decision = "ask"
+
 [[case]]
 command = "sed -i 's/x/y/' file.txt"
 decision = "ask"
@@ -172,6 +187,55 @@ command = "awk '/foo|bar/ {print $0 | \"sort\"}' file.txt"
 decision = "ask"
 reason_contains = "pipe"
 
+# #184: gawk's -i/--include loads an arbitrary awk source file (same
+# capability as -f) and `-i inplace` specifically rewrites the input file.
+[[case]]
+command = "awk -i inplace '{print}' file.txt"
+decision = "ask"
+reason_contains = "inplace"
+
+[[case]]
+command = "awk -i /tmp/lib.awk '{print}' file.txt"
+decision = "ask"
+reason_contains = "include file"
+
+[[case]]
+command = "awk -iinplace '{print}' file.txt"
+decision = "ask"
+reason_contains = "inplace"
+
+[[case]]
+command = "awk --include=inplace '{print}' file.txt"
+decision = "ask"
+reason_contains = "inplace"
+
+# #184 follow-up: gawk's -l/--load dlopens a shared library (native code), and
+# -f's glued/= spellings load a script exactly like the spaced form does.
+[[case]]
+command = "awk -l /tmp/evil.so '{print}' file.txt"
+decision = "ask"
+reason_contains = "shared library"
+
+[[case]]
+command = "gawk --load /tmp/evil.so '{print}' file.txt"
+decision = "ask"
+reason_contains = "shared library"
+
+[[case]]
+command = "awk -l/tmp/evil.so '{print}' file.txt"
+decision = "ask"
+reason_contains = "shared library"
+
+[[case]]
+command = "awk -f/tmp/script.awk file.txt"
+decision = "ask"
+reason_contains = "script file"
+
+[[case]]
+command = "awk --file=/tmp/script.awk file.txt"
+decision = "ask"
+reason_contains = "script file"
+
 # ---- find ----
 [[case]]
 command = "find . -name '*.tmp' -delete"
@@ -310,6 +374,53 @@ decision = "ask"
 
 [[case]]
 command = "tar -t -f a.tar -Fscript"
+decision = "ask"
+
+# ---- dos2unix / unix2dos ----
+# #187: both rewrite the named file in place by default; SIMPLE_SAFE approved
+# them on the command name alone with no argv inspection at all.
+[[case]]
+command = "dos2unix notes.txt"
+decision = "ask"
+
+[[case]]
+command = "unix2dos notes.txt"
+decision = "ask"
+
+[[case]]
+command = "dos2unix --info notes.txt"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -V"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -h"
+decision = "allow"
+
+# -n new-file mode: output path runs the redirect pipeline. Target in a safe
+# dir allows; target outside one is this guarded surface's dangerous neighbor.
+[[case]]
+command = "dos2unix -n old.txt /tmp/new.txt"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -n old.txt new.txt"
+decision = "ask"
+
+[[case]]
+command = "dos2unix -n onlyone.txt"
+decision = "ask"
+
+# A value-taking flag's value is not a file operand, so `-c mac` must not make
+# the in/out pair count odd and turn a paired invocation into a nag.
+[[case]]
+command = "dos2unix -n -c mac old.txt /tmp/new.txt"
+decision = "allow"
+
+[[case]]
+command = "dos2unix -n -c mac old.txt new.txt"
 decision = "ask"
 
 # ---- sort ----
@@ -553,6 +664,16 @@ decision = "ask"
 
 [[case]]
 command = "psql -l"
+decision = "allow"
+
+# #182: the CTE skipper indexed the statement by char position but sliced it by
+# byte position, crashing the hook on multi-byte SQL.
+[[case]]
+command = "psql -c \"WITH x AS (SELECT її) DELETE FROM t\""
+decision = "ask"
+
+[[case]]
+command = "psql -c \"WITH x AS (SELECT її) SELECT 1\""
 decision = "allow"
 
 [[case]]

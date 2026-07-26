@@ -1,0 +1,172 @@
+[meta]
+description = "Wrapper commands must not drop the redirect, heredoc or option guard (#181)"
+
+# nice
+[[case]]
+command = "nice ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "nice ls > /tmp/rippy-out.txt"
+decision = "allow"
+
+[[case]]
+command = "nice cat x > ~/.ssh/authorized_keys"
+decision = "ask"
+reason_contains = "redirect to ~/.ssh/authorized_keys"
+
+# nohup / strace / ltrace
+[[case]]
+command = "nohup ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "nohup echo hello"
+decision = "allow"
+
+[[case]]
+command = "strace ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "strace ls"
+decision = "allow"
+
+[[case]]
+command = "ltrace ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "ltrace ls > /dev/null"
+decision = "allow"
+
+# command / builtin
+[[case]]
+command = "command echo pwned > /etc/sudoers"
+decision = "ask"
+reason_contains = "redirect to /etc/sudoers"
+
+[[case]]
+command = "command echo pwned > /tmp/note.txt"
+decision = "allow"
+
+[[case]]
+command = "builtin echo x >> /etc/hosts"
+decision = "ask"
+reason_contains = "redirect to /etc/hosts"
+
+[[case]]
+command = "builtin echo x >> /tmp/output.txt"
+decision = "allow"
+
+# timeout — bare form, plus DURATION and option skipping
+[[case]]
+command = "timeout ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "timeout ls"
+decision = "allow"
+
+[[case]]
+command = "timeout 5 ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "timeout 5 ls"
+decision = "allow"
+
+[[case]]
+command = "timeout -s KILL 5 ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "timeout -s KILL 5 ls"
+decision = "allow"
+
+[[case]]
+command = "timeout 5 rm -rf /"
+decision = "ask"
+reason_contains = "command=rm"
+
+[[case]]
+command = "timeout 5 git status"
+decision = "allow"
+
+# An argv that does not match GNU timeout's grammar keeps the fail-closed path
+# where the stray word reads as an unknown command.
+[[case]]
+command = "timeout --bogus 5 ls"
+decision = "ask"
+reason_contains = "unknown command"
+
+[[case]]
+command = "timeout 5s ls"
+decision = "allow"
+
+# Nesting, the no-inner-command path, and heredocs on the same redirects slice
+[[case]]
+command = "nice nohup ls > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "nice nohup ls > /tmp/nested.txt"
+decision = "allow"
+
+[[case]]
+command = "nice > /etc/passwd"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "nice > /tmp/nice.txt"
+decision = "allow"
+
+[[case]]
+command = "nice cat <<EOF\n$(id)\nEOF"
+decision = "ask"
+reason_contains = "heredoc with expansion"
+
+[[case]]
+command = "nice cat <<'EOF'\nrm -rf /\nEOF"
+decision = "allow"
+
+[[case]]
+command = "nice ls > /etc/passwd; echo done"
+decision = "ask"
+reason_contains = "redirect to /etc/passwd"
+
+[[case]]
+command = "nice ls > /tmp/x; echo done"
+decision = "allow"
+
+# `nice` puts its own options in front of the command, so without skipping them
+# the adjustment was read as the command name and an ordinary safe invocation
+# Asked. The redirect guard must still survive the skip.
+[[case]]
+command = "nice -n 10 ls"
+decision = "allow"
+
+[[case]]
+command = "nice -10 ls"
+decision = "allow"
+
+[[case]]
+command = "nice --adjustment=5 ls"
+decision = "allow"
+
+[[case]]
+command = "nice -n 10 ls > /etc/passwd"
+decision = "ask"
+
+[[case]]
+command = "nice -n"
+decision = "ask"

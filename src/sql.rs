@@ -166,10 +166,10 @@ fn skip_cte(sql: &str) -> &str {
         return sql;
     }
 
-    // Find the last matching closing paren, then look for the main keyword
+    // Byte indices, not char indices: `last_close` is used to slice `sql`.
     let mut depth = 0i32;
     let mut last_close = 0;
-    for (i, ch) in sql.chars().enumerate() {
+    for (i, ch) in sql.char_indices() {
         if ch == '(' {
             depth += 1;
         } else if ch == ')' {
@@ -242,6 +242,15 @@ mod tests {
         assert_eq!(
             classify_sql("WITH cte AS (SELECT 1) SELECT * FROM cte"),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn cte_with_non_ascii_body_is_classified_without_panicking() {
+        assert_eq!(classify_sql("WITH x AS (SELECT її) SELECT 1"), Some(true));
+        assert_eq!(
+            classify_sql("WITH x AS (SELECT її) DELETE FROM t"),
+            Some(false)
         );
     }
 

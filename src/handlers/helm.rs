@@ -1,11 +1,16 @@
 use super::{
-    AllowEntry, Classification, Handler, HandlerContext, has_flag, is_sole_help_flag, surface,
+    AllowEntry, Classification, Handler, HandlerContext, has_flag, has_flag_or_prefixed,
+    is_sole_help_flag, surface,
 };
 use crate::verdict::AllowReason;
 
 pub(crate) static HELM_HANDLER: HelmHandler = HelmHandler;
 
 pub(crate) struct HelmHandler;
+
+/// Fetches remote chart dependencies and writes them into charts/, on any
+/// subcommand that accepts it (`template`, `install`, `upgrade`, `lint`).
+const DEPENDENCY_UPDATE_FLAGS: &[&str] = &["-u", "--dependency-update"];
 
 const SAFE_SUBCOMMANDS: &[&str] = &[
     "completion",
@@ -30,7 +35,7 @@ const DRY_RUN_SUBCOMMANDS: &[&str] = &["install", "upgrade", "uninstall", "rollb
 
 /// Nested subcommands where the second arg determines safety.
 const NESTED_SAFE: &[(&str, &[&str])] = &[
-    ("dependency", &["list", "update", "build"]),
+    ("dependency", &["list"]),
     ("repo", &["list"]),
     ("plugin", &["list"]),
     ("registry", &[]),
@@ -47,6 +52,12 @@ impl Handler for HelmHandler {
         }
 
         let sub = ctx.subcommand();
+
+        // `-u` fetches the chart's remote dependencies and writes them into
+        // charts/, which is what `helm dependency update` is bounded for (#189).
+        if has_flag_or_prefixed(ctx.args, DEPENDENCY_UPDATE_FLAGS) {
+            return Classification::Ask(format!("helm {sub} -u (updates dependencies)"));
+        }
 
         if SAFE_SUBCOMMANDS.contains(&sub) {
             return Classification::Allow(AllowReason::handler(format!("helm {sub}")));

@@ -1,6 +1,10 @@
 //! Heuristic safety analysis for inline Node.js / JavaScript source code.
 //!
-//! Scans for dangerous `require()` calls, globals, and method calls.
+//! Scans for dangerous `require()` calls, globals, and method calls. Also shared by the
+//! `deno` handler (`src/handlers/node.rs`): Deno exposes its filesystem/process/network/FFI
+//! API as a bare `Deno.*` global with no `require()`/`import` checkpoint the way Node's
+//! modules have, so it needs its own enumerated denylist (`DANGEROUS_DENO_GLOBALS`) rather
+//! than reusing the Node-idiom lists (see #186).
 //! Returns `true` if no dangerous patterns are found.
 
 const DANGEROUS_REQUIRES: &[&str] = &[
@@ -33,6 +37,40 @@ const DANGEROUS_GLOBALS: &[&str] = &[
     "WebSocket",
     "XMLHttpRequest",
     "import(",
+];
+
+/// Members of Deno's built-in global namespace that reach the filesystem,
+/// processes, network or FFI. Matched as a prefix of the member name, so `write`
+/// also covers `writeSync`/`writeTextFile` and `env` covers `env.get(...)`.
+/// See the module doc comment for why this list exists separately from
+/// `DANGEROUS_GLOBALS`.
+const DANGEROUS_DENO_MEMBERS: &[&str] = &[
+    "run",
+    "Command",
+    "remove",
+    "write",
+    "open",
+    "create",
+    "env",
+    "read",
+    "connect",
+    "listen",
+    "serve",
+    "dlopen",
+    "exit",
+    "kill",
+    "mkdir",
+    "rename",
+    "chmod",
+    "symlink",
+    "link",
+    "copyFile",
+    "truncate",
+    "umask",
+    "chdir",
+    "makeTemp",
+    "watchFs",
+    "permissions",
 ];
 
 const DANGEROUS_METHODS: &[&str] = &[
@@ -83,7 +121,35 @@ fn has_dangerous_requires(source: &str) -> bool {
 }
 
 fn has_dangerous_globals(source: &str) -> bool {
-    DANGEROUS_GLOBALS.iter().any(|g| source.contains(g))
+    DANGEROUS_GLOBALS.iter().any(|g| source.contains(g)) || has_dangerous_deno_usage(source)
+}
+
+const fn is_js_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+}
+
+/// Whether the source touches the `Deno` global in a way that is not provably
+/// inert. Substring matching on `Deno.member(` falls to trivial rewrites
+/// (`Deno.removeSync (x)`, `Deno["removeSync"](x)`, `const d=Deno`), so instead
+/// every `Deno` identifier must resolve to a statically named safe member:
+/// computed access and bare uses (aliasing) are treated as dangerous.
+fn has_dangerous_deno_usage(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    for (i, _) in source.match_indices("Deno") {
+        if i > 0 && bytes.get(i - 1).copied().is_some_and(is_js_word_byte) {
+            continue;
+        }
+        let Some(after) = source.get(i + 4..).map(str::trim_start) else {
+            continue;
+        };
+        let Some(member) = after.strip_prefix('.').map(str::trim_start) else {
+            return true;
+        };
+        if DANGEROUS_DENO_MEMBERS.iter().any(|m| member.starts_with(m)) {
+            return true;
+        }
+    }
+    false
 }
 
 fn has_dangerous_methods(source: &str) -> bool {
@@ -227,5 +293,61 @@ mod tests {
         // Static `import` (no paren) of nothing dangerous stays safe; only the
         // dynamic `import(` form is treated as a code-loading vector.
         assert!(is_node_source_safe("const x = 1; console.log(x)"));
+    }
+
+    #[test]
+    fn deno_remove_sync_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.removeSync('/tmp/x')"));
+    }
+
+    #[test]
+    fn deno_run_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.run({cmd:['id']})"));
+    }
+
+    #[test]
+    fn deno_command_is_dangerous() {
+        assert!(!is_node_source_safe("new Deno.Command('id').outputSync()"));
+    }
+
+    #[test]
+    fn deno_env_get_is_dangerous() {
+        assert!(!is_node_source_safe(
+            "console.log(Deno.env.get('AWS_SECRET_ACCESS_KEY'))"
+        ));
+    }
+
+    #[test]
+    fn deno_read_text_file_sync_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.readTextFileSync('/etc/passwd')"));
+    }
+
+    #[test]
+    fn deno_connect_is_dangerous() {
+        assert!(!is_node_source_safe(
+            "Deno.connect({hostname:'evil.example',port:80})"
+        ));
+    }
+
+    #[test]
+    fn deno_serve_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.serve(() => new Response('hi'))"));
+    }
+
+    #[test]
+    fn deno_dlopen_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.dlopen('/tmp/lib.so', {})"));
+    }
+
+    #[test]
+    fn deno_exit_is_dangerous() {
+        assert!(!is_node_source_safe("Deno.exit(1)"));
+    }
+
+    #[test]
+    fn deno_args_and_cwd_are_safe() {
+        // Not in the denylist -- proves the fix doesn't blanket-block `Deno.*`.
+        assert!(is_node_source_safe("console.log(Deno.args)"));
+        assert!(is_node_source_safe("console.log(Deno.cwd())"));
     }
 }

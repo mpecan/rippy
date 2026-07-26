@@ -150,3 +150,17 @@ reason_contains = "dangerous env-var assignment"
 command = "GIT_CONFIG_COUNT=1 ls"
 decision = "ask"
 reason_contains = "dangerous env-var assignment"
+
+# #185: ANSIBLE_* plugin/library paths make ansible import Python from an
+# attacker-chosen directory — the env route to what `ansible-doc -M` does.
+[[case]]
+command = "ANSIBLE_LIBRARY=/tmp/mods ansible-doc ping"
+decision = "ask"
+
+[[case]]
+command = "ANSIBLE_ACTION_PLUGINS=/tmp/p ansible-doc ping"
+decision = "ask"
+
+[[case]]
+command = "ANSIBLE_CONFIG=/tmp/cfg ansible-lint playbook.yml"
+decision = "ask"

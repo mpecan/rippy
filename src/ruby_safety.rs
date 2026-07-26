@@ -113,7 +113,9 @@ const fn is_word_byte(b: u8) -> bool {
 /// prefix/substring of a longer identifier (e.g. `system` must not match
 /// inside `spawn_count`). Ruby allows calling `system`/`exec`/`spawn` with or
 /// without parens (`system "id"`, `system("id")`), so only the boundary
-/// before and after the match is checked.
+/// before and after the match is checked. Comparison is byte-wise because the
+/// words are ASCII and slicing the `str` at raw offsets panics on multi-byte
+/// input (see docs/security-invariants.md#non-ascii-inline-code).
 fn contains_word(source: &str, word: &str) -> bool {
     let bytes = source.as_bytes();
     let wlen = word.len();
@@ -121,7 +123,7 @@ fn contains_word(source: &str, word: &str) -> bool {
         return false;
     }
     for start in 0..=(bytes.len() - wlen) {
-        if &source[start..start + wlen] != word {
+        if &bytes[start..start + wlen] != word.as_bytes() {
             continue;
         }
         let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
@@ -309,5 +311,12 @@ mod tests {
     #[test]
     fn open3_identifier_prefix_is_not_dangerous() {
         assert!(is_ruby_source_safe("Open3ish = 1; puts Open3ish"));
+    }
+
+    #[test]
+    fn non_ascii_source_is_classified_without_panicking() {
+        assert!(!is_ruby_source_safe("%x+їd/"));
+        assert!(!is_ruby_source_safe("їx; system \"id\""));
+        assert!(is_ruby_source_safe("puts їx"));
     }
 }

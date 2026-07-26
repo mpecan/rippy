@@ -1,5 +1,6 @@
 use super::{
-    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag, surface,
+    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag,
+    has_flag_or_prefixed, has_glued_short_flag, surface,
 };
 use crate::verdict::AllowReason;
 
@@ -12,6 +13,14 @@ const GALAXY_SAFE: &[&str] = &["list", "search", "info"];
 
 /// `ansible-config` subcommands that only read.
 const CONFIG_SAFE: &[&str] = &["list", "dump", "view"];
+
+/// `ansible-lint` flags that rewrite the playbook in place instead of just reporting.
+const LINT_MUTATING_FLAGS: &[&str] = &["--fix", "--write"];
+
+/// `ansible-doc` flags that point it at an attacker-chosen module directory, from
+/// which it imports Python to extract the `DOCUMENTATION` block — arbitrary code
+/// execution disguised as a docs lookup.
+const DOC_MODULE_PATH_FLAGS: &[&str] = &["-M", "--module-path"];
 
 pub(crate) static ANSIBLE_HANDLER: AnsibleHandler = AnsibleHandler;
 
@@ -33,10 +42,8 @@ impl Handler for AnsibleHandler {
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         match ctx.command_name {
-            "ansible-doc" => Classification::Allow(AllowReason::handler("ansible-doc (read-only)")),
-            "ansible-lint" => {
-                Classification::Allow(AllowReason::handler("ansible-lint (read-only)"))
-            }
+            "ansible-doc" => classify_doc(ctx),
+            "ansible-lint" => classify_lint(ctx),
             "ansible" => classify_ansible(ctx),
             "ansible-playbook" => classify_playbook(ctx),
             "ansible-vault" => classify_vault(ctx),
@@ -49,8 +56,8 @@ impl Handler for AnsibleHandler {
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
         let mut entries = vec![
-            AllowEntry::new("ansible-doc"),
-            AllowEntry::new("ansible-lint"),
+            AllowEntry::guarded("ansible-doc", "neither -M nor --module-path present"),
+            AllowEntry::guarded("ansible-lint", "neither --fix nor --write present"),
             AllowEntry::guarded("ansible", "one of --check/-C/--list-hosts present"),
             AllowEntry::guarded(
                 "ansible-playbook",
@@ -69,6 +76,24 @@ impl Handler for AnsibleHandler {
         entries.extend(surface::subcommands("ansible-galaxy", GALAXY_SAFE));
         entries.extend(surface::subcommands("ansible-config", CONFIG_SAFE));
         entries
+    }
+}
+
+fn classify_lint(ctx: &HandlerContext) -> Classification {
+    if has_flag_or_prefixed(ctx.args, LINT_MUTATING_FLAGS) {
+        Classification::Ask("ansible-lint --fix/--write (rewrites playbook)".into())
+    } else {
+        Classification::Allow(AllowReason::handler("ansible-lint (read-only)"))
+    }
+}
+
+fn classify_doc(ctx: &HandlerContext) -> Classification {
+    if has_flag_or_prefixed(ctx.args, DOC_MODULE_PATH_FLAGS)
+        || has_glued_short_flag(ctx.args, &["-M"])
+    {
+        Classification::Ask("ansible-doc -M/--module-path (imports from attacker dir)".into())
+    } else {
+        Classification::Allow(AllowReason::handler("ansible-doc (read-only)"))
     }
 }
 

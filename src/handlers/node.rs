@@ -1,6 +1,6 @@
 use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
-    has_flag, is_sole_help_flag,
+    has_flag, has_flag_or_prefixed, is_sole_help_flag,
 };
 use crate::node_safety::is_node_source_safe;
 use crate::verdict::AllowReason;
@@ -8,6 +8,35 @@ use crate::verdict::AllowReason;
 pub(crate) static NODE_HANDLER: NodeHandler = NodeHandler;
 
 pub(crate) struct NodeHandler;
+
+// Deno's permission model grants capability explicitly via flags, independent of what
+// the script does; a static content scan cannot override an explicit capability grant
+// (see #186), so any of these force Ask before `deno eval` content analysis runs.
+/// Deno 2 added a short alias for most of these, so listing only the long form
+/// left `deno eval -R …` approved while `--allow-read` Asked.
+const DENO_PERMISSION_FLAGS: &[&str] = &[
+    "-A",
+    "--allow-all",
+    "--allow-run",
+    "--allow-read",
+    "-R",
+    "--allow-write",
+    "-W",
+    "--allow-net",
+    "-N",
+    "--allow-env",
+    "-E",
+    "--allow-sys",
+    "-S",
+    "--allow-ffi",
+    "--allow-hrtime",
+    "--allow-import",
+    "--allow-scripts",
+];
+
+fn has_deno_permission_flag(args: &[String]) -> bool {
+    has_flag_or_prefixed(args, DENO_PERMISSION_FLAGS)
+}
 
 impl Handler for NodeHandler {
     fn commands(&self) -> &[&str] {
@@ -24,8 +53,17 @@ impl Handler for NodeHandler {
         }
 
         if ctx.command_name == "deno" && ctx.args.first().map(String::as_str) == Some("eval") {
-            let source = ctx.args.get(1).map_or("", String::as_str);
-            return classify_inline(ctx.command_name, source);
+            if has_deno_permission_flag(&ctx.args[1..]) {
+                return Classification::Ask(format!(
+                    "{} eval (explicit permission flag)",
+                    ctx.command_name
+                ));
+            }
+            // Join the full remainder rather than trusting args[1] to be the source: a flag
+            // preceding the code (e.g. `deno eval --ext=ts 'code'`) would otherwise be
+            // analyzed instead of the actual code, silently disabling the scanner (#186).
+            let source = ctx.args[1..].join(" ");
+            return classify_inline(ctx.command_name, &source);
         }
 
         // -e/--eval/-p/--print inline code — analyze source for dangerous patterns.
@@ -67,7 +105,10 @@ impl Handler for NodeHandler {
                 "sole argument",
             ),
             AllowEntry::guarded("node -e|--eval|-p|--print <code>", safe_source),
-            AllowEntry::guarded("deno eval <code>", safe_source),
+            AllowEntry::guarded(
+                "deno eval <code>",
+                format!("no explicit permission flag and {safe_source}"),
+            ),
             AllowEntry::guarded(
                 "node <script>",
                 format!("script readable from the working directory and its {safe_source}"),
@@ -201,6 +242,32 @@ mod tests {
         assert!(matches!(
             NODE_HANDLER.classify(&ctx),
             Classification::Allow(_)
+        ));
+    }
+
+    #[test]
+    fn deno_eval_permission_flag_asks_even_with_inert_content() {
+        let args = vec!["eval".into(), "--allow-all".into(), "console.log(1)".into()];
+        let ctx = HandlerContext::test("deno", &args);
+        assert!(matches!(
+            NODE_HANDLER.classify(&ctx),
+            Classification::Ask(_)
+        ));
+    }
+
+    #[test]
+    fn deno_eval_flag_before_dangerous_code_still_asks() {
+        // Regression for the args.get(1) bug: a non-permission flag preceding the
+        // source must not cause the scanner to analyze the flag instead of the code.
+        let args = vec![
+            "eval".into(),
+            "--ext=ts".into(),
+            "Deno.removeSync('/tmp/x')".into(),
+        ];
+        let ctx = HandlerContext::test("deno", &args);
+        assert!(matches!(
+            NODE_HANDLER.classify(&ctx),
+            Classification::Ask(_)
         ));
     }
 }

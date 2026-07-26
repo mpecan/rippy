@@ -319,6 +319,11 @@ pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
     if name.starts_with("GIT_CONFIG") || name.starts_with("BASH_FUNC_") {
         return true;
     }
+    // ANSIBLE_*_PLUGINS point ansible at an attacker-chosen directory it then
+    // imports Python from — the env route to what `ansible-doc -M` does (#185).
+    if name.starts_with("ANSIBLE_") && name.ends_with("_PLUGINS") {
+        return true;
+    }
     matches!(
         name,
         "BASH_ENV"
@@ -340,6 +345,9 @@ pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
             | "PYTHONPATH"
             | "NODE_OPTIONS"
             | "RUBYOPT"
+            | "ANSIBLE_CONFIG"
+            | "ANSIBLE_LIBRARY"
+            | "ANSIBLE_MODULE_UTILS"
     )
 }
 

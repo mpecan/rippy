@@ -71,7 +71,8 @@ is a single plain command. That is the base being conservative, not the wrapped
 form failing open. The harness therefore applies invariant 6 to single-stage
 specs, where prefixing a wrapper really does wrap the whole command. An
 exhaustive sweep of every `SIMPLE_SAFE` leaf times every wrapper in that shape
-found exactly one violation, recorded below.
+found one violation, the dropped redirect guard fixed in
+[#181](https://github.com/mpecan/rippy/issues/181), and none since.
 
 ### Invariant 7
 
@@ -84,54 +85,6 @@ command-position dynamic branch in `src/analyzer_dispatch.rs` returns `Ask`
 `Verdict::combine` likewise keeps `resolved_command` when a redirect verdict
 dominates, so the resolved string can omit the redirect that drove the decision.
 Only the monotone direction expresses "never fail open".
-
-## Known fail-opens
-
-### Wrapper commands drop the redirect guard — [#181](https://github.com/mpecan/rippy/issues/181)
-
-Found by invariant 3.
-
-```
-ls > /etc/passwd                    => Ask   | redirect to /etc/passwd
-nice ls > /etc/passwd               => Allow | ls is safe
-command echo pwned > /etc/sudoers   => Allow | echo is safe
-timeout ls > /etc/passwd            => Allow | ls is safe
-nice ls > /etc/passwd; echo done    => Allow | echo is safe
-```
-
-`analyze_command_node` returns the wrapper's inner verdict directly instead of
-funnelling it through `with_redirects`, so `nice`, `nohup`, `strace`, `ltrace`,
-`command`, `builtin` and bare `timeout` all discard the node's redirects.
-`time` is unaffected because rable parses it as a keyword.
-
-Until it is fixed:
-
-- `invariants::redirect_guard_lost_by_wrapper` skips exactly this shape during
-  generation. The invariant itself is unchanged.
-- `tests/proptest_metamorphic.rs::wrapper_must_not_drop_the_redirect_guard`
-  pins the reproducers as an `#[ignore]`d failing test, including the bare
-  `timeout` and compound forms the generator cannot reach.
-
-Fixing #181 means deleting both.
-
-### Non-ASCII in a ruby/perl inline script panics the hook — [#182](https://github.com/mpecan/rippy/issues/182)
-
-Found by the `analyze` target within 30 seconds of its first run.
-
-```
-ruby -e '%x+їd/'     -> panic at src/ruby_safety.rs:124, exit 101
-perl -e 'їopen'      -> panic at src/perl_safety.rs:74
-```
-
-`contains_word` indexes a `&str` with byte offsets taken from `as_bytes()`, so a
-multi-byte character splits mid-scalar. No verdict is written and the process
-exits 101, which Claude Code treats as a non-blocking error — the command runs
-un-gated, making this a fail-open rather than a mere crash.
-
-`tests/proptest_robustness.rs::interpreter_scanners_must_not_panic_on_non_ascii`
-pins the reproducers as an `#[ignore]`d failing test. Until #182 is fixed the
-nightly `analyze` job will keep rediscovering this crash and failing; that is the
-intended behavior of a scheduled fuzz job with a known open bug.
 
 ## Running the harnesses
 
@@ -192,12 +145,13 @@ The two paths differ because proptest's `SourceParallel` cannot find a
 sibling file and the repo-root `proptest-regressions/` never receives anything
 from `tests/`.
 
-Both counterexamples found so far ([#181](https://github.com/mpecan/rippy/issues/181),
-[#182](https://github.com/mpecan/rippy/issues/182)) are pinned as `#[ignore]`d
-reproducers plus tracked issues rather than as committed seed files, so
+The counterexamples found so far ([#181](https://github.com/mpecan/rippy/issues/181),
+[#182](https://github.com/mpecan/rippy/issues/182)) were pinned as `#[ignore]`d
+reproducers plus tracked issues rather than as committed seed files, and both
+became un-`#[ignore]`d regression tests once the fail-open was closed, so
 `proptest-regressions/` is still empty. A seed only replays one shrunk input and
 says nothing about why it is accepted; the named carve-out predicate plus the
-`#[ignore]`d test states the exact command, keeps it in the file a reader of the
+pinned test states the exact command, keeps it in the file a reader of the
 invariant will open, and fails loudly the day the fail-open is closed. Prefer
 that shape for a *known* fail-open, and commit the seed file for a genuine
 regression that the invariants are meant to catch.

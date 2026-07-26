@@ -121,6 +121,16 @@ dangerous = [
     { inner = "-i 's/old/new/g'", reason_contains = "in-place" },
 ]
 
+[[contrast]]
+description = "awk filter vs -i inplace"
+template = "awk {CMD} file.txt"
+safe = [
+    { inner = "'{print}'" },
+]
+dangerous = [
+    { inner = "-i inplace '{print}'", reason_contains = "inplace" },
+]
+
 # Contrast for git: safe vs dangerous subcommands
 [[contrast]]
 description = "git subcommand safety"

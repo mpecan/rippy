@@ -153,8 +153,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "hyperfine",
         // Encoding
         "iconv",
-        "dos2unix",
-        "unix2dos",
+        // dos2unix/unix2dos have a dedicated handler (rewrite the named file in place by default)
         // Disk/fs info
         "mount",
         "findmnt",
@@ -205,6 +204,84 @@ pub fn is_simple_safe(cmd: &str) -> bool {
 #[must_use]
 pub fn is_wrapper(cmd: &str) -> bool {
     WRAPPER_COMMANDS.contains(cmd)
+}
+
+/// `timeout` flags that consume the following word as their value.
+const TIMEOUT_VALUE_FLAGS: &[&str] = &["-k", "--kill-after", "-s", "--signal"];
+
+/// `timeout` flags that stand alone.
+const TIMEOUT_FLAGS: &[&str] = &["--preserve-status", "--foreground", "-v", "--verbose"];
+
+/// The argv a wrapper actually executes, with the wrapper's own options removed.
+///
+/// Only `timeout` and `nice` put options in front of the command; every other
+/// wrapper is passed through untouched on purpose. Both fall back to the whole
+/// argv when the grammar does not match, which keeps the stray word as the
+/// command name and so Asks. See docs/security-invariants.md#wrapper-redirects.
+#[must_use]
+pub fn wrapper_inner_args<'a>(cmd: &str, args: &'a [String]) -> &'a [String] {
+    match cmd {
+        "timeout" => timeout_inner_args(args).unwrap_or(args),
+        "nice" => nice_inner_args(args).unwrap_or(args),
+        _ => args,
+    }
+}
+
+/// `nice [-n N | --adjustment=N | -N] COMMAND …`. Without this, `nice -n 10 ls`
+/// read `-n` as the command and Asked on an ordinary safe invocation.
+fn nice_inner_args(args: &[String]) -> Option<&[String]> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i).map(String::as_str) {
+        if arg == "-n" || arg == "--adjustment" {
+            i += 2;
+        } else if arg.starts_with("--adjustment=") || is_nice_adjustment(arg) {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    args.get(i..).filter(|rest| !rest.is_empty())
+}
+
+/// A bare adjustment such as `-10` or `-+5`, which `nice` accepts in place of
+/// `-n 10`. A flag like `-n` is not one, so it still consumes its value.
+fn is_nice_adjustment(arg: &str) -> bool {
+    arg.strip_prefix('-').is_some_and(|rest| {
+        let digits = rest.strip_prefix('+').unwrap_or(rest);
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    })
+}
+
+/// `None` when the argv does not match GNU timeout's grammar, which keeps the
+/// caller on the fail-closed path of treating the stray word as the command.
+fn timeout_inner_args(args: &[String]) -> Option<&[String]> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i).map(String::as_str) {
+        if TIMEOUT_VALUE_FLAGS.contains(&arg) {
+            i += 2;
+        } else if TIMEOUT_FLAGS.contains(&arg) || is_timeout_joined_value(arg) {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    if is_timeout_duration(args.get(i)?) {
+        args.get(i + 1..)
+    } else {
+        None
+    }
+}
+
+fn is_timeout_joined_value(arg: &str) -> bool {
+    arg.starts_with("--kill-after=")
+        || arg.starts_with("--signal=")
+        || (arg.len() > 2 && (arg.starts_with("-k") || arg.starts_with("-s")))
+}
+
+fn is_timeout_duration(arg: &str) -> bool {
+    let body = arg.strip_suffix(['s', 'm', 'h', 'd']).unwrap_or(arg);
+    body.starts_with(|c: char| c.is_ascii_digit())
+        && body.bytes().all(|b| b.is_ascii_digit() || b == b'.')
 }
 
 /// Check if a command is safe to auto-allow even when one of its arguments is a
@@ -282,5 +359,85 @@ mod tests {
         assert!(is_wrapper("nice"));
         assert!(is_wrapper("nohup"));
         assert!(!is_wrapper("cat"));
+    }
+
+    fn argv(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| (*w).to_owned()).collect()
+    }
+
+    /// A wrapper with no modelled option grammar keeps its whole argv, so a
+    /// leading option is read as the command name and Asks. That fail-closed
+    /// default is the point; only `timeout` and `nice` are modelled.
+    #[test]
+    fn wrappers_without_an_option_grammar_keep_their_whole_argv() {
+        let args = argv(&["-n", "10", "ls"]);
+        assert_eq!(wrapper_inner_args("strace", &args), args.as_slice());
+        assert_eq!(wrapper_inner_args("nohup", &args), args.as_slice());
+    }
+
+    #[test]
+    fn nice_adjustment_options_are_skipped() {
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["-n", "10", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["-10", "ls", "-la"])),
+            argv(&["ls", "-la"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["--adjustment=5", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("nice", &argv(&["ls"])),
+            argv(&["ls"]).as_slice()
+        );
+    }
+
+    /// A malformed `nice` falls back to the whole argv rather than yielding an
+    /// empty command, so it stays on the Ask path.
+    #[test]
+    fn incomplete_nice_argv_falls_back_to_the_whole_argv() {
+        let args = argv(&["-n"]);
+        assert_eq!(wrapper_inner_args("nice", &args), args.as_slice());
+    }
+
+    #[test]
+    fn timeout_duration_and_options_are_skipped() {
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["5", "ls", "-la"])),
+            argv(&["ls", "-la"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["-s", "KILL", "5", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["--kill-after=1", "5s", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert_eq!(
+            wrapper_inner_args("timeout", &argv(&["-sKILL", "1.5", "ls"])),
+            argv(&["ls"]).as_slice()
+        );
+        assert!(wrapper_inner_args("timeout", &argv(&["5"])).is_empty());
+    }
+
+    #[test]
+    fn unparseable_timeout_argv_falls_back_to_the_whole_slice() {
+        for words in [
+            vec!["ls"],
+            vec!["1m30s", "ls"],
+            vec!["--bogus", "5", "ls"],
+            vec!["-s"],
+        ] {
+            let args = argv(&words);
+            assert_eq!(
+                wrapper_inner_args("timeout", &args),
+                args.as_slice(),
+                "{words:?} must not be reinterpreted"
+            );
+        }
     }
 }

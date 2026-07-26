@@ -5,6 +5,16 @@ description = "Declared npm / deno allow surfaces, one observed allow case each"
 command = 'deno eval "console.log(1)"'
 decision = "allow"
 
+# Deno.args/Deno.cwd() touch the Deno global but are not in the dangerous-members
+# denylist -- proves the #186 fix is scoped, not a blanket Deno.* block.
+[[case]]
+command = "deno eval 'console.log(Deno.args)'"
+decision = "allow"
+
+[[case]]
+command = "deno eval 'console.log(Deno.cwd())'"
+decision = "allow"
+
 [[case]]
 command = 'npm list'
 decision = "allow"
@@ -132,3 +142,17 @@ decision = "allow"
 [[case]]
 command = 'npm audit'
 decision = "allow"
+
+# #186: Deno 2 added short aliases for the permission flags, so listing only the
+# long spelling left `deno eval -R …` approved while `--allow-read` Asked.
+[[case]]
+command = "deno eval -R 'console.log(1)'"
+decision = "ask"
+
+[[case]]
+command = "deno eval -W 'console.log(1)'"
+decision = "ask"
+
+[[case]]
+command = "deno eval --allow-import 'console.log(1)'"
+decision = "ask"

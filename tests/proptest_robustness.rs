@@ -187,14 +187,12 @@ proptest! {
     }
 }
 
-/// Confirmed fail-open found by the `analyze` cargo-fuzz target (issue #182):
-/// `contains_word` in `ruby_safety`/`perl_safety` slices `&str` at byte offsets
-/// taken from `as_bytes()`, so one non-ASCII character panics the whole hook
-/// (exit 101, which Claude Code treats as non-blocking, letting the command run
-/// un-gated). Kept failing-but-ignored so the gap stays visible rather than
-/// hidden. See docs/fuzzing.md#known-fail-opens.
+/// Regression pin for the fail-open the `analyze` cargo-fuzz target found
+/// (issue #182): `contains_word` in `ruby_safety`/`perl_safety` sliced `&str` at
+/// byte offsets taken from `as_bytes()`, so one non-ASCII character panicked the
+/// whole hook (exit 101, which Claude Code treats as non-blocking, letting the
+/// command run un-gated).
 #[test]
-#[ignore = "confirmed fail-open: see #182"]
 fn interpreter_scanners_must_not_panic_on_non_ascii() {
     for command in [
         "ruby -e '%x+\u{457}d/'",

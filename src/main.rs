@@ -8,10 +8,10 @@ use rippy_cli::analyzer::Analyzer;
 use rippy_cli::cli::{Cli, Command, HookArgs};
 use rippy_cli::config::Config;
 use rippy_cli::error::RippyError;
-use rippy_cli::mode::{HookType, Mode};
+use rippy_cli::mode::{HookType, Mode, PermissionMode};
 use rippy_cli::payload::{FileOp, Payload};
 use rippy_cli::setup;
-use rippy_cli::verdict::{AllowReason, ClaudeContext, Decision, Verdict};
+use rippy_cli::verdict::{AllowReason, AutoMode, ClaudeContext, Decision, Verdict};
 
 /// Evaluate a payload. Returns `None` for passthrough (file tools with no matching rule).
 fn evaluate(
@@ -221,6 +221,42 @@ fn track_verdict(db_path: Option<&std::path::Path>, payload: &Payload, verdict: 
     }
 }
 
+/// Run the hook so that no failure can fail open: a terminal error or a panic
+/// anywhere in evaluation is converted into a forced Ask in the caller's wire
+/// format (#182). An `{"error":...}` + exit 1 here reads to Claude Code as a
+/// non-blocking hook error, i.e. an auto-approval. Subcommands keep that error
+/// path, where a human — not an agent — reads the message.
+fn fail_closed(
+    args: &HookArgs,
+    evaluate: impl FnOnce() -> Result<ExitCode, RippyError>,
+) -> ExitCode {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(evaluate)) {
+        Ok(Ok(code)) => code,
+        Ok(Err(e)) => forced_ask(args, &e.to_string()),
+        Err(_) => forced_ask(args, "internal error"),
+    }
+}
+
+/// The context a forced Ask is rendered with. Nothing is known about the
+/// session at this point, so it uses the strictest combination: manual
+/// permission mode and the `auto-mode` policy that never defers.
+const FAIL_CLOSED_CONTEXT: ClaudeContext = ClaudeContext {
+    hook_type: HookType::PreToolUse,
+    permission_mode: PermissionMode::Default,
+    auto_mode: AutoMode::Ask,
+};
+
+fn forced_ask_verdict(detail: &str) -> Verdict {
+    Verdict::ask(format!("rippy could not evaluate this input: {detail}"))
+}
+
+fn forced_ask(args: &HookArgs, detail: &str) -> ExitCode {
+    let mode = args.forced_mode().unwrap_or(Mode::Claude);
+    let verdict = forced_ask_verdict(detail);
+    println!("{}", verdict.to_json(mode, FAIL_CLOSED_CONTEXT));
+    hook_exit_code(mode, verdict.decision, FAIL_CLOSED_CONTEXT)
+}
+
 fn run() -> Result<ExitCode, RippyError> {
     let cli = Cli::parse();
 
@@ -244,7 +280,7 @@ fn run() -> Result<ExitCode, RippyError> {
         Some(Command::List(ref a)) => rippy_cli::list::run(a),
         Some(Command::Profile(ref a)) => rippy_cli::profile_cmd::run(a),
         Some(Command::Scope(ref a)) => rippy_cli::scope_cmd::run(a),
-        None => run_hook(&cli.hook_args),
+        None => Ok(fail_closed(&cli.hook_args, || run_hook(&cli.hook_args))),
     }
 }
 
@@ -257,6 +293,54 @@ fn main() -> ExitCode {
             });
             println!("{error_json}");
             ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::panic, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use rippy_cli::cli::ModeArg;
+
+    fn hook_args(mode: Option<ModeArg>) -> HookArgs {
+        HookArgs {
+            mode,
+            config: None,
+            remote: false,
+            verbose: false,
+        }
+    }
+
+    #[test]
+    fn a_panic_on_the_hook_path_does_not_escape() {
+        let _code = fail_closed(&hook_args(Some(ModeArg::Claude)), || {
+            panic!("indexing bug somewhere in evaluation")
+        });
+    }
+
+    #[test]
+    fn a_terminal_error_on_the_hook_path_does_not_escape() {
+        let _code = fail_closed(&hook_args(None), || {
+            Err(RippyError::Parse("bad payload".into()))
+        });
+    }
+
+    #[test]
+    fn forced_ask_renders_an_ask_in_every_mode() {
+        let verdict = forced_ask_verdict("internal error");
+        assert_eq!(verdict.decision, Decision::Ask);
+        for mode in [Mode::Claude, Mode::Gemini, Mode::Cursor, Mode::Codex] {
+            let json = verdict.to_json(mode, FAIL_CLOSED_CONTEXT);
+            let wire = json.to_string();
+            assert!(
+                wire.contains("could not evaluate"),
+                "{mode:?} lost the reason: {wire}"
+            );
+            assert!(
+                !wire.contains("\"allow\"") && !wire.contains("\"defer\""),
+                "{mode:?} failed open: {wire}"
+            );
         }
     }
 }

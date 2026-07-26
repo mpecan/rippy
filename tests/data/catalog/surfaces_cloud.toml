@@ -314,15 +314,13 @@ decision = "allow"
 command = 'helm uninstall myrelease --dry-run'
 decision = "allow"
 
-# KNOWN GAP: `dependency update`/`build` fetch chart tarballs over the
-# network and write them into charts/. Pinned as observed, not endorsed.
 [[case]]
 command = 'helm dependency update'
-decision = "allow"
+decision = "ask"
 
 [[case]]
 command = 'helm dependency build'
-decision = "allow"
+decision = "ask"
 
 [[case]]
 command = 'kubectl describe'
@@ -356,11 +354,21 @@ decision = "allow"
 command = 'kubectl api-versions'
 decision = "allow"
 
-# KNOWN GAP: the surface is the bare verb, so every argv rides along -- and
-# `kubectl auth reconcile -f rbac.yaml` writes RBAC objects to the live
-# cluster. Pinned as observed, not endorsed.
+[[case]]
+command = 'kubectl auth reconcile -f rbac.yaml'
+decision = "ask"
+
 [[case]]
 command = 'kubectl auth'
+decision = "ask"
+reason_contains = "no subcommand"
+
+[[case]]
+command = 'kubectl auth can-i --list'
+decision = "allow"
+
+[[case]]
+command = 'kubectl auth whoami'
 decision = "allow"
 
 [[case]]
@@ -401,4 +409,18 @@ decision = "allow"
 
 [[case]]
 command = 'kubectl config get-context'
+decision = "allow"
+
+# #189: `-u` fetches remote chart dependencies and writes them into charts/,
+# reaching past the bounded `helm dependency update` surface.
+[[case]]
+command = "helm template -u ./chart"
+decision = "ask"
+
+[[case]]
+command = "helm template --dependency-update ./chart"
+decision = "ask"
+
+[[case]]
+command = "helm template ./chart"
 decision = "allow"

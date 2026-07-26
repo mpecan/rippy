@@ -33,15 +33,15 @@ For those, the `Condition` column names the module that decides.
 
 Commands approved on their name alone, regardless of arguments.
 
-### `SIMPLE_SAFE` — 131 commands
+### `SIMPLE_SAFE` — 129 commands
 
 Approved on the command name alone, whatever the arguments.
 
-`:`, `[`, `ag`, `apropos`, `arch`, `base32`, `base64`, `basename`, `bat`, `bc`, `blkid`, `bzcat`, `cat`, `cksum`, `cloc`, `column`, `comm`, `cut`, `date`, `df`, `diff`, `dig`, `dirname`, `dos2unix`, `du`, `echo`, `exa`, `expand`, `expr`, `eza`, `false`, `file`, `findmnt`, `fmt`, `fold`, `free`, `fzf`, `getconf`, `getent`, `grep`, `groups`, `head`, `help`, `hexdump`, `host`, `hostname`, `htop`, `hyperfine`, `iconv`, `id`, `info`, `iostat`, `join`, `jq`, `ldd`, `less`, `locale`, `locate`, `ls`, `lsb_release`, `lsblk`, `lsd`, `lsof`, `man`, `md5sum`, `more`, `mount`, `netstat`, `nl`, `nm`, `nproc`, `nslookup`, `objdump`, `od`, `otool`, `paste`, `pgrep`, `ping`, `printenv`, `printf`, `ps`, `pwd`, `readelf`, `readlink`, `realpath`, `rev`, `rg`, `scc`, `seq`, `sha1sum`, `sha256sum`, `sha512sum`, `shuf`, `size`, `sleep`, `ss`, `stat`, `strings`, `stty`, `sum`, `tac`, `tail`, `test`, `tldr`, `tokei`, `top`, `tput`, `tr`, `tracepath`, `traceroute`, `tree`, `true`, `tty`, `type`, `uname`, `unexpand`, `uniq`, `unix2dos`, `uptime`, `vmstat`, `wc`, `whatis`, `whence`, `whereis`, `which`, `whoami`, `xxd`, `xzcat`, `yes`, `zcat`, `zstdcat`
+`:`, `[`, `ag`, `apropos`, `arch`, `base32`, `base64`, `basename`, `bat`, `bc`, `blkid`, `bzcat`, `cat`, `cksum`, `cloc`, `column`, `comm`, `cut`, `date`, `df`, `diff`, `dig`, `dirname`, `du`, `echo`, `exa`, `expand`, `expr`, `eza`, `false`, `file`, `findmnt`, `fmt`, `fold`, `free`, `fzf`, `getconf`, `getent`, `grep`, `groups`, `head`, `help`, `hexdump`, `host`, `hostname`, `htop`, `hyperfine`, `iconv`, `id`, `info`, `iostat`, `join`, `jq`, `ldd`, `less`, `locale`, `locate`, `ls`, `lsb_release`, `lsblk`, `lsd`, `lsof`, `man`, `md5sum`, `more`, `mount`, `netstat`, `nl`, `nm`, `nproc`, `nslookup`, `objdump`, `od`, `otool`, `paste`, `pgrep`, `ping`, `printenv`, `printf`, `ps`, `pwd`, `readelf`, `readlink`, `realpath`, `rev`, `rg`, `scc`, `seq`, `sha1sum`, `sha256sum`, `sha512sum`, `shuf`, `size`, `sleep`, `ss`, `stat`, `strings`, `stty`, `sum`, `tac`, `tail`, `test`, `tldr`, `tokei`, `top`, `tput`, `tr`, `tracepath`, `traceroute`, `tree`, `true`, `tty`, `type`, `uname`, `unexpand`, `uniq`, `uptime`, `vmstat`, `wc`, `whatis`, `whence`, `whereis`, `which`, `whoami`, `xxd`, `xzcat`, `yes`, `zcat`, `zstdcat`
 
 ### Wrappers — 8 commands
 
-Approved only with no inner command; otherwise the inner command is analyzed in their place.
+Approved only with no inner command; otherwise the inner command is analyzed in their place. The wrapper's own redirects and heredocs are still evaluated, so `nice ls > /etc/passwd` asks. For `timeout`, its options and the mandatory DURATION are skipped first; an argv that does not match that grammar is analyzed unchanged, so the stray word reads as an unknown command.
 
 `builtin`, `command`, `ltrace`, `nice`, `nohup`, `strace`, `time`, `timeout`
 
@@ -63,7 +63,17 @@ With a *literal* argument these are still approved by the allowlist above.
 
 Per-command handlers: the exact invocations each one auto-approves.
 
-45 handlers. A handler that only re-analyzes an inner command or asks declares an empty surface, which is itself listed below.
+47 handlers. A handler that only re-analyzes an inner command or asks declares an empty surface, which is itself listed below.
+
+### `7z`, `7za`, `7zr`, `7zz`
+
+Rows are written with `7z`; unless a row says otherwise they apply the same way to every command name in this heading.
+
+| Approved invocation | Condition |
+| --- | --- |
+| `7z l` | — |
+| `7z t` | — |
+| `7z --help\|-h\|--version\|-V` | sole argument |
 
 ### `ansible`, `ansible-playbook`, `ansible-vault`, `ansible-galaxy`, `ansible-config`, `ansible-inventory`, `ansible-doc`, `ansible-lint`
 
@@ -71,8 +81,8 @@ Rows are written with `ansible`; unless a row says otherwise they apply the same
 
 | Approved invocation | Condition |
 | --- | --- |
-| `ansible-doc` | — |
-| `ansible-lint` | — |
+| `ansible-doc` | neither -M nor --module-path present |
+| `ansible-lint` | neither --fix nor --write present |
 | `ansible` | one of --check/-C/--list-hosts present |
 | `ansible-playbook` | one of --check/-C/--syntax-check/--list-hosts/--list-tasks/--list-tags present |
 | `ansible-vault view` | — |
@@ -90,8 +100,8 @@ Rows are written with `awk`; unless a row says otherwise they apply the same way
 
 | Approved invocation | Condition |
 | --- | --- |
-| `awk <program> [<file>...]` | no system() call, pipe-to-command or file redirect in the program |
-| `awk -f <script>` | script readable from the working directory; no system() call, pipe-to-command or file redirect in the program |
+| `awk <program> [<file>...]` | no system() call, pipe-to-command or file redirect in the program, and no -i/--include or -l/--load flag |
+| `awk -f <script>` | script readable from the working directory; no system() call, pipe-to-command or file redirect in the program, and no -i/--include or -l/--load flag |
 
 ### `aws`
 
@@ -274,6 +284,17 @@ Rows are written with `docker`; unless a row says otherwise they apply the same 
 | `docker export` | no -o/--output; with one, the target runs the redirect pipeline |
 | `docker save` | no -o/--output; with one, the target runs the redirect pipeline |
 | `docker --help\|-h\|--version` | sole argument |
+
+### `dos2unix`, `unix2dos`
+
+Rows are written with `dos2unix`; unless a row says otherwise they apply the same way to every command name in this heading.
+
+| Approved invocation | Condition |
+| --- | --- |
+| `dos2unix --help\|-h\|--version\|-V` | sole argument |
+| `dos2unix --info` | — |
+| `dos2unix -n <in> <out>` | even number of file operands (in/out pairs); each output path runs the redirect pipeline |
+| `dos2unix` | no file operand (stdin/stdout filter) |
 
 ### `env`
 
@@ -569,8 +590,6 @@ Rows are written with `gzip`; unless a row says otherwise they apply the same wa
 | `helm uninstall` | --dry-run present |
 | `helm rollback` | --dry-run present |
 | `helm dependency list` | — |
-| `helm dependency update` | — |
-| `helm dependency build` | — |
 | `helm repo list` | — |
 | `helm plugin list` | — |
 | `helm --help\|-h\|--version` | sole argument |
@@ -615,7 +634,6 @@ Rows are written with `kubectl`; unless a row says otherwise they apply the same
 | `kubectl version` | — |
 | `kubectl api-resources` | — |
 | `kubectl api-versions` | — |
-| `kubectl auth` | — |
 | `kubectl wait` | — |
 | `kubectl diff` | — |
 | `kubectl plugin` | — |
@@ -627,6 +645,8 @@ Rows are written with `kubectl`; unless a row says otherwise they apply the same
 | `kubectl config get-clusters` | — |
 | `kubectl config get-users` | — |
 | `kubectl config get-context` | — |
+| `kubectl auth can-i` | — |
+| `kubectl auth whoami` | — |
 | `kubectl --help\|-h\|--version` | sole argument |
 
 ### `mise`
@@ -673,7 +693,7 @@ Rows are written with `node`; unless a row says otherwise they apply the same wa
 | --- | --- |
 | `node\|nodejs\|deno --version\|-v\|-V\|--help\|-h` | sole argument |
 | `node -e\|--eval\|-p\|--print <code>` | source passes the analysis in src/node_safety.rs |
-| `deno eval <code>` | source passes the analysis in src/node_safety.rs |
+| `deno eval <code>` | no explicit permission flag and source passes the analysis in src/node_safety.rs |
 | `node <script>` | script readable from the working directory and its source passes the analysis in src/node_safety.rs |
 
 ### `npm`, `npx`, `yarn`, `pnpm`, `bun`
@@ -821,15 +841,15 @@ Rows are written with `ruby`; unless a row says otherwise they apply the same wa
 | `tokf completions` | — |
 | `tokf rewrite` | — |
 
-### `unzip`, `7z`, `7za`, `7zr`, `7zz`
-
-Rows are written with `unzip`; unless a row says otherwise they apply the same way to every command name in this heading.
+### `unzip`
 
 | Approved invocation | Condition |
 | --- | --- |
-| `unzip l` | — |
-| `unzip t` | — |
 | `unzip --help\|-h\|--version\|-V` | sole argument |
+| `unzip -l` | flag appears in the option run before the archive operand |
+| `unzip -t` | flag appears in the option run before the archive operand |
+| `unzip -v` | flag appears in the option run before the archive operand |
+| `unzip -Z` | flag appears in the option run before the archive operand |
 
 ### `uv`, `uvx`
 

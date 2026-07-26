@@ -125,13 +125,6 @@ decision = "allow"
 command = 'dirname /tmp/file.txt'
 decision = "allow"
 
-# KNOWN GAP: dos2unix/unix2dos rewrite the named file in place by default,
-# and being in SIMPLE_SAFE they are approved on the command name alone --
-# `dos2unix /etc/hosts` allows. Pinned as observed, not endorsed.
-[[case]]
-command = 'dos2unix notes.txt'
-decision = "allow"
-
 [[case]]
 command = 'du -sh src'
 decision = "allow"
@@ -458,11 +451,6 @@ decision = "allow"
 
 [[case]]
 command = 'unexpand notes.txt'
-decision = "allow"
-
-# KNOWN GAP: in-place rewrite of any named file, see dos2unix above.
-[[case]]
-command = 'unix2dos notes.txt'
 decision = "allow"
 
 [[case]]
