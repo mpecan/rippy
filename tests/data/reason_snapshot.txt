@@ -505,7 +505,7 @@ mysql -e 'SELECT * FROM t'	allow	mysql (read-only SQL)
 mysql -e "SELECT x INTO DUMPFILE '/tmp/y' FROM t"	ask	mysql (write SQL)
 mysql -e 'SELECT x FROM t'	allow	mysql (read-only SQL)
 sqlite3 -readonly test.db	allow	sqlite3 (readonly mode)
-tar -xf a.tar --to-command cat	allow	cat is safe
+tar --to-command=cat -xf a.tar	ask	tar (runs external program)
 unzip -d out -l a.zip	allow	unzip (list/test)
 unzip -d -l a.zip	ask	unzip (extract)
 cd -L	ask	cd (unknown flag)
@@ -567,8 +567,6 @@ echo hi > /tmp/$1/out	ask	redirect to /tmp/$1/out
 echo hi > /tmp/$@/y	ask	redirect to /tmp/$@/y
 echo hi > /tmp/$$/out	ask	redirect to /tmp/$$/out
 echo hi > /tmp/$?/out	ask	redirect to /tmp/$?/out
-cd /tmp/sub && echo hi > ../x	allow	redirect to ../x (safe dir)
-echo /tmp/sub && echo hi > ../x	allow	redirect to ../x (safe dir)
 while true; do ls; done	allow	ls is safe
 until true; do ls; done	allow	ls is safe
 (( i = 1 ))	allow	

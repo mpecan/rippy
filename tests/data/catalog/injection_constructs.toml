@@ -133,17 +133,12 @@ decision = "ask"
 
 # ---- analyzer survivors (cargo-mutants; docs/mutation-testing.md) ----
 
-# extract_cd_target's `!= "cd"` guard: inverting it makes EVERY command retarget
-# the analyzer's tracked cwd to its first argument, so a later relative write is
-# approved as a safe-dir write. The pair is what pins it — the allow case alone
-# is satisfied by the mutant too.
-[[case]]
-command = "cd /tmp/sub && echo hi > ../x"
-decision = "allow"
-
-[[case]]
-command = "echo /tmp/sub && echo hi > ../x"
-decision = "ask"
+# extract_cd_target's `!= "cd"` guard is pinned in tests/cd_tracking.rs, not
+# here: the verdict turns on whether the resolved target lands in a safe dir, and
+# the catalog runner's cwd is `temp_dir()`, which is /tmp on Linux and
+# /var/folders/... on macOS. A case here would pass locally and fail on CI. See
+# CLAUDE.md — cwd-relative resolution belongs in a test with an injected
+# working_directory.
 
 # while/until arm deletion falls through to Ask("unhandled control-flow"), which
 # is more restrictive here. The arm ALSO downgrades a deny inside a loop body to

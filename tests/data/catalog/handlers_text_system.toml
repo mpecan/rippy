@@ -709,12 +709,15 @@ decision = "allow"
 
 # ---- cargo-mutants survivors (docs/mutation-testing.md) ----
 
-# tar's --to-command is its RCE hook. Nothing pinned WHICH token gets recursed
-# into: mutants that recurse on `pos-1`/`pos*1` analyse the archive operand or
-# the flag itself instead of the program tar will actually execute.
+# tar's --to-command is its RCE hook. The GLUED spelling reaches the
+# program-exec-flag guard and asks; the SPACED spelling short-circuits into
+# recursion first and currently *downgrades* `tar -xf` from ask to allow. Only
+# the correct half is pinned here — the spaced form is a live fail-open and
+# lives in tests/known_fail_opens.rs until #198 is fixed. Two mutants in the
+# recursion-target arithmetic stay alive as a result; that is the honest trade.
 [[case]]
-command = "tar -xf a.tar --to-command cat"
-decision = "allow"
+command = "tar --to-command=cat -xf a.tar"
+decision = "ask"
 
 # #190's leading-option-run logic gates the whole unzip list/test allow surface,
 # but no case separated a spaced option value from a glued one.
