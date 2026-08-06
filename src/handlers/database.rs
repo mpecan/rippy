@@ -1,6 +1,6 @@
 use super::{
-    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag,
-    is_sole_help_flag, positional_args,
+    AllowEntry, Classification, Handler, HandlerContext, get_all_flag_values, get_flag_value,
+    has_flag, is_sole_help_flag, positional_args,
 };
 use crate::sql::classify_sql;
 use crate::verdict::AllowReason;
@@ -31,8 +31,8 @@ impl Handler for PsqlHandler {
             return Classification::Allow(AllowReason::handler("psql list databases"));
         }
         // -c SQL
-        if let Some(sql) = get_flag_value(ctx.args, &["-c", "--command"]) {
-            return classify_sql_command("psql", &sql);
+        if let Some(result) = classify_sql_commands("psql", ctx.args, &["-c", "--command"]) {
+            return result;
         }
         // -f file — try to read and classify the SQL
         if let Some(path) = get_flag_value(ctx.args, &["-f", "--file"]) {
@@ -69,8 +69,8 @@ impl Handler for MysqlHandler {
         if is_sole_help_flag(ctx.args, &["--help", "--version", "-V"]) {
             return Classification::Allow(AllowReason::handler("mysql help/version"));
         }
-        if let Some(sql) = get_flag_value(ctx.args, &["-e", "--execute"]) {
-            return classify_sql_command("mysql", &sql);
+        if let Some(result) = classify_sql_commands("mysql", ctx.args, &["-e", "--execute"]) {
+            return result;
         }
         Classification::Ask("mysql (interactive)".into())
     }
@@ -119,7 +119,29 @@ impl Handler for Sqlite3Handler {
 }
 
 fn classify_sql_command(tool: &str, sql: &str) -> Classification {
-    match classify_sql(sql) {
+    classification_for(tool, classify_sql(sql))
+}
+
+/// Classify every occurrence of a cumulative SQL flag and keep the least safe
+/// outcome, since the client runs all of them (#199).
+///
+/// Each occurrence is classified on its own instead of being joined with `;`:
+/// a statement ending in a `--` line comment would otherwise swallow the
+/// statement appended after it.
+fn classify_sql_commands(tool: &str, args: &[String], flags: &[&str]) -> Option<Classification> {
+    let least_safe = get_all_flag_values(args, flags)
+        .iter()
+        .map(|sql| classify_sql(sql))
+        .reduce(|a, b| match (a, b) {
+            (Some(false), _) | (_, Some(false)) => Some(false),
+            (None, _) | (_, None) => None,
+            _ => Some(true),
+        })?;
+    Some(classification_for(tool, least_safe))
+}
+
+fn classification_for(tool: &str, read_only: Option<bool>) -> Classification {
+    match read_only {
         Some(true) => {
             Classification::Allow(AllowReason::handler(format!("{tool} (read-only SQL)")))
         }

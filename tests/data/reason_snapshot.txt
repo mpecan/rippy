@@ -156,6 +156,13 @@ psql -c "SELECT 1 -"	allow	psql (read-only SQL)
 psql -c "SELECT 1 /"	allow	psql (read-only SQL)
 psql -c "SELECT 1 /*"	allow	psql (read-only SQL)
 psql -c "SELECT 1 /*x*"	allow	psql (read-only SQL)
+psql -c "SELECT 1" -c "DROP TABLE t"	ask	psql (write SQL)
+mysql -e "SELECT 1" -e "DROP TABLE t"	ask	mysql (write SQL)
+psql -c "SELECT 1 -- note" -c "DROP TABLE t"	ask	psql (write SQL)
+psql -c "SELECT 1" --command="DROP TABLE t"	ask	psql (ambiguous SQL)
+mysql -e "SELECT 1" -e"DROP TABLE t"	ask	mysql (ambiguous SQL)
+psql -c "SELECT 1" -c "SELECT 2"	allow	psql (read-only SQL)
+mysql -e "SELECT 1" -e "SELECT 2"	allow	mysql (read-only SQL)
 git status	allow	git status
 git diff	allow	git diff
 git show HEAD	allow	git show

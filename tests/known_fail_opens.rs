@@ -96,10 +96,10 @@ fn tar_to_command_glued_spelling_asks() {
     assert_eq!(v.decision, Decision::Ask);
 }
 
-/// #199 — only the first `-c`/`-e` is classified, so a read-only first
-/// statement launders a write in the second. Both clients run every occurrence.
+/// #199 — every `-c`/`-e` occurrence is classified, not just the first: both
+/// clients run all of them, so a read-only leading statement must not launder
+/// a write in a later one.
 #[test]
-#[ignore = "known fail-open, tracked in #199"]
 fn every_sql_command_flag_is_classified() {
     let mut a = isolated_analyzer();
     for cmd in [

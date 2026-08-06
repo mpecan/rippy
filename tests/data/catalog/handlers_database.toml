@@ -77,3 +77,39 @@ decision = "allow"
 [[case]]
 command = "psql -c \"SELECT 1 /*x*\""
 decision = "allow"
+
+# #199: `-c`/`-e` are cumulative, so every occurrence has to be classified. A
+# read-only leading statement must not launder a write in a later one.
+[[case]]
+command = "psql -c \"SELECT 1\" -c \"DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "mysql -e \"SELECT 1\" -e \"DROP TABLE t\""
+decision = "ask"
+
+# The write hides behind a trailing line comment, which is why the occurrences
+# are classified separately instead of being joined with `;`.
+[[case]]
+command = "psql -c \"SELECT 1 -- note\" -c \"DROP TABLE t\""
+decision = "ask"
+
+# The glued spellings are collected too. The parser keeps the inner quotes in a
+# partially-quoted word, so the statement reads as ambiguous — still an ask,
+# never an allow.
+[[case]]
+command = "psql -c \"SELECT 1\" --command=\"DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "mysql -e \"SELECT 1\" -e\"DROP TABLE t\""
+decision = "ask"
+
+# Safe neighbours: repeating the flag with read-only statements stays allowed.
+[[case]]
+command = "psql -c \"SELECT 1\" -c \"SELECT 2\""
+decision = "allow"
+
+[[case]]
+command = "mysql -e \"SELECT 1\" -e \"SELECT 2\""
+decision = "allow"
