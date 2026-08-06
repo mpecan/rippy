@@ -73,3 +73,56 @@ fn arithmetic_command_redirect_is_analyzed() {
     let arith = a.analyze("(( i = 1 )) > ~/.rippy/config.toml").unwrap();
     assert_eq!(arith.decision, Decision::Deny);
 }
+
+/// #198 — `tar --to-command <prog>` recurses into `prog` and discards the tar
+/// verdict, so appending it *lowers* `tar -xf` from Ask to Allow.
+#[test]
+#[ignore = "known fail-open, tracked in #198"]
+fn tar_to_command_does_not_downgrade_extraction() {
+    let mut a = isolated_analyzer();
+    let v = a.analyze("tar -xf a.tar --to-command cat").unwrap();
+    assert_ne!(
+        v.decision,
+        Decision::Allow,
+        "--to-command downgraded an extraction that asks on its own"
+    );
+}
+
+/// #198 — the glued spelling reaches the program-exec-flag guard and already
+/// asks. It is the same command; only the separator differs.
+#[test]
+fn tar_to_command_glued_spelling_asks() {
+    let mut a = isolated_analyzer();
+    let v = a.analyze("tar --to-command=cat -xf a.tar").unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
+
+/// #199 — only the first `-c`/`-e` is classified, so a read-only first
+/// statement launders a write in the second. Both clients run every occurrence.
+#[test]
+#[ignore = "known fail-open, tracked in #199"]
+fn every_sql_command_flag_is_classified() {
+    let mut a = isolated_analyzer();
+    for cmd in [
+        r#"psql -c "SELECT 1" -c "DROP TABLE t""#,
+        r#"mysql -e "SELECT 1" -e "DROP TABLE t""#,
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_ne!(
+            v.decision,
+            Decision::Allow,
+            "second statement ignored: {cmd}"
+        );
+    }
+}
+
+/// #199 — the same statements in the other order are already caught, which is
+/// what shows the gap is per-occurrence parsing rather than SQL classification.
+#[test]
+fn sql_write_in_the_first_command_flag_asks() {
+    let mut a = isolated_analyzer();
+    let v = a
+        .analyze(r#"psql -c "DROP TABLE t" -c "SELECT 1""#)
+        .unwrap();
+    assert_eq!(v.decision, Decision::Ask);
+}
