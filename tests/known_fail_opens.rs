@@ -74,10 +74,9 @@ fn arithmetic_command_redirect_is_analyzed() {
     assert_eq!(arith.decision, Decision::Deny);
 }
 
-/// #198 — `tar --to-command <prog>` recurses into `prog` and discards the tar
-/// verdict, so appending it *lowers* `tar -xf` from Ask to Allow.
+/// #198 — `tar --to-command <prog>` used to recurse into `prog` and discard the
+/// tar verdict, so appending it *lowered* `tar -xf` from Ask to Allow.
 #[test]
-#[ignore = "known fail-open, tracked in #198"]
 fn tar_to_command_does_not_downgrade_extraction() {
     let mut a = isolated_analyzer();
     let v = a.analyze("tar -xf a.tar --to-command cat").unwrap();

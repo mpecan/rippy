@@ -371,6 +371,14 @@ impl Analyzer {
                 self.trace(Stage::Command, true, || format!("recurse: {inner}"));
                 self.analyze_inner_command(&inner, cwd, depth)
             }
+            Classification::RecurseAtLeast(inner, outer) => {
+                let outer = self.apply_classification(*outer, cwd, depth);
+                self.trace(Stage::Command, true, || format!("recurse: {inner}"));
+                let inner = self.analyze_inner_command(&inner, cwd, depth);
+                // Outer last so an equal-decision tie reports its reason, which
+                // names the flag that spawned the program.
+                Verdict::combine(&[inner, outer])
+            }
             Classification::RecurseRemote(inner) => {
                 self.trace(Stage::Command, true, || {
                     format!("recurse (remote): {inner}")

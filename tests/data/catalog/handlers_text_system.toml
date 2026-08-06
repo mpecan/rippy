@@ -709,15 +709,31 @@ decision = "allow"
 
 # ---- cargo-mutants survivors (docs/mutation-testing.md) ----
 
-# tar's --to-command is its RCE hook. The GLUED spelling reaches the
-# program-exec-flag guard and asks; the SPACED spelling short-circuits into
-# recursion first and currently *downgrades* `tar -xf` from ask to allow. Only
-# the correct half is pinned here — the spaced form is a live fail-open and
-# lives in tests/known_fail_opens.rs until #198 is fixed. Two mutants in the
-# recursion-target arithmetic stay alive as a result; that is the honest trade.
+# tar's --to-command is its RCE hook, in both the glued and the spaced spelling.
+# #198: the spaced form recursed into the program and *replaced* the tar
+# verdict, so naming a safe program downgraded an extraction from ask to allow.
 [[case]]
 command = "tar --to-command=cat -xf a.tar"
 decision = "ask"
+
+[[case]]
+command = "tar -xf a.tar --to-command cat"
+decision = "ask"
+
+[[case]]
+command = "tar -cf out.tar / --to-command cat"
+decision = "ask"
+
+# Even the otherwise-approved list operation: spawning a program is its own risk.
+[[case]]
+command = "tar -t -f a.tar --to-command cat"
+decision = "ask"
+
+# The other direction still works — a dangerous program is judged too, so the
+# combined verdict can be stricter than tar's own ask.
+[[case]]
+command = "tar -t -f a.tar --to-command 'echo x > ~/.rippy/config.toml'"
+decision = "deny"
 
 # #190's leading-option-run logic gates the whole unzip list/test allow surface,
 # but no case separated a spaced option value from a glued one.

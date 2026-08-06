@@ -31,13 +31,29 @@ impl Handler for TarHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
-        // --to-command delegates to an arbitrary program; recurse before any
-        // other check so its target is evaluated rather than short-circuited.
+        let archive_op = Self::classify_archive_op(ctx);
+        // The spawned program is a risk on top of the archive operation, not instead of it (#198).
         if let Some(pos) = ctx.args.iter().position(|a| a == "--to-command")
             && let Some(cmd) = ctx.args.get(pos + 1)
         {
-            return Classification::Recurse(cmd.clone());
+            return Classification::RecurseAtLeast(cmd.clone(), Box::new(archive_op));
         }
+        archive_op
+    }
+
+    fn allow_surface(&self) -> Vec<AllowEntry> {
+        vec![AllowEntry::guarded(
+            "tar -t|--list",
+            "no flag that runs an external program (-I, --use-compress-program, --to-command, \
+             --checkpoint-action, --rmt-command, -F, --info-script, --new-volume-script)",
+        )]
+    }
+}
+
+impl TarHandler {
+    /// The verdict for the archive operation itself, independent of any program
+    /// `--to-command` spawns.
+    fn classify_archive_op(ctx: &HandlerContext) -> Classification {
         if has_flag_or_prefixed(ctx.args, TAR_PROGRAM_EXEC_FLAGS)
             || has_glued_short_flag(ctx.args, TAR_PROGRAM_EXEC_FLAGS)
         {
@@ -47,14 +63,6 @@ impl Handler for TarHandler {
             return Classification::Allow(AllowReason::handler("tar (list)"));
         }
         Classification::Ask("tar (create/extract)".into())
-    }
-
-    fn allow_surface(&self) -> Vec<AllowEntry> {
-        vec![AllowEntry::guarded(
-            "tar -t|--list",
-            "no flag that runs an external program (-I, --use-compress-program, --to-command, \
-             --checkpoint-action, --rmt-command, -F, --info-script, --new-volume-script)",
-        )]
     }
 }
 

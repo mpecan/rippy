@@ -119,6 +119,15 @@ pub(crate) enum Classification {
     Deny(String),
     /// Re-parse and analyze this inner command string.
     Recurse(String),
+    /// Analyze the inner command string, then take the most restrictive of that
+    /// verdict and the outer command's own classification.
+    ///
+    /// For a wrapper that *delegates* (`sh -c`, `xargs`) plain [`Recurse`] is
+    /// right: the wrapper adds no risk of its own. For a command that carries a
+    /// second, independent risk alongside the program it spawns — `tar -xf`
+    /// still unpacks a hostile archive whatever `--to-command` runs — replacing
+    /// the outer verdict would let the extra flag *lower* the verdict (#198).
+    RecurseAtLeast(String, Box<Self>),
     /// Re-parse inner command with remote=true (for docker exec, kubectl exec).
     RecurseRemote(String),
     /// Approve the command itself, but route these redirect targets through
