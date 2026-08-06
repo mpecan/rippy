@@ -20,3 +20,8 @@ site/.astro
 
 # tokf session caches, hooks, and rewrites (user-local)
 .tokf/
+
+# cargo-mutants run output (reports, per-mutant logs, scratch build trees).
+# Glob rather than the two exact names: comparing runs means keeping renamed
+# copies like mutants.out.baseline alongside the live directory.
+mutants.out*/

@@ -1,0 +1,75 @@
+//! Reproducers for confirmed fail-opens that are not yet fixed.
+//!
+//! Per CLAUDE.md, a *known* fail-open is pinned as an `#[ignore]`d reproducer
+//! plus a tracked issue rather than by softening an assertion. Each test below
+//! asserts the behaviour rippy *should* have; each fails today. Remove the
+//! `#[ignore]` in the PR that fixes the cited issue — that is the signal the
+//! fix actually landed.
+//!
+//! Run them deliberately with `cargo test --test known_fail_opens -- --ignored`.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+mod common;
+
+use common::isolated_analyzer;
+use rippy_cli::verdict::Decision;
+
+/// #193 — the `case` subject word is never analyzed.
+///
+/// `NodeKind::Case` carries the subject as `word`, which
+/// `analyzer_control_flow.rs` discards via `..`. Bash expands the subject
+/// before matching, so the substituted command really does run.
+#[test]
+#[ignore = "known fail-open, tracked in #193"]
+fn case_subject_expansion_is_analyzed() {
+    let mut a = isolated_analyzer();
+    for cmd in [
+        "case $(reboot) in a) echo hi;; esac",
+        "case `reboot` in a) echo hi;; esac",
+        "case ${x:-$(reboot)} in a) echo hi;; esac",
+    ] {
+        let v = a.analyze(cmd).unwrap();
+        assert_ne!(
+            v.decision,
+            Decision::Allow,
+            "case subject expansion auto-approved: {cmd}"
+        );
+    }
+}
+
+/// #193 — the safe neighbour. A `case` with no expansion in its subject stays
+/// approvable, so the fix must not simply Ask on every `case`.
+#[test]
+fn case_without_expansion_still_allows() {
+    let mut a = isolated_analyzer();
+    let v = a.analyze("case x in a) echo hi;; esac").unwrap();
+    assert_eq!(v.decision, Decision::Allow);
+}
+
+/// #197 — `ConditionalExpr` drops its `redirects`, so a write attached to a
+/// `[[ ]]` test is never analyzed and self-protection degrades to Ask.
+///
+/// The sibling `ArithmeticCommand` arm handles this correctly, which is the
+/// contrast that makes the omission visible.
+#[test]
+#[ignore = "known fail-open, tracked in #197"]
+fn conditional_expr_redirect_is_analyzed() {
+    let mut a = isolated_analyzer();
+    let cond = a.analyze("[[ -f foo ]] > ~/.rippy/config.toml").unwrap();
+    assert_eq!(
+        cond.decision,
+        Decision::Deny,
+        "self-protect downgraded for a [[ ]] redirect"
+    );
+}
+
+/// #197 — the contrast: the same redirect on an arithmetic command already
+/// reaches Deny today. This test passes now and guards the reference behaviour
+/// the fix should bring `[[ ]]` in line with.
+#[test]
+fn arithmetic_command_redirect_is_analyzed() {
+    let mut a = isolated_analyzer();
+    let arith = a.analyze("(( i = 1 )) > ~/.rippy/config.toml").unwrap();
+    assert_eq!(arith.decision, Decision::Deny);
+}

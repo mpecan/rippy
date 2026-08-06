@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+#
+# cargo-mutants-ramdisk — run `cargo mutants` with its scratch trees on a RAM
+# disk instead of the system drive.
+#
+# cargo-mutants copies the whole source tree (and, by default, target/) into one
+# scratch directory per job, then builds and tests in each. On a crate with a
+# large target/ that is tens of GB of writes per run, repeated for every sweep.
+# Putting TMPDIR on a RAM disk removes that write amplification entirely.
+#
+# Project-agnostic: it reads nothing from the repo except the size of target/,
+# which it uses to size the disk. Run it from any crate root.
+#
+#   cargo-mutants-ramdisk                     # auto-size, auto job count
+#   cargo-mutants-ramdisk -j 8 --file src/x.rs
+#   cargo-mutants-ramdisk -D pr.diff
+#
+# Environment overrides:
+#   MUTANTS_RAMDISK_SIZE_GB     total disk size, skips auto-sizing
+#   MUTANTS_RAMDISK_PER_JOB_GB  per-job space estimate used by auto-sizing
+#   MUTANTS_RAMDISK_NAME        volume name (default cargo-mutants-ram)
+#   MUTANTS_RAMDISK_KEEP=1      leave the disk mounted for the next run
+#
+# macOS only. On Linux, point TMPDIR at a tmpfs yourself — there is no portable
+# equivalent of `hdiutil attach ram://`, and a half-working branch here would be
+# worse than saying so:
+#
+#   mkdir -p /dev/shm/mutants && TMPDIR=/dev/shm/mutants cargo mutants
+#
+# Check `df -h /dev/shm` first: it defaults to half of RAM, and 64MB in a stock
+# Docker container.
+
+set -euo pipefail
+
+NAME="${MUTANTS_RAMDISK_NAME:-cargo-mutants-ram}"
+KEEP="${MUTANTS_RAMDISK_KEEP:-0}"
+DEVICE=""
+
+# Written inside the volume at creation, and required before reusing one. A
+# mounted .dmg reports `Virtual: Yes` exactly like a RAM disk, so that flag alone
+# would let this script adopt a user's disk image and force-detach it on exit.
+MARKER=".cargo-mutants-ramdisk"
+
+log() { printf '\033[36m[ramdisk]\033[0m %s\n' "$*" >&2; }
+die() { printf '\033[31m[ramdisk] error:\033[0m %s\n' "$*" >&2; exit 1; }
+
+total_ram_gb() { echo $(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 )); }
+
+mount_point() { echo "/Volumes/$NAME"; }
+
+# Space one job needs: its copy of target/ plus what the build adds on top.
+# Measured in MB — `du -sg` rounds a 1.3G target/ up to 2G, which inflates the
+# per-job figure enough to halve the usable job count.
+per_job_estimate_gb() {
+    if [[ -n "${MUTANTS_RAMDISK_PER_JOB_GB:-}" ]]; then
+        echo "$MUTANTS_RAMDISK_PER_JOB_GB"
+        return
+    fi
+    local target_mb=""
+    [[ -d target ]] && target_mb=$(du -sm target 2>/dev/null | awk '{print $1}')
+    [[ "$target_mb" =~ ^[0-9]+$ ]] || target_mb=512
+    local est=$(( (target_mb * 4 + 2048 + 1023) / 1024 ))
+    (( est < 5 )) && est=5
+    echo "$est"
+}
+
+# Pull an explicit -j/--jobs out of the caller's args so the disk is sized for
+# the concurrency actually requested. Does not consume it; it still passes through.
+requested_jobs() {
+    local prev=""
+    for arg in "$@"; do
+        [[ "$arg" == "--" ]] && break
+        case "$prev" in
+            -j|--jobs) [[ "$arg" =~ ^[0-9]+$ ]] && { echo "$arg"; return; } ;;
+        esac
+        case "$arg" in
+            -j=*|--jobs=*) [[ "${arg#*=}" =~ ^[0-9]+$ ]] && { echo "${arg#*=}"; return; } ;;
+            -j[0-9]*)      echo "${arg#-j}"; return ;;
+        esac
+        prev="$arg"
+    done
+    echo ""
+}
+
+device_for() {
+    diskutil info "$1" 2>/dev/null | awk -F: '/Device Node/ {gsub(/ /,"",$2); print $2}'
+}
+
+# Ours only if the marker is present and the device is RAM-backed. Both matter:
+# the marker rules out a user's disk image, `Virtual: Yes` rules out a plain
+# directory left behind at the mount point.
+is_our_ramdisk() {
+    local mp="$1"
+    [[ -f "$mp/$MARKER" ]] || return 1
+    diskutil info "$mp" 2>/dev/null | grep -qi 'Virtual:.*Yes'
+}
+
+detach_device() {
+    local dev="$1"
+    [[ "$dev" == /dev/disk* ]] || return 0
+    hdiutil detach "$dev" -force >/dev/null 2>&1
+}
+
+create_ramdisk() {
+    local size_gb="$1" mp="$2"
+    local blocks=$(( size_gb * 2097152 ))   # 512-byte sectors per GB
+    log "creating ${size_gb}G RAM disk at $mp"
+    DEVICE="$(hdiutil attach -nomount "ram://${blocks}")" || die "hdiutil attach failed"
+    DEVICE="${DEVICE//[[:space:]]/}"
+    [[ "$DEVICE" == /dev/disk* ]] || die "hdiutil returned an unexpected device: '$DEVICE'"
+    # HFS+ rather than APFS: lower overhead on a throwaway volume.
+    if ! diskutil erasevolume HFS+ "$NAME" "$DEVICE" >/dev/null; then
+        detach_device "$DEVICE"      # else the wired pages leak until reboot
+        DEVICE=""
+        die "failed to format the RAM disk"
+    fi
+    touch "$mp/$MARKER"
+}
+
+# Gated on DEVICE rather than a "created" flag: an attach whose format failed
+# still has a device to reclaim even though the volume never became usable.
+cleanup() {
+    local status=$?
+    if [[ -n "$DEVICE" && "$KEEP" != "1" ]]; then
+        log "detaching $DEVICE"
+        detach_device "$DEVICE" || log "could not detach $DEVICE — detach it manually"
+    elif [[ -n "$DEVICE" ]]; then
+        log "leaving $(mount_point) mounted (MUTANTS_RAMDISK_KEEP=1)"
+    fi
+    exit "$status"
+}
+
+main() {
+    [[ "$(uname -s)" == "Darwin" ]] || die "macOS only — on Linux set TMPDIR to a tmpfs (see header)"
+    command -v cargo-mutants >/dev/null 2>&1 || die "cargo-mutants not found on PATH"
+    [[ -f Cargo.toml ]] || die "no Cargo.toml here — run from a crate root"
+
+    local ram_gb jobs per_job size_gb mp max_gb size_explicit=0 passthrough_jobs=1
+    ram_gb=$(total_ram_gb)
+    per_job=$(per_job_estimate_gb)
+    jobs="$(requested_jobs "$@")"
+
+    # Never hand more than 60% of RAM to the disk; the build needs room, and RAM
+    # disk pages are wired, so overcommitting will swap or wedge.
+    max_gb=$(( ram_gb * 60 / 100 ))
+
+    if [[ -z "$jobs" ]]; then
+        passthrough_jobs=0
+        jobs=$(( $(sysctl -n hw.ncpu) - 2 )); (( jobs < 1 )) && jobs=1
+    fi
+
+    if [[ -n "${MUTANTS_RAMDISK_SIZE_GB:-}" ]]; then
+        [[ "$MUTANTS_RAMDISK_SIZE_GB" =~ ^[0-9]+$ ]] \
+            || die "MUTANTS_RAMDISK_SIZE_GB must be an integer"
+        size_gb="$MUTANTS_RAMDISK_SIZE_GB"
+        size_explicit=1
+        (( size_gb > max_gb )) \
+            && log "warning: ${size_gb}G exceeds the ${max_gb}G cap (60% of RAM), honouring it anyway"
+    else
+        size_gb=$(( jobs * per_job + 4 ))
+    fi
+
+    # Fit the job count to the disk rather than overflowing mid-run: running out
+    # of space makes cargo-mutants score every remaining mutant "unviable", which
+    # reads as a clean sweep rather than a broken one.
+    if (( size_explicit == 0 )) && (( size_gb > max_gb )); then
+        local fitted=$(( (max_gb - 4) / per_job ))
+        (( fitted < 1 )) && fitted=1
+        log "sizing ${jobs} jobs x ${per_job}G needs ${size_gb}G, capping at ${max_gb}G"
+        log "reducing to ${fitted} jobs — override with MUTANTS_RAMDISK_SIZE_GB"
+        jobs="$fitted"
+        size_gb=$(( jobs * per_job + 4 ))
+        (( size_gb > max_gb )) && log "warning: one job still needs ${size_gb}G on a ${ram_gb}G machine"
+    fi
+
+    mp="$(mount_point)"
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    if is_our_ramdisk "$mp"; then
+        DEVICE="$(device_for "$mp")"
+        # Compare FREE space, not capacity: with KEEP=1 the disk normally still
+        # holds the previous run's trees.
+        local free_gb
+        free_gb=$(df -g "$mp" 2>/dev/null | awk 'NR==2 {print $4}')
+        if [[ "$free_gb" =~ ^[0-9]+$ ]] && (( free_gb + 1 < size_gb )); then
+            log "existing disk has ${free_gb}G free but this run needs ${size_gb}G — recreating"
+            detach_device "$DEVICE"
+            DEVICE=""
+            [[ -e "$mp" ]] && die "$mp is still mounted after detach — unmount it and retry"
+            create_ramdisk "$size_gb" "$mp"
+        else
+            log "reusing RAM disk at $mp (${free_gb}G free)"
+        fi
+    elif [[ -e "$mp" ]]; then
+        die "$mp exists and is not a RAM disk this script created — refusing to touch it"
+    else
+        create_ramdisk "$size_gb" "$mp"
+    fi
+
+    [[ -d "$mp" && -w "$mp" ]] || die "$mp is not writable"
+
+    log "RAM ${ram_gb}G | disk ${size_gb}G | ${jobs} jobs x ~${per_job}G/job"
+
+    local -a args=("$@")
+    (( passthrough_jobs == 0 )) && args+=(-j "$jobs")
+
+    TMPDIR="$mp" cargo mutants "${args[@]}"
+}
+
+main "$@"

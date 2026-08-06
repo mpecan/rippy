@@ -130,3 +130,49 @@ decision = "ask"
 [[case]]
 command = "echo hi > /tmp/$?/out"
 decision = "ask"
+
+# ---- analyzer survivors (cargo-mutants; docs/mutation-testing.md) ----
+
+# extract_cd_target's `!= "cd"` guard: inverting it makes EVERY command retarget
+# the analyzer's tracked cwd to its first argument, so a later relative write is
+# approved as a safe-dir write. The pair is what pins it — the allow case alone
+# is satisfied by the mutant too.
+[[case]]
+command = "cd /tmp/sub && echo hi > ../x"
+decision = "allow"
+
+[[case]]
+command = "echo /tmp/sub && echo hi > ../x"
+decision = "ask"
+
+# while/until arm deletion falls through to Ask("unhandled control-flow"), which
+# is more restrictive here. The arm ALSO downgrades a deny inside a loop body to
+# an ask, but that direction is not expressible as a catalog case: under the
+# isolated config `while true; do git push --force origin main; done` observes
+# Ask, so the case would assert the same value the mutant produces. Tracked for a
+# white-box test instead.
+[[case]]
+command = "while true; do ls; done"
+decision = "allow"
+
+[[case]]
+command = "until true; do ls; done"
+decision = "allow"
+
+# ArithmeticCommand's redirects are analyzed; deleting the arm turns the
+# self-protect deny into a mere ask.
+[[case]]
+command = "(( i = 1 ))"
+decision = "allow"
+
+[[case]]
+command = "(( i = 1 )) > ~/.rippy/config.toml"
+decision = "deny"
+
+[[case]]
+command = "[[ -f foo ]]"
+decision = "ask"
+
+[[case]]
+command = "echo hi | cat > /etc/passwd"
+decision = "ask"

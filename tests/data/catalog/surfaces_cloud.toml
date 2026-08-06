@@ -424,3 +424,24 @@ decision = "ask"
 [[case]]
 command = "helm template ./chart"
 decision = "allow"
+
+# cargo-mutants: the `||` chain in is_mutating_verb collapses under precedence
+# when any operand is flipped to `&&`, so create-/delete-/set- prefixes stop
+# counting as mutating and a safe final action then allows.
+[[case]]
+command = "gcloud compute delete-snapshots list"
+decision = "ask"
+
+[[case]]
+command = "gcloud compute create-foo list"
+decision = "ask"
+
+[[case]]
+command = "gcloud compute set-foo list"
+decision = "ask"
+
+# cargo-mutants: `==` -> `!=` makes the first NESTED_SAFE entry match every other
+# sub, so `helm <sub> list` allows even where the real safe-action list is empty.
+[[case]]
+command = "helm registry list"
+decision = "ask"

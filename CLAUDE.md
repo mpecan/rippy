@@ -169,3 +169,13 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`,
   as permanent regression seeds — except for a *known* fail-open, which is
   pinned as an `#[ignore]`d reproducer plus a tracked issue instead. See
   `docs/fuzzing.md`.
+- **Confirmed-but-unfixed fail-opens** live in `tests/known_fail_opens.rs` as
+  `#[ignore]`d tests asserting the behavior rippy *should* have, each citing its
+  issue. Remove the `#[ignore]` in the PR that fixes it. Nothing in CI runs
+  `-- --ignored`, so check that file when closing a fail-open issue.
+- **Mutation testing** (`cargo mutants`) asks whether the code that decides a
+  verdict is pinned by any test at all — the question coverage cannot answer.
+  A *missed* mutant marks logic that can be weakened silently. Not run in CI
+  (a sweep is hours); see `docs/mutation-testing.md` for how to run and triage
+  it, and for the trap it sets: a case written to kill a mutant will happily
+  enshrine a bug as correct behavior unless you check the verdict is right.
