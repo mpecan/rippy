@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{
-    AllowEntry, Classification, Handler, HandlerContext, git_subcommands, has_flag,
-    is_within_scope, normalize_path, positional_args, surface,
+    AllowEntry, Classification, Handler, HandlerContext, git_globals, git_subcommands, has_flag,
+    normalize_path, positional_args, surface,
 };
 use crate::verdict::AllowReason;
 
@@ -96,31 +96,6 @@ const SAFE_CONFIG_KEYS: &[&str] = &[
     "advice.detachedhead",
 ];
 
-/// Global flags that take a value argument (skip both flag and value).
-const GLOBAL_VALUE_FLAGS: &[&str] = &[
-    "-C",
-    "-c",
-    "--git-dir",
-    "--work-tree",
-    "--namespace",
-    "--super-prefix",
-    "--config-env",
-];
-
-/// Global flags that are standalone (skip just the flag).
-const GLOBAL_FLAGS: &[&str] = &[
-    "--no-pager",
-    "--bare",
-    "--no-replace-objects",
-    "--literal-pathspecs",
-    "--glob-pathspecs",
-    "--noglob-pathspecs",
-    "--icase-pathspecs",
-    "--no-optional-locks",
-    "--paginate",
-    "-p",
-];
-
 impl Handler for GitHandler {
     fn commands(&self) -> &[&str] {
         &["git"]
@@ -136,7 +111,11 @@ impl Handler for GitHandler {
             return verdict;
         }
 
-        let (sub, sub_args) = extract_subcommand(ctx.args);
+        if let Some(verdict) = git_globals::check_exec_selecting_flags(ctx.args) {
+            return verdict;
+        }
+
+        let (sub, sub_args) = git_globals::extract_subcommand(ctx.args);
         let desc = format!("git {sub}");
 
         if sub.is_empty() {
@@ -232,13 +211,27 @@ fn repo_flag_out_of_scope(
     } else {
         normalize_path(&ctx.working_directory.join(value))
     };
-    if is_within_scope(&resolved, normalized_cwd, ctx.safe_scopes) {
+    if repo_redirect_in_scope(&resolved, normalized_cwd, ctx.safe_scopes) {
         None
     } else {
         Some(Classification::Ask(format!(
             "git {flag} targets outside allowed scope ({value})"
         )))
     }
+}
+
+/// A repo redirect is in scope only inside the cwd or a user-declared safe
+/// scope. Deliberately narrower than [`super::is_within_scope`], which also
+/// accepts the built-in world-writable directories: those answer "may rippy
+/// write here", and the question a redirect poses is "whose `.git/config`
+/// runs". Anyone can plant a repo under `/tmp` carrying the `core.fsmonitor`
+/// or alias settings that the `-c` allowlist rejects outright (#200).
+fn repo_redirect_in_scope(
+    resolved: &Path,
+    normalized_cwd: &Path,
+    safe_scopes: &[std::path::PathBuf],
+) -> bool {
+    resolved.starts_with(normalized_cwd) || safe_scopes.iter().any(|s| resolved.starts_with(s))
 }
 
 /// Scrutinize `-c key=value` and `--config-env` overrides before subcommand
@@ -422,27 +415,6 @@ fn classify_fetch(args: &[String], desc: &str) -> Classification {
     Classification::Allow(AllowReason::handler(desc))
 }
 
-fn extract_subcommand(args: &[String]) -> (String, Vec<String>) {
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        if GLOBAL_VALUE_FLAGS.contains(&arg.as_str()) {
-            i += 2; // skip flag and its value
-            continue;
-        }
-        if GLOBAL_FLAGS.contains(&arg.as_str()) {
-            i += 1;
-            continue;
-        }
-        if arg.starts_with('-') {
-            i += 1;
-            continue;
-        }
-        return (arg.clone(), args[i + 1..].to_vec());
-    }
-    (String::new(), Vec::new())
-}
-
 type SubClassifier = fn(&[String], &str) -> Classification;
 
 /// The `SAFE_SUBCOMMANDS` members whose approval is conditional: the condition,
@@ -486,7 +458,9 @@ fn guard_for(sub: &str) -> &'static str {
 /// [`GitHandler::classify`]; see the module constants it reads.
 fn git_allow_surface() -> Vec<AllowEntry> {
     let scope_guard = "-C/--git-dir/--work-tree must stay in the cwd or a declared safe \
-                       scope, and any -c/--config-env key must be on the safe config-key list";
+                       scope, any -c/--config-env key must be on the safe config-key list, \
+                       and every other global flag must be a known-inert one \
+                       (--exec-path and anything unrecognized ask)";
     let mut entries = vec![
         AllowEntry::guarded("git", format!("no subcommand; {scope_guard}")),
         AllowEntry::guarded(
@@ -591,6 +565,19 @@ mod tests {
         let args = vec!["--git-dir=/tmp/sub/.git".into(), "status".into()];
         let result = GIT_HANDLER.classify(&HandlerContext::test("git", &args));
         assert!(matches!(result, Classification::Allow(_)));
+    }
+
+    // A world-writable default is a *write* target, not a repo the user chose,
+    // so a redirect there from outside still Asks (#200). Needs an injected cwd:
+    // `HandlerContext::test`'s own cwd is /tmp, which would satisfy the cwd leg.
+    #[test]
+    fn git_dir_in_world_writable_dir_outside_cwd_asks() {
+        let args = vec!["--git-dir=/tmp/evil/.git".into(), "status".into()];
+        let ctx = HandlerContext {
+            working_directory: Path::new("/project"),
+            ..HandlerContext::test("git", &args)
+        };
+        assert!(matches!(GIT_HANDLER.classify(&ctx), Classification::Ask(_)));
     }
 
     #[test]

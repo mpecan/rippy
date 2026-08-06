@@ -8,6 +8,7 @@ mod env_xargs;
 mod find;
 mod gh;
 mod git;
+mod git_globals;
 mod git_subcommands;
 mod helm;
 mod mkdir;

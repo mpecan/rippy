@@ -1494,6 +1494,12 @@ git --no-pager status	allow	git status
 git --no-pager	allow	git (no subcommand)
 git --config-env=user.name=X status	allow	git status
 git --config-env user.name=X status	allow	git status
+git --exec-path=/tmp/evil status	ask	git --exec-path relocates the binaries git executes
+git --exec-path /tmp/evil status	ask	git --exec-path relocates the binaries git executes
+git --git-dir=/tmp/evil status	ask	git --git-dir targets outside allowed scope (/tmp/evil)
+git --git-dir /tmp/evil status	ask	git --git-dir targets outside allowed scope (/tmp/evil)
+git -C /tmp/evil status	ask	git -C targets outside allowed scope (/tmp/evil)
+git --unknown-global-flag status	ask	git --unknown-global-flag
 deno eval "console.log(1)"	allow	deno -e (safe inline code)
 deno eval 'console.log(Deno.args)'	allow	deno -e (safe inline code)
 deno eval 'console.log(Deno.cwd())'	allow	deno -e (safe inline code)
