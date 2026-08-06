@@ -15,13 +15,12 @@ mod common;
 use common::isolated_analyzer;
 use rippy_cli::verdict::Decision;
 
-/// #193 — the `case` subject word is never analyzed.
+/// #193 — the `case` subject word used to go unanalyzed.
 ///
 /// `NodeKind::Case` carries the subject as `word`, which
-/// `analyzer_control_flow.rs` discards via `..`. Bash expands the subject
+/// `analyzer_control_flow.rs` discarded via `..`. Bash expands the subject
 /// before matching, so the substituted command really does run.
 #[test]
-#[ignore = "known fail-open, tracked in #193"]
 fn case_subject_expansion_is_analyzed() {
     let mut a = isolated_analyzer();
     for cmd in [

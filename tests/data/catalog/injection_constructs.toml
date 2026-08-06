@@ -181,3 +181,30 @@ decision = "ask"
 [[case]]
 command = "echo hi | cat > /etc/passwd"
 decision = "ask"
+
+# Bash expands a `case` subject and its pattern labels before matching, so a
+# substitution in either position really runs (#193). The literal-subject case
+# is the neighbour the fix must not sweep up.
+[[case]]
+command = "case x in a) echo hi;; esac"
+decision = "allow"
+
+[[case]]
+command = "case $(reboot) in a) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case `reboot` in a) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case ${x:-$(reboot)} in a) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case x in $(reboot)) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case foo in *.txt) echo hi;; *) echo bye;; esac"
+decision = "allow"
