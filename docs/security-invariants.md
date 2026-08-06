@@ -74,6 +74,11 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#inspect-delegation` | The rendered provenance names the same approval route as the verdict's `AllowReason` | `src/inspect_tests.rs::trace_provenance_matches_allow_reason`, `src/inspect_tests.rs::trace_provenance_names_the_approval_route` |
 | `#inspect-delegation` | Every gate that can decide emits an event, so the trace never ends on a step contradicting the verdict | `src/inspect_tests.rs::trace_records_the_deciding_gate`, `src/inspect_tests.rs::trace_explains_every_non_allow_verdict` |
 | `#inspect-delegation` | A withheld whole-string ALLOW is recorded as a non-match, never as a hit | `src/inspect_tests.rs::trace_env_prefix_pipeline_records_withheld_allow_rule` |
+| `#parser-stack-bound` | Every construct that recurses in rable counts toward the nesting bound | `src/nesting.rs::each_construct_counts_toward_the_depth_limit` |
+| `#parser-stack-bound` | A quoted closer cannot cancel a construct opened outside the quoted span, and a quoted `$(` still counts | `src/nesting.rs::a_quoted_closer_cannot_cancel_an_unquoted_construct`, `src/nesting.rs::command_substitution_inside_double_quotes_still_nests` |
+| `#parser-stack-bound` | A flat statement chain is bounded too, since list elements recurse the same way | `src/nesting.rs::a_long_flat_chain_is_refused_by_the_statement_bound` |
+| `#parser-stack-bound` | Input past either bound comes back through the hook as a normal Ask, never an abort | `tests/hook_fail_closed.rs::deeply_nested_constructs_ask_instead_of_aborting`, `tests/hook_fail_closed.rs::a_flat_statement_chain_asks_instead_of_aborting` |
+| `#parser-stack-bound` | Ordinary and realistically nested commands stay under both bounds | `src/nesting.rs::balanced_constructs_unwind_to_zero`, `src/nesting.rs::a_realistically_nested_script_stays_in_bounds`, `tests/hook_fail_closed.rs::a_legitimately_nested_command_still_gets_a_real_verdict` |
 
 ## env-prefix-strip
 
@@ -320,3 +325,29 @@ redirect pipeline (`Stage::Redirect`), the dangerous / expanding env prefix
 therefore each record their own verdict. `matched` means *this layer decided*,
 so a whole-string ALLOW withheld by #string-rule-chokepoint is recorded as a
 non-match with a "not applied" detail — never as a hit.
+
+## parser-stack-bound
+
+rable parses by recursive descent: one stack frame per open construct
+(`case`/`for`/`if`/`{`/`(`/`$(`) and per element of a `;`/`&&`/`|` list. Nothing
+inside rable bounds that recursion, and the analyzer's own limits (`MAX_DEPTH`
+256, `MAX_NODES` 10 000) only apply to a tree that already exists. So a command
+of ~250 nested constructs — or ~15 000 flat statements — overflowed the main
+thread's stack *during parsing* (#195).
+
+That is a fail-open, not a crash-bug: a stack overflow **aborts** the process
+instead of unwinding, so `fail_closed`'s `catch_unwind` net (#182) cannot
+convert it into an Ask. The hook died with exit 134 and an empty stdout, which
+the calling agent reads as a non-blocking hook failure — an auto-approval.
+
+`nesting::violation` therefore bounds the *shape* of the source before rable
+sees it: at most 32 levels of nesting and 1 000 statement separators, measured
+well below the shallowest observed overflow (≈50 nested heads and ≈3 500
+statements on a 2 MB thread stack). Exceeding either yields
+`RippyError::TooComplex`, which `Analyzer::analyze` renders as the ordinary
+fail-closed Ask, so a whole-string Deny/Ask rule still takes precedence.
+
+The scan is deliberately approximate but never *under*-counts: quoted spans are
+skipped (a literal `(` in `"…"` is text), and a closer pops only its own frame
+kind and only if that frame was opened outside the quoted span — otherwise a
+quoted `)` could hold the counter at zero while rable kept recursing.

@@ -200,13 +200,9 @@ impl Analyzer {
         // Fail closed: the string-match layers above already had priority, so
         // anything rable cannot parse is gated with Ask — never an Err that would
         // exit non-blocking and let the command run un-gated (#150).
-        let Ok(nodes) = parsed else {
-            self.trace(Stage::Parse, false, || {
-                "rable could not parse this command".to_owned()
-            });
-            return Ok(Verdict::ask(
-                "rippy could not parse this command; approve manually",
-            ));
+        let nodes = match parsed {
+            Ok(nodes) => nodes,
+            Err(err) => return Ok(self.no_tree_ask(&err)),
         };
         self.trace(Stage::Parse, true, || {
             format!("{} top-level node(s)", nodes.len())
@@ -214,6 +210,20 @@ impl Analyzer {
         let cwd = self.working_directory.clone();
         self.node_budget = MAX_NODES;
         Ok(self.analyze_nodes(&nodes, &cwd, 0))
+    }
+
+    /// The Ask for a command that never became a tree. Input refused for its
+    /// shape names the bound it broke, so the user sees why (#195); everything
+    /// else is a plain parse failure.
+    fn no_tree_ask(&mut self, err: &RippyError) -> Verdict {
+        if let RippyError::TooComplex(detail) = err {
+            self.trace(Stage::Parse, false, || detail.clone());
+            return Verdict::ask(format!("command is too complex to analyze: {detail}"));
+        }
+        self.trace(Stage::Parse, false, || {
+            "rable could not parse this command".to_owned()
+        });
+        Verdict::ask("rippy could not parse this command; approve manually")
     }
 
     /// Whole-string CC-permission match, recorded whether or not it applies.

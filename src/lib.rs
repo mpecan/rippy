@@ -22,6 +22,7 @@ pub mod list;
 pub mod logging;
 pub mod migrate;
 pub mod mode;
+pub(crate) mod nesting;
 pub(crate) mod node_safety;
 pub(crate) mod packages;
 pub mod parser;

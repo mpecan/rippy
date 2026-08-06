@@ -19,6 +19,11 @@ pub enum RippyError {
     #[error("parse error: {0}")]
     Parse(String),
 
+    /// Input whose shape would drive the recursive-descent parser off the stack.
+    /// see docs/security-invariants.md#parser-stack-bound
+    #[error("input too complex: {0}")]
+    TooComplex(String),
+
     #[error("unknown mode: {0}")]
     UnknownMode(String),
 

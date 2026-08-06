@@ -1,6 +1,7 @@
 use rable::Node;
 
 use crate::error::RippyError;
+use crate::nesting;
 
 /// Wrapper around rable bash parser.
 pub struct BashParser;
@@ -19,8 +20,13 @@ impl BashParser {
     ///
     /// # Errors
     ///
-    /// Returns `RippyError::Parse` if the source cannot be parsed.
+    /// Returns `RippyError::TooComplex` for input whose shape rable could only
+    /// answer with a stack overflow (#195), and `RippyError::Parse` if the
+    /// source cannot be parsed.
     pub fn parse(&mut self, source: &str) -> Result<Vec<Node>, RippyError> {
+        if let Some(detail) = nesting::violation(source) {
+            return Err(RippyError::TooComplex(detail));
+        }
         rable::parse(source, false).map_err(|e| RippyError::Parse(format!("{e}")))
     }
 }
