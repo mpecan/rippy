@@ -583,6 +583,8 @@ until true; do ls; done	allow	ls is safe
 (( i = 1 ))	allow	
 (( i = 1 )) > ~/.rippy/config.toml	deny	rippy configuration files are protected from modification. To disable self-protection, manually add `set self-protect off` to your config.
 [[ -f foo ]]	ask	unrecognized shell construct
+[[ -f foo ]] > ~/.rippy/config.toml	deny	rippy configuration files are protected from modification. To disable self-protection, manually add `set self-protect off` to your config.
+[[ -f foo ]] > /etc/passwd	ask	redirect to /etc/passwd
 echo hi | cat > /etc/passwd	ask	pipeline writes to file
 cat /etc/hostname	allow	cat is safe
 LD_PRELOAD=/tmp/evil.so cat /etc/hostname	ask	dangerous env-var assignment

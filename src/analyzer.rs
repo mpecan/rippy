@@ -276,7 +276,10 @@ impl Analyzer {
             | NodeKind::Select { .. }
             | NodeKind::Case { .. }
             | NodeKind::BraceGroup { .. } => self.analyze_control_flow(node, cwd, depth),
-            NodeKind::Subshell { body, redirects } => {
+            // `[[ ]]` joins the subshell arm because both carry redirects that a
+            // body-only walk would leave unanalyzed (#197).
+            NodeKind::Subshell { body, redirects }
+            | NodeKind::ConditionalExpr { body, redirects } => {
                 let mut verdicts = vec![self.analyze_node(body, cwd, depth + 1)];
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
                 Verdict::combine(&verdicts)
@@ -301,7 +304,6 @@ impl Analyzer {
                 quoted, content, ..
             } => Self::analyze_heredoc_node(*quoted, Some(content.as_str())),
             NodeKind::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
-            NodeKind::ConditionalExpr { body, .. } => self.analyze_node(body, cwd, depth + 1),
             NodeKind::ArithmeticCommand { redirects, .. } => {
                 Verdict::combine(&self.analyze_redirects(redirects, cwd, depth))
             }

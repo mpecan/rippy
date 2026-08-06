@@ -168,6 +168,16 @@ decision = "deny"
 command = "[[ -f foo ]]"
 decision = "ask"
 
+# ConditionalExpr's redirects are analyzed too (#197); dropping them let the
+# body's ask stand in for a self-protect deny.
+[[case]]
+command = "[[ -f foo ]] > ~/.rippy/config.toml"
+decision = "deny"
+
+[[case]]
+command = "[[ -f foo ]] > /etc/passwd"
+decision = "ask"
+
 [[case]]
 command = "echo hi | cat > /etc/passwd"
 decision = "ask"

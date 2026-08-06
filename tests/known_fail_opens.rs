@@ -47,13 +47,12 @@ fn case_without_expansion_still_allows() {
     assert_eq!(v.decision, Decision::Allow);
 }
 
-/// #197 — `ConditionalExpr` drops its `redirects`, so a write attached to a
-/// `[[ ]]` test is never analyzed and self-protection degrades to Ask.
+/// #197 — `ConditionalExpr` used to drop its `redirects`, so a write attached to
+/// a `[[ ]]` test was never analyzed and self-protection degraded to Ask.
 ///
-/// The sibling `ArithmeticCommand` arm handles this correctly, which is the
-/// contrast that makes the omission visible.
+/// The sibling `ArithmeticCommand` arm always handled this correctly, which is
+/// the contrast that made the omission visible.
 #[test]
-#[ignore = "known fail-open, tracked in #197"]
 fn conditional_expr_redirect_is_analyzed() {
     let mut a = isolated_analyzer();
     let cond = a.analyze("[[ -f foo ]] > ~/.rippy/config.toml").unwrap();
