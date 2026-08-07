@@ -467,9 +467,47 @@ fn is_dangerous_env_name_flags_git_config_and_bash_func_families() {
     }
 }
 
+/// The env twins of the git global flags the handler gates (#200 follow-up):
+/// each relocates the program git runs or the repository whose config it obeys.
+#[test]
+fn is_dangerous_env_name_flags_code_selecting_git_vars() {
+    for name in [
+        "GIT_EXEC_PATH",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_INDEX_FILE",
+        "GIT_TEMPLATE_DIR",
+        "GIT_ATTR_SOURCE",
+        "GIT_PROXY_COMMAND",
+        "GIT_ASKPASS",
+        "SSH_ASKPASS",
+        "GIT_EDITOR",
+        "GIT_SEQUENCE_EDITOR",
+        "GIT_ALLOW_PROTOCOL",
+        "GIT_PROTOCOL_FROM_USER",
+    ] {
+        assert!(is_dangerous_env_name(name), "{name} should be dangerous");
+    }
+}
+
 #[test]
 fn is_dangerous_env_name_allows_ordinary_names() {
-    for name in ["FOO", "PATH", "HOME", "NODE_ENV", "CI", "RUST_LOG"] {
+    for name in [
+        "FOO",
+        "PATH",
+        "HOME",
+        "NODE_ENV",
+        "CI",
+        "RUST_LOG",
+        // git's identity vars carry data, not code, and scripts set them often.
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_DATE",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_DATE",
+    ] {
         assert!(!is_dangerous_env_name(name), "{name} should be safe");
     }
 }

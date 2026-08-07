@@ -102,16 +102,20 @@ impl Handler for GitHandler {
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
+        // Every global-flag guard reads the pre-subcommand region only: past the
+        // subcommand the same spellings are operands (`git grep -- --exec-path`).
+        let globals = git_globals::global_region(ctx.args);
+
+        if let Some(verdict) = git_globals::check_exec_path_flag(globals) {
+            return verdict;
+        }
+
         // Check if -C, --git-dir, or --work-tree points outside allowed scope
-        if let Some(verdict) = check_repo_path_flags(ctx) {
+        if let Some(verdict) = check_repo_path_flags(ctx, globals) {
             return verdict;
         }
 
-        if let Some(verdict) = check_config_overrides(ctx.args) {
-            return verdict;
-        }
-
-        if let Some(verdict) = git_globals::check_exec_selecting_flags(ctx.args) {
+        if let Some(verdict) = check_config_overrides(globals) {
             return verdict;
         }
 
@@ -162,37 +166,45 @@ const REPO_PATH_EQ_FLAGS: &[&str] = &["--git-dir", "--work-tree"];
 /// normal classification. Both the separated (`--git-dir PATH`) and attached
 /// (`--git-dir=PATH`) forms are checked so the redirect cannot be smuggled past
 /// the scope guard.
-fn check_repo_path_flags(ctx: &HandlerContext) -> Option<Classification> {
+fn check_repo_path_flags(ctx: &HandlerContext, globals: &[String]) -> Option<Classification> {
     let normalized_cwd = normalize_path(ctx.working_directory);
     let mut i = 0;
-    while i < ctx.args.len() {
-        let arg = ctx.args[i].as_str();
-        if let Some((flag, value)) = repo_redirect_target(arg, ctx.args.get(i + 1)) {
-            if let Some(verdict) = repo_flag_out_of_scope(flag, value, &normalized_cwd, ctx) {
-                return Some(verdict);
-            }
-            // The attached `=` form consumes one arg; the separated form two.
-            i += if arg.contains('=') { 1 } else { 2 };
+    while i < globals.len() {
+        let Some((flag, value, width)) = repo_redirect_target(&globals[i], globals.get(i + 1))
+        else {
+            i += 1;
             continue;
+        };
+        if let Some(verdict) = repo_flag_out_of_scope(flag, value, &normalized_cwd, ctx) {
+            return Some(verdict);
         }
-        i += 1;
+        i += width;
     }
     None
 }
 
-/// If `arg` is a repo-redirect flag, return the `(flag-label, target-path)` it
-/// points at — handling both `--git-dir PATH` (value in `next`) and the
-/// attached `--git-dir=PATH` form.
-fn repo_redirect_target<'a>(arg: &'a str, next: Option<&'a String>) -> Option<(&'a str, &'a str)> {
+/// If `arg` is a repo-redirect flag, return the `(flag-label, target-path,
+/// tokens-consumed)` it points at — handling both `--git-dir PATH` (value in
+/// `next`) and the attached `--git-dir=PATH` form.
+///
+/// A separated flag whose `next` is itself flag-shaped has no value here: git
+/// would take it literally, and consuming it hid the `--git-dir=` in
+/// `git -C --git-dir=/tmp/evil status` from this very check (#200 follow-up).
+fn repo_redirect_target<'a>(
+    arg: &'a str,
+    next: Option<&'a String>,
+) -> Option<(&'a str, &'a str, usize)> {
     if REPO_PATH_FLAGS.contains(&arg) {
-        return next.map(|v| (arg, v.as_str()));
+        return next
+            .filter(|v| !v.starts_with('-'))
+            .map(|v| (arg, v.as_str(), 2));
     }
     for flag in REPO_PATH_EQ_FLAGS {
         if let Some(value) = arg
             .strip_prefix(flag)
             .and_then(|rest| rest.strip_prefix('='))
         {
-            return Some((flag, value));
+            return Some((flag, value, 1));
         }
     }
     None
@@ -211,7 +223,7 @@ fn repo_flag_out_of_scope(
     } else {
         normalize_path(&ctx.working_directory.join(value))
     };
-    if repo_redirect_in_scope(&resolved, normalized_cwd, ctx.safe_scopes) {
+    if repo_redirect_in_scope(flag, &resolved, normalized_cwd, ctx.safe_scopes) {
         None
     } else {
         Some(Classification::Ask(format!(
@@ -220,17 +232,28 @@ fn repo_flag_out_of_scope(
     }
 }
 
-/// A repo redirect is in scope only inside the cwd or a user-declared safe
-/// scope. Deliberately narrower than [`super::is_within_scope`], which also
-/// accepts the built-in world-writable directories: those answer "may rippy
-/// write here", and the question a redirect poses is "whose `.git/config`
-/// runs". Anyone can plant a repo under `/tmp` carrying the `core.fsmonitor`
-/// or alias settings that the `-c` allowlist rejects outright (#200).
+/// Is a repo redirect's resolved target inside the scope its flag requires?
+///
+/// `-C DIR` only chdirs before git parses the rest, which is what
+/// `cd DIR && git …` does — and rippy already approves that into its own
+/// auto-approved write areas (`/tmp`, `/var/tmp`), where agents are steered to
+/// make scratch clones. Asking there was cry-wolf, so `-C` asks the write-scope
+/// question ([`super::is_within_scope`]).
+///
+/// `--git-dir`/`--work-tree` stay narrower — cwd or a user-declared safe scope
+/// only. They bind some *other* repository's `.git/config` (`core.fsmonitor`,
+/// `alias.*` — the settings the `-c` allowlist rejects outright) to the current
+/// worktree, a shape no ordinary workflow needs, so a world-writable directory
+/// nobody opted into is not enough (#200).
 fn repo_redirect_in_scope(
+    flag: &str,
     resolved: &Path,
     normalized_cwd: &Path,
     safe_scopes: &[std::path::PathBuf],
 ) -> bool {
+    if flag == "-C" {
+        return super::is_within_scope(resolved, normalized_cwd, safe_scopes);
+    }
     resolved.starts_with(normalized_cwd) || safe_scopes.iter().any(|s| resolved.starts_with(s))
 }
 
@@ -454,15 +477,20 @@ fn guard_for(sub: &str) -> &'static str {
         .map_or("", |(_, guard, _)| *guard)
 }
 
-/// Every `git` invocation `classify` approves, as data. Mirrors the dispatch in
-/// [`GitHandler::classify`]; see the module constants it reads.
-fn git_allow_surface() -> Vec<AllowEntry> {
-    let scope_guard = "-C/--git-dir/--work-tree must stay in the cwd or a declared safe \
-                       scope, any -c/--config-env key must be on the safe config-key list, \
-                       and every other global flag must be a known-inert one \
-                       (--exec-path and anything unrecognized ask)";
-    let mut entries = vec![
+/// The rows for the global-flag region, before any subcommand is reached.
+fn global_flag_surface() -> Vec<AllowEntry> {
+    let scope_guard = "-C must stay in the cwd, a declared safe scope or an auto-approved \
+                       write area (/tmp, /var/tmp); --git-dir/--work-tree must stay in the \
+                       cwd or a declared safe scope; any -c/--config-env key must be on the \
+                       safe config-key list; and every other global flag must be a \
+                       known-inert one (--exec-path=<dir> and anything unrecognized ask)";
+    vec![
         AllowEntry::guarded("git", format!("no subcommand; {scope_guard}")),
+        AllowEntry::guarded(
+            "git --exec-path",
+            "bare spelling only — git prints its exec path and exits before any \
+             subcommand runs; the --exec-path=<dir> form asks",
+        ),
         AllowEntry::guarded(
             "git -c <key>=<value> <subcommand>",
             format!(
@@ -471,7 +499,13 @@ fn git_allow_surface() -> Vec<AllowEntry> {
                 SAFE_CONFIG_KEYS.join(", ")
             ),
         ),
-    ];
+    ]
+}
+
+/// Every `git` invocation `classify` approves, as data. Mirrors the dispatch in
+/// [`GitHandler::classify`]; see the module constants it reads.
+fn git_allow_surface() -> Vec<AllowEntry> {
+    let mut entries = global_flag_surface();
     for sub in SAFE_SUBCOMMANDS {
         entries.push(AllowEntry::guarded(format!("git {sub}"), guard_for(sub)));
     }
@@ -578,6 +612,23 @@ mod tests {
             ..HandlerContext::test("git", &args)
         };
         assert!(matches!(GIT_HANDLER.classify(&ctx), Classification::Ask(_)));
+    }
+
+    // The `-C` contrast to the case above: chdir-ing into an auto-approved write
+    // area is the `cd /tmp/scratch && git status` shape rippy already approves,
+    // so asking on it was cry-wolf (#200 follow-up). Needs an injected cwd for
+    // the same reason.
+    #[test]
+    fn dash_c_into_world_writable_dir_outside_cwd_allows() {
+        let args = vec!["-C".into(), "/tmp/scratch".into(), "status".into()];
+        let ctx = HandlerContext {
+            working_directory: Path::new("/project"),
+            ..HandlerContext::test("git", &args)
+        };
+        assert!(matches!(
+            GIT_HANDLER.classify(&ctx),
+            Classification::Allow(_)
+        ));
     }
 
     #[test]

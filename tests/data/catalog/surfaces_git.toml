@@ -186,10 +186,27 @@ command = "git --exec-path=/tmp/evil status"
 decision = "ask"
 reason_contains = "relocates the binaries"
 
+# Only the =<dir> spelling sets anything. Verified on git 2.55: the bare flag
+# prints the compiled-in exec path and exits(0), ignoring every later argument,
+# so both of these run no subcommand at all.
+[[case]]
+command = "git --exec-path"
+decision = "allow"
+
 [[case]]
 command = "git --exec-path /tmp/evil status"
-decision = "ask"
-reason_contains = "relocates the binaries"
+decision = "allow"
+
+# The guard reads the global region only, so a literal search string spelled
+# like a global flag is not a global flag. Same for `git grep -c` (--count),
+# which the config-key allowlist used to read as a `-c <key>=<value>` override.
+[[case]]
+command = "git grep -- --exec-path"
+decision = "allow"
+
+[[case]]
+command = "git grep -c pat"
+decision = "allow"
 
 # A repo planted in a world-writable directory is not a repo the user chose:
 # its .git/config carries the very settings the -c allowlist rejects.
@@ -203,10 +220,50 @@ command = "git --git-dir /tmp/evil status"
 decision = "ask"
 reason_contains = "outside allowed scope"
 
+# `-C` only chdirs, exactly as `cd /tmp/scratch && git status` (approved) does,
+# so it reaches rippy's own auto-approved write areas. Its boundary is a path
+# that is neither the cwd, a declared scope, nor a write area: `git -C /etc
+# status` and `git -C /opt/other-repo log` in handlers_git.toml.
 [[case]]
-command = "git -C /tmp/evil status"
+command = "git -C /tmp/scratch status"
+decision = "allow"
+
+# A value-shaped token that is itself a redirect flag was consumed as -C's
+# value and skipped unexamined (#200 follow-up).
+[[case]]
+command = "git -C --git-dir=/tmp/evil status"
 decision = "ask"
 reason_contains = "outside allowed scope"
+
+# Documented, inert git 2.55 globals: they print a path or turn off a message,
+# and asking on them was cry-wolf.
+[[case]]
+command = "git --no-advice status"
+decision = "allow"
+
+[[case]]
+command = "git --no-lazy-fetch status"
+decision = "allow"
+
+[[case]]
+command = "git --html-path"
+decision = "allow"
+
+[[case]]
+command = "git --man-path"
+decision = "allow"
+
+[[case]]
+command = "git --info-path"
+decision = "allow"
+
+[[case]]
+command = "git --attr-source=HEAD log"
+decision = "allow"
+
+[[case]]
+command = "git --list-cmds=main"
+decision = "allow"
 
 # The skip list is an allowlist, so the next global flag of this kind asks
 # instead of being waved through.

@@ -25,7 +25,8 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#env-prefix-strip` | No Allow rule bypasses the redirect guards via an env prefix | `tests/security_invariants.rs::env_prefix_does_not_launder_redirect_past_self_protect` |
 | `#env-prefix-strip` | On unparseable input we fall back to the raw string: deny rules still match, and the parse error still surfaces as an Ask | `tests/security_invariants.rs::deny_rule_still_matches_unparseable_command`, `src/analyzer_tests.rs::unparseable_command_asks_fail_closed`, `tests/infrastructure.rs::claude_unparseable_command_asks_not_fail_open` |
 | `#dangerous-env-name` | `is_dangerous_env_name` flags the linker/interpreter hooks plus the `GIT_CONFIG*` and `BASH_FUNC_*` prefix families | `src/ast_tests.rs::is_dangerous_env_name_flags_git_config_and_bash_func_families` |
-| `#dangerous-env-name` | Ordinary build/CI names (`FOO`, `NODE_ENV`, `CI`, `RUST_LOG`) are not flagged | `src/ast_tests.rs::is_dangerous_env_name_allows_ordinary_names` |
+| `#dangerous-env-name` | The env twins of git's code- and repo-selecting global flags (`GIT_EXEC_PATH`, `GIT_DIR`, `GIT_PROXY_COMMAND`, ...) are flagged | `src/ast_tests.rs::is_dangerous_env_name_flags_code_selecting_git_vars`, `tests/data/catalog/injection_env_var.toml` |
+| `#dangerous-env-name` | Ordinary build/CI names (`FOO`, `NODE_ENV`, `CI`, `RUST_LOG`) and git's identity vars are not flagged | `src/ast_tests.rs::is_dangerous_env_name_allows_ordinary_names`, `tests/data/catalog/injection_env_var.toml` |
 | `#dangerous-env-name` | A dangerous literal assignment Asks even on a safe-listed command, before the fast path or any handler runs | `tests/data/catalog/injection_env_var.toml`, `tests/security_invariants.rs::env_prefix_dangerous_var_asks_even_when_command_is_allow_ruled` |
 | `#dangerous-env-name` | The `env` handler applies the same check to the `NAME=VALUE` args it sets | `tests/data/catalog/injection_env_var.toml` |
 | `#dangerous-env-name` | `env -S` / `--split-string=` / `-vS` payloads are extracted and recursed into | `src/handlers/env_xargs.rs::split_string_separate_arg`, `src/handlers/env_xargs.rs::split_string_attached_short_and_long`, `src/handlers/env_xargs.rs::split_string_bundled_boolean_cluster`, `tests/data/catalog/injection_env_var.toml` |
@@ -54,6 +55,8 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#heredoc-rable-26` | The safe-substitution conditions hold: `SIMPLE_SAFE` command, all redirects quoted heredocs, no word expansions | `src/analyzer_tests2.rs::safe_heredoc_in_command_substitution_allows`, `src/analyzer_tests2.rs::unquoted_heredoc_in_command_substitution_asks`, `src/analyzer_tests2.rs::unsafe_command_heredoc_in_substitution_asks`, `src/analyzer_tests2.rs::pipeline_in_heredoc_substitution_asks` |
 | `#git-undeclared-repo` | A read-only git invocation against a repository outside every declared scope still Asks | `tests/scopes.rs::git_read_outside_any_scope_still_asks` |
 | `#git-undeclared-repo` | A git write inside a declared scope still Asks | `tests/scopes.rs::git_write_in_declared_scope_still_asks` |
+| `#git-undeclared-repo` | `-C` into an auto-approved write area Allows, while `--git-dir`/`--work-tree` there still Ask | `src/handlers/git.rs::dash_c_into_world_writable_dir_outside_cwd_allows`, `src/handlers/git.rs::git_dir_in_world_writable_dir_outside_cwd_asks`, `tests/data/catalog/surfaces_git.toml` |
+| `#git-undeclared-repo` | Global-flag guards read the pre-subcommand region only, and a separated flag never swallows a flag-shaped token | `tests/data/catalog/surfaces_git.toml` |
 | `#non-ascii-inline-code` | Multi-byte inline source is classified instead of crashing the scanner, and a dangerous call inside it still Asks | `src/ruby_safety.rs::non_ascii_source_is_classified_without_panicking`, `src/perl_safety.rs::non_ascii_source_is_classified_without_panicking`, `tests/data/catalog/handlers_interpreters.toml` |
 | `#non-ascii-inline-code` | The CTE skipper derives byte offsets, so multi-byte SQL is classified by its real main statement | `src/sql.rs::cte_with_non_ascii_body_is_classified_without_panicking`, `tests/data/catalog/handlers_text_system.toml` |
 | `#non-ascii-inline-code` | A multi-byte sed delimiter is classified instead of panicking, and a `w`/`e` flag behind one is still caught | `src/handlers/text_tools.rs::non_ascii_sed_delimiter_is_classified_without_panicking`, `tests/data/catalog/handlers_text_system.toml` |
@@ -134,6 +137,26 @@ have per-index or per-name members (`GIT_CONFIG_KEY_0`, `BASH_FUNC_anything`); t
 broad match may Ask on an unrelated variable that literally starts with
 `GIT_CONFIG`, an accepted fail-closed trade-off. Ordinary build/CI prefixes
 (`FOO`, `NODE_ENV`, `CI`, `RUST_LOG`, ...) are not matched and stay Allow.
+
+Every git global flag the handler gates has an environment twin, and the twin
+reaches no handler at all — the assignment sits in front of a `git status` the
+allowlist approves on its name. `CODE_SELECTING_GIT_ENV` closes that half:
+`GIT_EXEC_PATH` is `--exec-path=<dir>` (git runs `git-status` out of an
+attacker-chosen directory), `GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR` and the
+object-store names (`GIT_OBJECT_DIRECTORY`,
+`GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_INDEX_FILE`) are the repo redirects,
+and `GIT_PROXY_COMMAND`/`GIT_ASKPASS`/`GIT_EDITOR`/`GIT_SEQUENCE_EDITOR` name
+programs git executes. `GIT_TEMPLATE_DIR` plants hooks, and `GIT_ALLOW_PROTOCOL`
+/ `GIT_PROTOCOL_FROM_USER` re-enable the `ext::` transport, which is direct RCE.
+The list is an exact enumeration, not a `GIT_` prefix: the identity vars
+(`GIT_AUTHOR_NAME`, `GIT_COMMITTER_DATE`, ...) carry data, are set constantly by
+scripts, and asking on them would be cry-wolf.
+
+`GIT_ATTR_SOURCE` rides along with the family although the `--attr-source=<tree>`
+flag spelling stays approved: attributes only *name* a diff/filter driver that
+the repo's config must also define, so the flag is inert on its own, while the
+env spelling is the shape an injected environment takes and fails closed with
+the rest of its family.
 
 ## append-assignment-shadow
 
@@ -222,6 +245,23 @@ A read-only git invocation against a repository outside every declared safe scop
 carry `core.fsmonitor`, alias, or hook directives that execute code on an
 otherwise "read-only" command, so scope-widening must not silently approve it.
 Tested by `tests/scopes.rs::git_read_outside_any_scope_still_asks`.
+
+The two repo-redirect spellings ask different questions. `-C DIR` only chdirs
+before git parses the rest, which is exactly `cd DIR && git …` — already approved
+into rippy's auto-approved write areas, where agents are steered to make scratch
+clones — so `-C` uses `is_within_scope` and `/tmp/scratch` stays Allow.
+`--git-dir`/`--work-tree` bind some *other* repository's config to the current
+worktree, which no ordinary workflow needs, so they require the cwd or a
+user-declared safe scope and a world-writable directory nobody opted into is not
+enough.
+
+All the global-flag guards read `git_globals::global_region` — the tokens git
+parses before the subcommand, plus the token that ends the region (the
+fail-closed flag is precisely the one the inert allowlist does not recognize).
+Scanning every argument instead made `git grep -- --exec-path` Ask on its own
+search string. Within that region a separated value flag does not consume a
+flag-shaped token as its value: `git -C --git-dir=/tmp/evil status` fed the
+redirect to `-C` and skipped past it, so nothing examined it.
 
 ## non-ascii-inline-code
 
