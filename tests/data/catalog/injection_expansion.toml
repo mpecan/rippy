@@ -341,3 +341,16 @@ decision = "allow"
 [[case]]
 command = 'echo $"plain locale"'
 decision = "allow"
+
+# ---- $"..." locale strings (cargo-mutants) ----
+# The `$"` form is load-bearing on three live guards (safe-dir write target,
+# heredoc content, ${VAR:-...} re-expansion) and was untested on all three.
+
+[[case]]
+command = "ls > /tmp/foo$\"x\""
+decision = "ask"
+
+# A bare trailing `$` is not an expansion — pins the fail-closed direction.
+[[case]]
+command = "ls > /tmp/foo$"
+decision = "allow"

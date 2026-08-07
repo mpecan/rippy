@@ -706,3 +706,171 @@ decision = "allow"
 [[case]]
 command = "sqlite3 -readonly test.db"
 decision = "allow"
+
+# ---- cargo-mutants survivors (docs/mutation-testing.md) ----
+
+# tar's --to-command is its RCE hook. The GLUED spelling reaches the
+# program-exec-flag guard and asks; the SPACED spelling short-circuits into
+# recursion first and currently *downgrades* `tar -xf` from ask to allow. Only
+# the correct half is pinned here — the spaced form is a live fail-open and
+# lives in tests/known_fail_opens.rs until #198 is fixed. Two mutants in the
+# recursion-target arithmetic stay alive as a result; that is the honest trade.
+[[case]]
+command = "tar --to-command=cat -xf a.tar"
+decision = "ask"
+
+# #190's leading-option-run logic gates the whole unzip list/test allow surface,
+# but no case separated a spaced option value from a glued one.
+[[case]]
+command = "unzip -d out -l a.zip"
+decision = "allow"
+
+# Dangerous neighbour: `-d -l` extracts into a directory literally named `-l`.
+[[case]]
+command = "unzip -d -l a.zip"
+decision = "ask"
+
+# All-flags-no-operand forms: mutants here index past the end and panic.
+[[case]]
+command = "cd -L"
+decision = "ask"
+
+[[case]]
+command = "mkdir -m 755"
+decision = "ask"
+
+[[case]]
+command = "env -i"
+decision = "allow"
+
+[[case]]
+command = "env --split-string"
+decision = "ask"
+
+[[case]]
+command = "ansible-inventory --list -i"
+decision = "ask"
+
+# ---- sed/awk scanner survivors (cargo-mutants; docs/mutation-testing.md) ----
+
+# `has_flag` is an exact match, so the `-i<suffix>` spelling is caught only by the
+# starts_with arm. A mutant collapsing that `||` deletes the whole in-place guard,
+# and `-i.bak` is the mandatory BSD/macOS form.
+[[case]]
+command = "sed -i.bak 's/x/y/' file"
+decision = "ask"
+
+# `w` writes a file. Address forms other than a bare digit ($ , ! ranges) were
+# untested, and several mutants stop the address scan early so `rest` no longer
+# starts with `w`.
+[[case]]
+command = "sed '$w /tmp/out'"
+decision = "ask"
+
+[[case]]
+command = "sed '1!w /tmp/out'"
+decision = "ask"
+
+# Degenerate scripts: mutants here index one past the end and panic.
+[[case]]
+command = "sed ''"
+decision = "allow"
+
+[[case]]
+command = "sed '/abc'"
+decision = "allow"
+
+# awk: a regex literal followed by a pipe-to-command. Existing tests covered a
+# regex with no pipe, or a pipe with no regex — never both, so an off-by-one that
+# re-enters the closing `/` as a new regex swallows the rest of the program.
+[[case]]
+command = "awk '/a/ {print $0 | \"sort\"}'"
+decision = "ask"
+
+# A backslash escape inside an awk string, followed by a pipe. Desynchronising
+# the string scanner here hides the `|` entirely.
+[[case]]
+command = "awk '{print $1\"\\t\"$2 | \"sort\"}'"
+decision = "ask"
+
+[[case]]
+command = "awk '$1 ~ /\\./ {print $0 | \"sort\"}'"
+decision = "ask"
+
+# Division vs regex disambiguation: each preceding character class is a separate
+# arm of is_word_byte, and a `/` misread as a regex start eats the pipe.
+[[case]]
+command = "awk '{print $1/2 | \"sort\"}'"
+decision = "ask"
+
+[[case]]
+command = "awk '{print a[1]/2 | \"sort\"}'"
+decision = "ask"
+
+[[case]]
+command = "awk '{print x_/2 | \"sort\"}'"
+decision = "ask"
+
+# A benign "system" token before the real call: mutants in the rescan offset step
+# over the genuine system( call.
+[[case]]
+command = "awk '{print \"system\"; system(\"id\")}' f"
+decision = "ask"
+
+[[case]]
+command = "awk 'nosystem system(\"id\")'"
+decision = "ask"
+
+# Unquoted redirect destinations — the quoted forms are shadowed by an earlier
+# `contains` early-return, so only these reach the byte loop.
+[[case]]
+command = "awk '{print \"x\" > out}'"
+decision = "ask"
+
+[[case]]
+command = "awk '{print \"text\" >> outfile}'"
+decision = "ask"
+
+# Extra spacing: one mutant is off by a single byte and a single space hides it.
+[[case]]
+command = "awk '{print \"x\"  >  out}'"
+decision = "ask"
+
+# Safe neighbours: identifier-suffixed names are not the awk builtin, and these
+# pin the fail-closed direction plus the degenerate-program panics.
+[[case]]
+command = "awk '{mysystem(\"x\")}'"
+decision = "allow"
+
+[[case]]
+command = "awk '{my_system(\"x\")}'"
+decision = "allow"
+
+[[case]]
+command = "awk '{print system}'"
+decision = "allow"
+
+[[case]]
+command = "awk 'BEGIN{print \"x}'"
+decision = "allow"
+
+[[case]]
+command = "awk '/abc {print}'"
+decision = "allow"
+
+# awk's logical `||` must not be read as pipe-to-command.
+[[case]]
+command = "awk '{if (x==1 || y==2) print}'"
+decision = "allow"
+
+[[case]]
+command = "awk '>x'"
+decision = "allow"
+
+[[case]]
+command = "awk '|x'"
+decision = "ask"
+
+[[case]]
+command = "awk 'x|'"
+decision = "ask"

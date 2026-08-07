@@ -1,0 +1,79 @@
+[meta]
+description = "SQL read-only classifier (psql/mysql/sqlite3) — command -> decision"
+
+# Added from cargo-mutants survivors in src/sql.rs (docs/mutation-testing.md).
+# classify_sql maps Some(true)->Allow, Some(false)->Ask("write SQL"),
+# None->Ask("ambiguous SQL"), so only flips into/out of Some(true) move a verdict.
+# Two coverage holes produced ten fail-open survivors: no test put a DOUBLE QUOTE
+# inside SQL, and no test put a comment marker inside a string literal.
+
+# A newline before INTO. `is_select_into` matches the literal " INTO ", so any
+# non-space separator relies entirely on contains_keyword("INTO OUTFILE") —
+# mutants that disable it auto-approve an arbitrary server-side file write.
+[[case]]
+command = "mysql -e \"SELECT a FROM t\nINTO OUTFILE '/tmp/pwn.csv'\""
+decision = "ask"
+
+# A single `-` must not open a line comment; the mutant comments out the DROP.
+[[case]]
+command = "mysql -e \"SELECT a-b FROM t; DROP TABLE tmp\""
+decision = "ask"
+
+# `--` inside a quoted string/identifier is data, not a comment. If quote state
+# is lost, everything after it is stripped and the chained DROP disappears.
+[[case]]
+command = "psql -c \"SELECT 'a--b' FROM t; DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "psql -c 'SELECT \"a--b\" FROM t; DROP TABLE t'"
+decision = "ask"
+
+[[case]]
+command = "psql -c \"/* c */SELECT 1;/* c */DROP TABLE t\""
+decision = "ask"
+
+# Leading `;` produces an empty first statement — must stay ambiguous, not allow.
+[[case]]
+command = "psql -c \"; SELECT 1\""
+decision = "ask"
+
+# Safe neighbours: ordinary comments and quoted data must still classify
+# read-only. Several mutants here index past the end and hang or panic.
+[[case]]
+command = "psql -c \"SELECT 1 -- note\""
+decision = "allow"
+
+[[case]]
+command = "psql -c \"/* a*b */ SELECT 1\""
+decision = "allow"
+
+[[case]]
+command = "psql -c \"SELECT 'a;b' FROM t\""
+decision = "allow"
+
+[[case]]
+command = "psql -c 'SELECT \"a;b\" FROM t'"
+decision = "allow"
+
+# The double-quote hole: no test anywhere put a double quote inside SQL.
+[[case]]
+command = "psql -c 'SELECT \"x\" FROM t'"
+decision = "allow"
+
+# Truncated trailing markers — out-of-bounds reads in the comment scanner.
+[[case]]
+command = "psql -c \"SELECT 1 -\""
+decision = "allow"
+
+[[case]]
+command = "psql -c \"SELECT 1 /\""
+decision = "allow"
+
+[[case]]
+command = "psql -c \"SELECT 1 /*\""
+decision = "allow"
+
+[[case]]
+command = "psql -c \"SELECT 1 /*x*\""
+decision = "allow"

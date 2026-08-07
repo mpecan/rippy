@@ -532,3 +532,10 @@ decision = "allow"
 [[case]]
 command = 'gh variable ports'
 decision = "allow"
+
+# cargo-mutants: forcing the RESOURCE_COMMANDS match guard true sends every
+# unknown gh group through classify_resource, so `gh <group> <SAFE_ACTION>`
+# auto-approves. Marks where the gh resource surface stops.
+[[case]]
+command = "gh auth status"
+decision = "ask"

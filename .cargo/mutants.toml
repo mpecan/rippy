@@ -1,0 +1,21 @@
+# cargo-mutants configuration — see docs/mutation-testing.md
+#
+# Mutation testing asks the question the coverage report cannot: when a line of
+# rippy's decision logic changes meaning, does any test notice? For a security
+# tool a MISSED mutant is the interesting result — it marks logic that can be
+# weakened silently.
+
+# A mutant that flips a loop bound or a comparison can hang instead of failing.
+# The baseline suite finishes in ~11s, so 5x plus a 60s floor leaves ample room
+# for a slow machine while still killing genuine infinite loops quickly.
+timeout_multiplier = 5.0
+minimum_test_timeout = 60
+
+exclude_globs = [
+    # Its own workspace on a nightly toolchain, excluded from the published
+    # crate; the stable gate never builds it.
+    "fuzz/**",
+    # Generates the catalog test harness. Mutating it breaks compilation of the
+    # test suite itself rather than testing rippy's logic.
+    "build.rs",
+]

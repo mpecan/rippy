@@ -228,3 +228,19 @@ decision = "allow"
 [[case]]
 command = 'uv cache dir'
 decision = "allow"
+
+# ---- nice adjustment parsing (cargo-mutants) ----
+# is_nice_adjustment must accept only a numeric adjustment; a mutant makes every
+# `-`-prefixed token pass, so junk flags are skipped and the inner command runs.
+
+[[case]]
+command = "nice - ls"
+decision = "ask"
+
+[[case]]
+command = "nice -x ls"
+decision = "ask"
+
+[[case]]
+command = "nice -10 ls"
+decision = "allow"

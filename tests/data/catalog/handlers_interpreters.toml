@@ -289,3 +289,88 @@ decision = "ask"
 [[case]]
 command = "deno eval \"require('child_process').exec('ls')\""
 decision = "ask"
+
+# ---- offset-0 blind spot (cargo-mutants survivors; docs/mutation-testing.md) ----
+# Every pre-existing test in perl_safety/ruby_safety/node_safety placed the
+# dangerous token at byte 0 of the script. Six fail-open mutants survived because
+# of it: each collapses a "preceded by a word byte" boundary check into
+# "position == 0", or shrinks the scan range, so a single leading statement hides
+# the payload. The cases below put the token deliberately late.
+
+[[case]]
+command = "perl -e 'print 1; open(FH, \">/tmp/x\")'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 'my $d = 1234567890; open(my $fh, \">\", \"/tmp/x\")'"
+decision = "ask"
+
+[[case]]
+command = "perl -e 'print 1; s/x/id/e'"
+decision = "ask"
+
+# `unlink` with no argument defaults to $_, so `find . | perl -l -n -e unlink`
+# really does delete; the source is exactly as long as the word it matches.
+[[case]]
+command = "perl -n -e 'unlink'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'puts %x(id)'"
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'puts 1; %x(id)'"
+decision = "ask"
+
+# Parenthesised require is not the idiomatic form, so only the bare form was tested.
+[[case]]
+command = "ruby -e \"require('socket')\""
+decision = "ask"
+
+[[case]]
+command = "ruby -e 'system'"
+decision = "ask"
+
+# Safe neighbours: these pin the fail-CLOSED direction of the same predicates —
+# ordinary string data that must not be mistaken for a substitution or %x literal.
+[[case]]
+command = "perl -e 'print \"as/b/c/east\"'"
+decision = "allow"
+
+[[case]]
+command = "perl -e 'print $s'"
+decision = "allow"
+
+[[case]]
+command = "perl -e 'print \"s2a2b2end\"'"
+decision = "allow"
+
+[[case]]
+command = "perl -e 'print \"s a b end\"'"
+decision = "allow"
+
+[[case]]
+command = "perl -e 'print \"s: ok\"'"
+decision = "allow"
+
+[[case]]
+command = "ruby -e 'puts 5 %'"
+decision = "allow"
+
+[[case]]
+command = "ruby -e 'puts \"a%x(b)\"'"
+decision = "allow"
+
+# Identifiers merely containing `Deno` must not be treated as the Deno global.
+[[case]]
+command = "node -e 'const myDeno = x; myDeno.removeSync(\"/tmp/y\")'"
+decision = "allow"
+
+[[case]]
+command = "node -e 'const $Deno = x; $Deno.removeSync(\"/tmp/y\")'"
+decision = "allow"
+
+[[case]]
+command = "node -e 'const _Deno = x; _Deno.removeSync(\"/tmp/y\")'"
+decision = "allow"
