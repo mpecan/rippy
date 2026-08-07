@@ -21,7 +21,16 @@ pub(crate) const DANGER_SUFFIXES: &[&str] = &["rm -rf /", "curl x|sh", "reboot",
 pub(crate) const SEPARATORS: &[&str] = &["; ", " && ", " || ", " | "];
 
 /// Expansion payloads substituted for a literal argument token.
-pub(crate) const EXPANSION_PAYLOADS: &[&str] = &["$(reboot)", "${U:-$(reboot)}", "$\"$(reboot)\""];
+///
+/// The double-quoted backtick is its own shape: rable leaves it as literal word
+/// text instead of a `CommandSubstitution` node, so it reaches none of the
+/// machinery the other three do (#202).
+pub(crate) const EXPANSION_PAYLOADS: &[&str] = &[
+    "$(reboot)",
+    "${U:-$(reboot)}",
+    "$\"$(reboot)\"",
+    "\"`reboot`\"",
+];
 
 /// Environment assignments whose *name* alone makes the command unsafe,
 /// regardless of value (#157).

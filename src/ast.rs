@@ -105,6 +105,11 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
     }
     match kind {
         NodeKind::Word { value, parts, .. } => {
+            // A backtick inside a double-quoted part stays literal text in
+            // rable's AST, so no part is an expansion node to find (#202).
+            if has_backtick_substitution(value) {
+                return true;
+            }
             // Trust parsed parts; textual scan is only a fallback for synthetic
             // words. see docs/security-invariants.md#word-parts-trust
             if parts.is_empty() {
@@ -135,6 +140,39 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
         } => !quoted && has_shell_expansion_pattern(content),
         _ => false,
     }
+}
+
+/// Returns `true` when `text` carries a backtick that bash would run as a
+/// command substitution: one that is neither inside single quotes nor
+/// backslash-escaped.
+///
+/// Rable lifts a bare `` `cmd` `` into a [`NodeKind::CommandSubstitution`]
+/// part, but inside a double-quoted word it keeps the whole token as one
+/// literal part — while bash still executes it. Walking the parts therefore
+/// finds nothing, and this scan is the only signal (#202). Quote state is
+/// tracked rather than scanning for a bare backtick so `'a `b` c'`, where the
+/// backticks really are inert, is not falsely flagged.
+#[must_use]
+pub fn has_backtick_substitution(text: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    for c in text.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            // A backslash is literal inside single quotes; everywhere else it
+            // suppresses the next character, including a backtick.
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '`' if !in_single => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Check if a string contains shell expansion patterns: `$(`, `` ` ``, `${`,
@@ -246,13 +284,16 @@ fn leftmost_simple_command(node: &Node) -> Option<(&[Node], &[Node])> {
 ///
 /// The value has any outer quotes stripped, matching how the analyzer treats
 /// argument words, so `FOO='a b'` yields `("FOO", "a b")`.
+///
+/// The expansion check reads the raw text as well as the parsed parts: a
+/// quoted-backtick value (`` x="`cmd`" ``) has no expansion part to find, so
+/// the parts walk alone would bind attacker-chosen output as a literal (#202).
 #[must_use]
 pub fn literal_assignment(assignment: &Node) -> Option<(String, String)> {
     let NodeKind::Word { value, parts, .. } = &assignment.kind else {
         return None;
     };
-    // A non-literal value (`x=$(cmd)`, `x=$y`) must never be bound.
-    if parts.iter().any(has_expansions) {
+    if has_backtick_substitution(value) || parts.iter().any(has_expansions) {
         return None;
     }
     let (name, val) = value.split_once('=')?;

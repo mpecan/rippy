@@ -227,6 +227,32 @@ fn expansion_pattern_detects_positional_and_special_params() {
     assert!(has_shell_expansion_pattern("$-"));
 }
 
+// Quote-aware backtick detection (#202). The catalog pins the end-to-end
+// verdicts; these pin the scanner's quote bookkeeping directly, since a command
+// string cannot isolate a single unbalanced or mixed-quoting token.
+
+#[test]
+fn backtick_substitution_detected_outside_single_quotes() {
+    assert!(has_backtick_substitution("`id`"));
+    assert!(has_backtick_substitution("\"`id`\""));
+    assert!(has_backtick_substitution("\"pre`id`post\""));
+    assert!(has_backtick_substitution("'inert'\"`id`\""));
+    // An unterminated double quote must not be read as "still inside a string".
+    assert!(has_backtick_substitution("\"`id`"));
+}
+
+#[test]
+fn backtick_substitution_ignores_inert_backticks() {
+    assert!(!has_backtick_substitution("'`id`'"));
+    assert!(!has_backtick_substitution("\"a\\`b\""));
+    assert!(!has_backtick_substitution("\\`"));
+    assert!(!has_backtick_substitution("plain text"));
+    assert!(!has_backtick_substitution(""));
+    // A backslash is literal inside single quotes, so the closing quote still
+    // closes and the following backtick is live.
+    assert!(has_backtick_substitution("'a\\'`id`"));
+}
+
 // Env-prefix stripping
 
 fn strip(command: &str) -> Option<String> {
