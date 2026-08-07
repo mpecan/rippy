@@ -208,3 +208,65 @@ decision = "ask"
 [[case]]
 command = "case foo in *.txt) echo hi;; *) echo bye;; esac"
 decision = "allow"
+
+# Only an expansion that EXECUTES justifies the Ask above. A `case` subject is
+# matched against the labels, never run, so an unset variable or an
+# unsupported parameter-expansion operator there is inert — these are ubiquitous
+# idioms and asking about them was an over-correction of #193.
+[[case]]
+command = "case $OSTYPE in darwin*) echo hi;; esac"
+decision = "allow"
+
+[[case]]
+command = "case ${VAR%%.*} in a) echo hi;; esac"
+decision = "allow"
+
+[[case]]
+command = "case ${VAR#pre} in a) echo hi;; esac"
+decision = "allow"
+
+[[case]]
+command = "case ${VAR:=x} in a) echo hi;; esac"
+decision = "allow"
+
+[[case]]
+command = "case ${#x} in a) echo hi;; esac"
+decision = "allow"
+
+[[case]]
+command = "case $f in *.tar.gz) echo hi;; esac"
+decision = "allow"
+
+# Single quotes make a substitution inert, so the scan behind the narrowing
+# tracks quote state instead of keying on a bare `$(`.
+[[case]]
+command = "case 'literal $(x)' in a) echo hi;; esac"
+decision = "allow"
+
+# The narrowing's edges: rable drops the inside of an arithmetic expansion and
+# a process substitution is not a command substitution, yet both run a command.
+[[case]]
+command = "case $((1+$(id))) in a) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case <(reboot) in a) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case x in <(reboot)) echo hi;; esac"
+decision = "ask"
+
+# The narrowing must not be dodged by hiding the substitution in a concatenated
+# subject, in an extglob label, or behind an unsupported operator.
+[[case]]
+command = "case \"pre$(reboot)post\" in a) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case x in @(a|$(reboot))) echo hi;; esac"
+decision = "ask"
+
+[[case]]
+command = "case ${x:=$(reboot)} in a) echo hi;; esac"
+decision = "ask"

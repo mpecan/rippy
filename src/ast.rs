@@ -154,25 +154,83 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
 /// backticks really are inert, is not falsely flagged.
 #[must_use]
 pub fn has_backtick_substitution(text: &str) -> bool {
+    scan_interpreted(text, |c, _next, _in_double| c == '`')
+}
+
+/// Returns `true` when `text` carries a substitution bash resolves by *running*
+/// a command: `$(...)`, an active backtick, or a `<(...)`/`>(...)` process
+/// substitution.
+///
+/// Deliberately narrower than [`has_shell_expansion_pattern`], which also fires
+/// on `$VAR` and `${VAR%%...}`. Callers that only need to know "does reading
+/// this word execute anything" — a `case` subject is matched, never run (#193)
+/// — must not treat a plain variable reference as dangerous.
+#[must_use]
+pub fn has_executing_substitution(text: &str) -> bool {
+    scan_interpreted(text, |c, next, in_double| match c {
+        '`' => true,
+        '$' => next == Some('('),
+        // `<(`/`>(` is literal text inside double quotes, unlike `$(`.
+        '<' | '>' => !in_double && next == Some('('),
+        _ => false,
+    })
+}
+
+/// Run `is_hit` over the characters of `text` that bash would interpret,
+/// skipping single-quoted and backslash-escaped ones, and report whether any
+/// matched. `is_hit` receives the character, the raw character after it, and
+/// whether the scan is inside double quotes.
+fn scan_interpreted(text: &str, mut is_hit: impl FnMut(char, Option<char>, bool) -> bool) -> bool {
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
-    for c in text.chars() {
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
         if escaped {
             escaped = false;
             continue;
         }
         match c {
             // A backslash is literal inside single quotes; everywhere else it
-            // suppresses the next character, including a backtick.
+            // suppresses the next character.
             '\\' if !in_single => escaped = true,
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,
-            '`' if !in_single => return true,
+            _ if !in_single && is_hit(c, chars.peek().copied(), in_double) => return true,
             _ => {}
         }
     }
     false
+}
+
+/// Returns `true` when expanding `node` runs a command.
+///
+/// That means a `$(...)`/backtick command substitution or a `<(...)`/`>(...)`
+/// process substitution, including one nested in an arithmetic expansion or in
+/// the default/alternate text of a parameter expansion.
+///
+/// This is the "does it execute" half of [`has_expansions`]: an unset variable
+/// or an unsupported parameter-expansion operator yields `false`, because
+/// reading them runs nothing.
+///
+/// A word's raw text is scanned as well as its parts, because rable keeps a
+/// double-quoted backtick as one literal (#202) and drops the inside of
+/// `$((1+$(id)))` entirely — neither surfaces as a substitution part.
+#[must_use]
+pub fn word_executes_command(node: &Node) -> bool {
+    match &node.kind {
+        NodeKind::CommandSubstitution { .. } | NodeKind::ProcessSubstitution { .. } => true,
+        NodeKind::Word { value, parts, .. } => {
+            has_executing_substitution(value) || parts.iter().any(word_executes_command)
+        }
+        NodeKind::WordLiteral { value } | NodeKind::LocaleString { inner: value, .. } => {
+            has_executing_substitution(value)
+        }
+        NodeKind::ParamExpansion { arg, .. } => {
+            arg.as_deref().is_some_and(has_executing_substitution)
+        }
+        _ => false,
+    }
 }
 
 /// Check if a string contains shell expansion patterns: `$(`, `` ` ``, `${`,

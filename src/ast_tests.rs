@@ -253,6 +253,66 @@ fn backtick_substitution_ignores_inert_backticks() {
     assert!(has_backtick_substitution("'a\\'`id`"));
 }
 
+// Executing-substitution detection (#193 follow-up). The catalog pins the
+// `case` verdicts; these pin the distinction the narrowing rests on — a word
+// that merely fails to resolve versus one that runs a command.
+
+#[test]
+fn executing_substitution_detected() {
+    assert!(has_executing_substitution("$(id)"));
+    assert!(has_executing_substitution("\"$(id)\""));
+    assert!(has_executing_substitution("${x:-$(id)}"));
+    assert!(has_executing_substitution("`id`"));
+    assert!(has_executing_substitution("<(id)"));
+    assert!(has_executing_substitution(">(tee f)"));
+    assert!(has_executing_substitution("$((1+$(id)))"));
+}
+
+#[test]
+fn inert_expansions_are_not_executing_substitutions() {
+    for inert in [
+        "$OSTYPE",
+        "${VAR%%.*}",
+        "${VAR#pre}",
+        "${#x}",
+        "${!x}",
+        "*.tar.gz",
+        // Single quotes and a backslash both defuse the substitution.
+        "'$(id)'",
+        "\\$(id)",
+        // `<(` is literal text inside double quotes, unlike `$(`.
+        "\"<(id)\"",
+        // A lone `$` or `<` with nothing to open a substitution.
+        "$",
+        "a<b",
+    ] {
+        assert!(
+            !has_executing_substitution(inert),
+            "{inert} executes nothing"
+        );
+    }
+}
+
+/// Resolution-time re-analysis builds synthetic words whose `value` is empty
+/// while the substitution lives in `parts`, so the walk cannot lean on the text
+/// scan alone.
+#[test]
+fn word_executes_command_follows_parts_not_just_text() {
+    let substitution = Node::empty(NodeKind::CommandSubstitution {
+        command: Box::new(Node::empty(NodeKind::WordLiteral {
+            value: "id".to_string(),
+        })),
+        brace: false,
+    });
+    let synthetic = Node::empty(NodeKind::Word {
+        value: String::new(),
+        parts: vec![substitution],
+        spans: vec![],
+    });
+
+    assert!(word_executes_command(&synthetic));
+}
+
 // Env-prefix stripping
 
 fn strip(command: &str) -> Option<String> {

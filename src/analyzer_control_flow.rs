@@ -3,6 +3,7 @@ use std::path::Path;
 use rable::{Node, NodeKind};
 
 use super::Analyzer;
+use crate::ast;
 use crate::resolve::{self, LocalBinding};
 use crate::verdict::Verdict;
 
@@ -58,6 +59,12 @@ impl Analyzer {
     /// Bash expands the subject word *and* every pattern label before matching,
     /// so a substitution in either position really executes — analyzing only
     /// the branch bodies approved `case $(reboot) in` (#193).
+    ///
+    /// Only words that *execute* are checked. The subject is matched against
+    /// the labels, never run, so `case $OSTYPE in darwin*)` and
+    /// `case ${VAR%%.*} in` — unresolvable, but inert — keep allowing; a loop's
+    /// iteration words get the stricter treatment because the body runs with
+    /// the value.
     fn analyze_case(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
         let NodeKind::Case {
             word,
@@ -69,8 +76,9 @@ impl Analyzer {
             // rather than fail open for defense in depth.
             return Verdict::ask("internal: non-case node in analyze_case");
         };
-        let subject_and_labels =
-            std::iter::once(word.as_ref()).chain(patterns.iter().flat_map(|p| p.patterns.iter()));
+        let subject_and_labels = std::iter::once(word.as_ref())
+            .chain(patterns.iter().flat_map(|p| p.patterns.iter()))
+            .filter(|w| ast::word_executes_command(w));
         let mut verdicts = self.analyze_expanded_words(subject_and_labels);
         verdicts.extend(
             patterns
@@ -121,6 +129,9 @@ impl Analyzer {
     /// an unresolvable word yields an Ask so the substitution is not silently
     /// executed. Uses the current locals scope — for a loop, the caller must
     /// call this before binding the loop variable.
+    ///
+    /// Resolution decides the *reason*, not the trigger: `analyze_case`
+    /// pre-filters to the words that execute, while loops pass every word.
     fn analyze_expanded_words<'a>(
         &self,
         words: impl IntoIterator<Item = &'a Node>,
@@ -161,7 +172,35 @@ mod tests {
     use super::Analyzer;
     use crate::config::Config;
     use crate::parser::BashParser;
+    use crate::resolve::tests::MockLookup;
     use crate::verdict::Decision;
+
+    /// `${x:+...}` expands its alternate text — and runs the substitution inside
+    /// it — only when `x` is *set*, so the verdict depends on the environment
+    /// rather than on the command string, which is why this is not a catalog
+    /// case. Both directions are pinned: the narrowing that lets an inert
+    /// subject allow must not also swallow a subject that really executes.
+    #[test]
+    fn case_subject_alternate_text_executes_only_when_the_var_is_set() {
+        let subject = "case ${x:+$(reboot)} in a) echo hi;; esac";
+
+        let mut unset = analyzer_with(MockLookup::new());
+        assert_eq!(unset.analyze(subject).unwrap().decision, Decision::Allow);
+
+        let mut set = analyzer_with(MockLookup::new().with("x", "1"));
+        assert_eq!(set.analyze(subject).unwrap().decision, Decision::Ask);
+    }
+
+    fn analyzer_with(lookup: MockLookup) -> Analyzer {
+        Analyzer::new_with_var_lookup(
+            Config::empty(),
+            false,
+            PathBuf::from("/project"),
+            false,
+            Box::new(lookup),
+        )
+        .unwrap()
+    }
 
     /// `analyze_node` never routes a non-control-flow node here, so reach the
     /// fallback the only way a test can: call it directly. Pinning it as Ask is
