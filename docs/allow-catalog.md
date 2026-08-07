@@ -816,7 +816,7 @@ Rows are written with `ruby`; unless a row says otherwise they apply the same wa
 
 | Approved invocation | Condition |
 | --- | --- |
-| `tar -t\|--list` | no flag that runs an external program (-I, --use-compress-program, --to-command, --checkpoint-action, --rmt-command, -F, --info-script, --new-volume-script) |
+| `tar -t\|--list` | no flag that runs an external program (-I, -F, --use-compress-program, --to-command, --checkpoint-action, --rmt-command, --info-script, --new-volume-script, or any prefix abbreviation of those long options) |
 
 ### `tee`
 

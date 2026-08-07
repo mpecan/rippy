@@ -179,6 +179,34 @@ fn strip_regular_quotes_unchanged() {
     assert_eq!(strip_quotes("hello"), "hello");
 }
 
+/// #198: a quote pair spliced into the middle of a token is invisible to the
+/// command, so a handler must not see it either.
+#[test]
+fn strip_quotes_spliced_mid_token() {
+    assert_eq!(strip_quotes("--to-com'mand'"), "--to-command");
+    assert_eq!(strip_quotes("--to-command\"\""), "--to-command");
+    assert_eq!(strip_quotes("--to-command=\"a b\""), "--to-command=a b");
+    assert_eq!(strip_quotes("-x'f'"), "-xf");
+    assert_eq!(strip_quotes(r"a\ b"), "a b");
+    // Quoting is literal inside the other quote form.
+    assert_eq!(strip_quotes("\"it's\""), "it's");
+}
+
+/// An unbalanced quote means rable's tokenizer and the shell disagree about
+/// where the word ends, so the raw token is kept rather than a fabricated value.
+#[test]
+fn strip_quotes_keeps_unbalanced_token() {
+    assert_eq!(strip_quotes("it's"), "it's");
+}
+
+/// A `$'…'`/`$"…"` away from the front keeps its sigil: downstream guards read
+/// the resolved text to decide whether a value is statically known.
+#[test]
+fn strip_quotes_keeps_embedded_dollar_quote() {
+    assert_eq!(strip_quotes("/tmp/foo$\"x\""), "/tmp/foo$\"x\"");
+    assert_eq!(strip_quotes("/tmp/foo$'x'"), "/tmp/foo$'x'");
+}
+
 // Shell expansion pattern detection
 
 #[test]
