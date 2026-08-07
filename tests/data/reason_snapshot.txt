@@ -163,6 +163,18 @@ psql -c "SELECT 1" --command="DROP TABLE t"	ask	psql (ambiguous SQL)
 mysql -e "SELECT 1" -e"DROP TABLE t"	ask	mysql (ambiguous SQL)
 psql -c "SELECT 1" -c "SELECT 2"	allow	psql (read-only SQL)
 mysql -e "SELECT 1" -e "SELECT 2"	allow	mysql (read-only SQL)
+psql -c "SELECT 1" -Atc "DROP TABLE t"	ask	psql (write SQL)
+psql -c "SELECT 1" -tAc "DROP TABLE t"	ask	psql (write SQL)
+psql -c "SELECT 1" -Xc "DROP TABLE t"	ask	psql (write SQL)
+psql -c "SELECT 1" -f drop_table.sql	ask	psql -f (file execution)
+psql -f drop_table.sql -c "SELECT 1"	ask	psql -f (file execution)
+psql -l -c "DROP TABLE t"	ask	psql (write SQL)
+psql -Atc "SELECT 1"	allow	psql (read-only SQL)
+psql -c "SELECT 1"	allow	psql (read-only SQL)
+psql -o -copy.out -c "SELECT 1"	allow	psql (read-only SQL)
+psql -U me -d mydb -c "SELECT 1"	allow	psql (read-only SQL)
+mysql -p -e "DROP TABLE t"	ask	mysql (write SQL)
+mysql -psecret -e "SELECT 1"	allow	mysql (read-only SQL)
 git status	allow	git status
 git diff	allow	git diff
 git show HEAD	allow	git show

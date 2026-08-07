@@ -758,7 +758,7 @@ Rows are written with `npm`; unless a row says otherwise they apply the same way
 | Approved invocation | Condition |
 | --- | --- |
 | `psql --help\|-?\|--version\|-V` | sole argument |
-| `psql --list\|-l` | — |
+| `psql --list\|-l` | no -c/-f statement to run |
 | `psql -c\|--command <sql>` | statement classified read-only by src/sql.rs |
 | `psql -f\|--file <path>` | file readable from the working directory and classified read-only by src/sql.rs |
 

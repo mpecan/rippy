@@ -6,6 +6,7 @@ mod database;
 mod docker;
 mod env_xargs;
 mod find;
+mod getopt;
 mod gh;
 mod git;
 mod git_globals;
@@ -392,46 +393,6 @@ pub(crate) fn get_flag_values(args: &[String], flags: &[&str]) -> Vec<String> {
         }
     }
     values
-}
-
-/// Helper: collect the value of every occurrence of a flag, in the separated
-/// (`-c sql`), `flag=value` and glued-short (`-csql`) spellings.
-///
-/// Cumulative value flags such as psql's `-c` and mysql's `-e` run every
-/// occurrence, so reading only the first one (`get_flag_value`) lets a
-/// read-only leading statement launder a write in a later one (#199). The
-/// glued spellings have to be collected too, or the same laundering works
-/// through `--command=…`.
-pub(crate) fn get_all_flag_values(args: &[String], flags: &[&str]) -> Vec<String> {
-    let mut values = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        if flags.contains(&args[i].as_str()) {
-            if let Some(value) = args.get(i + 1) {
-                values.push(value.clone());
-            }
-            i += 2;
-            continue;
-        }
-        if let Some(value) = glued_flag_value(&args[i], flags) {
-            values.push(value.to_string());
-        }
-        i += 1;
-    }
-    values
-}
-
-/// The value glued to a flag inside a single argument, if any.
-///
-/// getopt lets a short option carry its value with no separator (`-cSQL`);
-/// a long option only ever takes `=`, so the separator-less form is restricted
-/// to two-char flags and cannot swallow an unrelated longer flag name.
-fn glued_flag_value<'a>(arg: &'a str, flags: &[&str]) -> Option<&'a str> {
-    flags.iter().find_map(|flag| {
-        let rest = arg.strip_prefix(flag).filter(|rest| !rest.is_empty())?;
-        rest.strip_prefix('=')
-            .or_else(|| (flag.len() == 2 && !flag.starts_with("--")).then_some(rest))
-    })
 }
 
 /// Default directories that are always considered safe for path-based handlers.
