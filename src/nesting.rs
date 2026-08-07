@@ -1,303 +1,316 @@
 //! Pre-parse bound on the *shape* of a command string.
 //!
-//! rable parses by recursive descent — one stack frame per open construct and
-//! per list element — so deeply nested or endlessly chained input overflows the
-//! stack. A stack overflow *aborts* the process instead of unwinding, which the
-//! hook's `catch_unwind` fail-closed net cannot convert into an Ask, so the
-//! shape has to be refused before rable ever sees it (#195).
+//! rable parses by recursive descent, and a stack overflow *aborts* the process
+//! instead of unwinding, which the hook's `catch_unwind` fail-closed net cannot
+//! convert into an Ask (#195). Two things keep that from happening: the parse
+//! runs on a deep stack (`parser::parse_on_a_deep_stack`), and the shapes that
+//! recurse without any ceiling are counted here and refused.
+//!
+//! The scan is a genuine *over*-approximation: it never skips a span and never
+//! cancels a count. Anything that tries to track quoting has to decide what a
+//! `'` inside a comment, a heredoc body or `$'\''` means, and one wrong guess
+//! desyncs the lexer into skipping the very nesting it is there to measure
+//! (#195 again). Counting openers and never matching a closer needs no such
+//! guess, so no input — however malformed — can make the count come out low.
 //! see docs/security-invariants.md#parser-stack-bound
 
-/// Maximum nesting of shell constructs handed to the parser. Measured overflow
-/// floors for a debug build: ~50 nested `case`/`if` heads on a 2 MB thread
-/// stack, ~250 on the 8 MB main thread. 32 stays clear of both while sitting
-/// far above anything written by hand — real one-liners nest a few levels.
-const MAX_NESTING: usize = 32;
+/// Maximum `$(`, `<(` and `>(` openers. rable's own `MAX_DEPTH` does not reach
+/// the lexer's substitution recursion, so this is the one shape rippy has to
+/// hold down: 16 384 nested `$(` overflow a 256 MB stack, and the parse is
+/// super-linear in the nesting (128 takes 0.5 s, 256 takes 8.6 s, 384 takes
+/// 37 s). 128 keeps the worst case sub-second and stays 128x under the floor.
+const MAX_SUBSTITUTIONS: usize = 128;
 
-/// Maximum number of statement separators (`;`, `&&`, `|`, newline, …). The
-/// same recursion runs per list element: ~3 500 flat statements overflow a
-/// 2 MB stack, ~15 000 the main thread. Past a thousand statements a "command"
-/// is a program, and the analyzer's 10 000-node budget would cap it at Ask.
-const MAX_STATEMENTS: usize = 1_000;
+/// Maximum `${` openers. Same unbounded lexer recursion, but far cheaper: it
+/// overflows around 131 000 on a 256 MB stack and stays in milliseconds, so the
+/// bound only has to sit clear of that while leaving room for a script full of
+/// `${VAR}` references.
+const MAX_PARAMETER_EXPANSIONS: usize = 4_096;
 
-/// What an open construct is waiting for. Closers pop only their own frame, so
-/// a `case` pattern's `)` is not mistaken for the end of a subshell.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Frame {
-    Paren,
-    Brace,
-    Keyword,
-    Backtick,
-}
+/// Maximum `{` openers. Brace *expansion* scans forward for the matching `}`,
+/// so an input full of unclosed `{a,` costs roughly the brace count times the
+/// input length: 8 192 takes 0.74 s, 20 000 takes 4 s, 50 000 takes 29 s — a
+/// hang the calling agent would read as a failed hook. Balanced braces are far
+/// cheaper (a 4 000-brace JSON document parses in 60 ms), so this only ever
+/// bites input that is already malformed.
+const MAX_BRACES: usize = 8_192;
 
-/// Why `source` is too complex to hand to the parser, or `None` if it is within
-/// bounds. Deliberately approximate: the scan may over-count (a keyword inside
-/// a heredoc body) because over-counting only costs an Ask, while under-counting
-/// would cost the process.
-pub(crate) fn violation(source: &str) -> Option<String> {
-    let scan = Scan::run(source);
-    if scan.max_depth > MAX_NESTING {
-        return Some(format!(
-            "nesting depth {} exceeds the {MAX_NESTING}-level limit",
-            scan.max_depth
-        ));
-    }
-    (scan.statements > MAX_STATEMENTS).then(|| {
-        format!(
-            "{} statements exceed the {MAX_STATEMENTS}-statement limit",
-            scan.statements
-        )
-    })
-}
+/// Maximum runs of `;`, `&`, `|` or newline. rable recurses once per element of
+/// a `;`/`&&` list; ~262 000 elements overflow a 256 MB stack. 16 384 leaves a
+/// 16x margin and still passes a 10 000-line document written through a heredoc.
+const MAX_SEPARATORS: usize = 16_384;
 
+/// Separator budget for parsing on the caller's own stack. A source with no
+/// construct opener at all can only recurse once per list element, and even a
+/// 512 KB stack swallows this many.
+const FLAT_SEPARATORS: usize = 64;
+
+/// Words that make rable open a compound command or wrap one in another node.
+/// Matched as runs of ASCII letters, so `verify` never looks like `if` — and a
+/// run that only *resembles* a keyword (`if2`) counts, which is the safe
+/// direction. `time`/`coproc`/`function` are here because they prefix a command
+/// without any bracket to notice them by.
+const KEYWORD_HEADS: [&[u8]; 12] = [
+    b"if",
+    b"elif",
+    b"then",
+    b"for",
+    b"while",
+    b"until",
+    b"do",
+    b"case",
+    b"select",
+    b"time",
+    b"coproc",
+    b"function",
+];
+
+/// Counts of the shapes that decide how deep rable can recurse. Every field is
+/// an upper bound on the real thing, never an estimate of it.
 #[derive(Default)]
-struct Scan {
-    stack: Vec<Frame>,
-    max_depth: usize,
-    statements: usize,
-    after_separator: bool,
-    word: String,
+pub(crate) struct Shape {
+    /// `$(`, `<(`, `>(` — the lexer recursion rable does not bound itself.
+    substitutions: usize,
+    /// `${` — a second, much cheaper unbounded lexer recursion.
+    parameter_expansions: usize,
+    /// `{` — brace expansion, bounded for its cost rather than its depth.
+    braces: usize,
+    /// Runs of `;`, `&`, `|`, newline.
+    separators: usize,
+    /// Everything else that can make rable descend: `(`, `{`, backtick, `[`,
+    /// `!` and `KEYWORD_HEADS`. Only ever compared against zero — rable's own
+    /// `MAX_DEPTH` of 1000 caps how deep these recurse, so they need no
+    /// ceiling of their own.
+    heads: usize,
 }
 
-impl Scan {
-    fn run(source: &str) -> Self {
-        let mut scan = Self::default();
-        let mut chars = source.chars();
-        while let Some(c) = chars.next() {
-            match c {
-                '\\' => {
-                    chars.next();
-                }
-                '\'' => {
-                    scan.end_word();
-                    skip_single_quoted(&mut chars);
-                }
-                '"' => {
-                    scan.end_word();
-                    scan.double_quoted(&mut chars);
-                }
-                _ => scan.plain(c),
+impl Shape {
+    pub(crate) fn of(source: &str) -> Self {
+        let bytes = source.as_bytes();
+        let mut shape = Self::default();
+        let mut word: Option<usize> = None;
+        let mut after_separator = false;
+        for (i, &b) in bytes.iter().enumerate() {
+            if b.is_ascii_alphabetic() {
+                word.get_or_insert(i);
+                after_separator = false;
+                continue;
             }
-        }
-        scan.end_word();
-        scan
-    }
-
-    fn plain(&mut self, c: char) {
-        match c {
-            '(' => self.open(Frame::Paren),
-            '{' => self.open(Frame::Brace),
-            ')' => self.close(Frame::Paren, 0),
-            '}' => self.close(Frame::Brace, 0),
-            '`' => {
-                self.end_word();
-                self.backtick(0);
+            if let Some(start) = word.take()
+                && KEYWORD_HEADS.contains(&&bytes[start..i])
+            {
+                shape.heads += 1;
             }
-            ';' | '&' | '|' | '\n' => self.separator(),
-            _ if c.is_whitespace() => self.end_word(),
-            _ => self.word.push(c),
-        }
-    }
-
-    /// Inside `"…"` only `$(…)` and backticks nest; every other character is
-    /// literal text, so a quoted `(` is not a construct and a quoted `)` may
-    /// not cancel one opened outside the span.
-    fn double_quoted(&mut self, chars: &mut std::str::Chars<'_>) {
-        let floor = self.stack.len();
-        let mut dollar = false;
-        while let Some(c) = chars.next() {
-            match c {
-                '\\' => {
-                    chars.next();
-                    dollar = false;
-                }
-                '"' => return,
-                '(' if dollar => {
-                    self.push(Frame::Paren);
-                    dollar = false;
-                }
-                ')' => {
-                    self.close(Frame::Paren, floor);
-                    dollar = false;
-                }
-                '`' => self.backtick(floor),
-                _ => dollar = c == '$',
+            if matches!(b, b';' | b'&' | b'|' | b'\n') {
+                shape.separators += usize::from(!after_separator);
+                after_separator = true;
+                continue;
             }
+            after_separator = false;
+            shape.count_opener(b, bytes.get(i + 1).copied());
         }
-    }
-
-    fn open(&mut self, frame: Frame) {
-        self.end_word();
-        self.after_separator = false;
-        self.push(frame);
-    }
-
-    fn close(&mut self, frame: Frame, floor: usize) {
-        self.end_word();
-        self.after_separator = false;
-        if self.stack.len() > floor && self.stack.last() == Some(&frame) {
-            self.stack.pop();
+        if let Some(start) = word
+            && KEYWORD_HEADS.contains(&&bytes[start..])
+        {
+            shape.heads += 1;
         }
+        shape
     }
 
-    fn backtick(&mut self, floor: usize) {
-        if self.stack.len() > floor && self.stack.last() == Some(&Frame::Backtick) {
-            self.stack.pop();
-        } else {
-            self.push(Frame::Backtick);
-        }
-    }
-
-    fn push(&mut self, frame: Frame) {
-        self.stack.push(frame);
-        self.max_depth = self.max_depth.max(self.stack.len());
-    }
-
-    /// A run of separators (`;;`, `&&`, `|&`) opens one statement, not several.
-    fn separator(&mut self) {
-        self.end_word();
-        if !self.after_separator {
-            self.statements += 1;
-            self.after_separator = true;
-        }
-    }
-
-    fn end_word(&mut self) {
-        if self.word.is_empty() {
-            return;
-        }
-        let word = std::mem::take(&mut self.word);
-        self.after_separator = false;
-        match word.as_str() {
-            "if" | "case" | "for" | "while" | "until" | "select" => self.push(Frame::Keyword),
-            "fi" | "esac" | "done" => self.close(Frame::Keyword, 0),
+    const fn count_opener(&mut self, b: u8, next: Option<u8>) {
+        match (b, next) {
+            (b'$' | b'<' | b'>', Some(b'(')) => self.substitutions += 1,
+            (b'$', Some(b'{')) => self.parameter_expansions += 1,
             _ => {}
         }
+        if b == b'{' {
+            self.braces += 1;
+        }
+        // `!` is here with the openers: it wraps the command in another node.
+        if matches!(b, b'(' | b'{' | b'`' | b'[' | b'!') {
+            self.heads += 1;
+        }
+    }
+
+    /// Why this shape is too much for the parser, or `None` if it is within
+    /// bounds.
+    pub(crate) fn violation(&self) -> Option<String> {
+        over(
+            self.substitutions,
+            MAX_SUBSTITUTIONS,
+            "command substitutions",
+        )
+        .or_else(|| {
+            over(
+                self.parameter_expansions,
+                MAX_PARAMETER_EXPANSIONS,
+                "parameter expansions",
+            )
+        })
+        .or_else(|| over(self.braces, MAX_BRACES, "brace expansions"))
+        .or_else(|| over(self.separators, MAX_SEPARATORS, "statement separators"))
+    }
+
+    /// True when the source opens no construct at all, so rable cannot recurse
+    /// past a handful of list elements and the parse is safe to run inline.
+    pub(crate) const fn is_flat(&self) -> bool {
+        self.heads == 0
+            && self.substitutions == 0
+            && self.parameter_expansions == 0
+            && self.separators <= FLAT_SEPARATORS
     }
 }
 
-fn skip_single_quoted(chars: &mut std::str::Chars<'_>) {
-    for c in chars.by_ref() {
-        if c == '\'' {
-            return;
-        }
-    }
+fn over(found: usize, limit: usize, noun: &str) -> Option<String> {
+    (found > limit).then(|| format!("{found} {noun} exceed the limit of {limit}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn depth(source: &str) -> usize {
-        Scan::run(source).max_depth
+    fn shape(source: &str) -> Shape {
+        Shape::of(source)
     }
 
     #[test]
-    fn ordinary_commands_have_no_nesting() {
-        assert_eq!(depth("git status"), 0);
-        assert_eq!(depth("cat file | grep -c foo"), 0);
-        assert_eq!(depth("ls -la && echo done"), 0);
-    }
-
-    #[test]
-    fn balanced_constructs_unwind_to_zero() {
+    fn ordinary_commands_open_nothing() {
         for source in [
-            "for f in *; do echo $f; done",
-            "if true; then ls; fi",
-            "case $x in a) ls ;; *) pwd ;; esac",
-            "while read -r l; do echo $l; done",
-            "f() { ls; }",
-            "(cd /tmp && ls)",
-            "echo ${HOME} $(pwd) `date`",
-            "echo $((1 + 2))",
+            "git status",
+            "cat file | grep -c foo",
+            "ls -la && echo done",
         ] {
-            let scanned = depth(source);
-            assert!(scanned <= 2, "{source} scanned as depth {scanned}");
-            assert!(violation(source).is_none(), "{source} was refused");
+            assert!(shape(source).is_flat(), "{source} was not flat");
+            assert!(shape(source).violation().is_none());
         }
     }
 
     #[test]
-    fn a_realistically_nested_script_stays_in_bounds() {
-        let source = "for f in *.rs; do \
-             if [ -f \"$f\" ]; then \
-                 case \"$f\" in *_test.rs) echo test ;; *) echo src ;; esac; \
-             fi; \
-         done";
-        assert!(violation(source).is_none());
+    fn every_construct_opener_leaves_the_flat_path() {
+        for source in [
+            "if true; then ls; fi",
+            "for f in *; do echo $f; done",
+            "while read -r l; do echo $l; done",
+            "until false; do ls; done",
+            "case $x in a) ls ;; esac",
+            "select i in a; do ls; done",
+            "f() { ls; }",
+            "(cd /tmp && ls)",
+            "echo `date`",
+            "[[ -f x ]] && ls",
+            "echo $(pwd)",
+            "echo ${HOME}",
+            "diff <(ls) <(ls)",
+            "! grep -q x file",
+            "time cargo build",
+            "coproc tail -f log",
+        ] {
+            assert!(!shape(source).is_flat(), "{source} took the inline path");
+            assert!(shape(source).violation().is_none(), "{source} was refused");
+        }
+    }
+
+    /// The whole point of the scan: a keyword must be a word, not a substring,
+    /// or every `diff`/`verify`/`format` would leave the inline path.
+    #[test]
+    fn a_keyword_is_only_a_keyword_as_a_whole_word() {
+        for source in ["diff a b", "verify --all", "cargo fmt", "forever --now"] {
+            assert!(shape(source).is_flat(), "{source} was not flat");
+        }
     }
 
     #[test]
-    fn each_construct_counts_toward_the_depth_limit() {
-        for token in [
-            "case x in a) ",
-            "for i in a; do ",
-            "if true; then ",
-            "while true; do ",
-            "until true; do ",
-            "select i in a; do ",
-            "{ ",
-            "( ",
-            "$( ",
-            "f() { ",
+    fn the_bounds_refuse_what_they_name() {
+        for (source, noun) in [
+            ("$(".repeat(MAX_SUBSTITUTIONS + 1), "command substitutions"),
+            ("<(".repeat(MAX_SUBSTITUTIONS + 1), "command substitutions"),
+            (">(".repeat(MAX_SUBSTITUTIONS + 1), "command substitutions"),
+            (
+                "${".repeat(MAX_PARAMETER_EXPANSIONS + 1),
+                "parameter expansions",
+            ),
+            ("{a,".repeat(MAX_BRACES + 1), "brace expansions"),
+            (
+                vec!["a"; MAX_SEPARATORS + 2].join(";"),
+                "statement separators",
+            ),
         ] {
-            let source = token.repeat(MAX_NESTING + 1);
-            let refused = violation(&source);
+            let refused = shape(&source).violation();
             assert!(
-                refused.is_some_and(|d| d.contains("nesting depth")),
-                "{token:?} repeated past the limit was not refused"
+                refused.is_some_and(|d| d.contains(noun)),
+                "{noun} past the limit was not refused"
             );
         }
     }
 
     #[test]
-    fn a_case_pattern_paren_does_not_cancel_the_case() {
-        assert!(depth(&"case x in a) ".repeat(40)) >= 40);
+    fn a_run_of_separators_is_one_statement_boundary() {
+        assert_eq!(shape("a && b || c |& d").separators, 3);
+        assert_eq!(shape("case x in a) ls ;; esac").separators, 1);
+        assert_eq!(shape("a;\n\nb").separators, 1);
+    }
+
+    /// The desync family from #195: quoting that a lexer would have to
+    /// interpret must not lower a single count.
+    #[test]
+    fn nothing_that_looks_like_quoting_hides_an_opener() {
+        let tail = "$(".repeat(MAX_SUBSTITUTIONS + 1);
+        for prefix in [
+            "echo hi #'\n",
+            "echo hi # \"\n",
+            "# don't\n",
+            "cat <<EOF\ndon't\nEOF\n",
+            "cat <<'EOF'\nit's\nEOF\n",
+            "echo $'\\'' ",
+            "echo '",
+            "echo \"",
+        ] {
+            let source = format!("{prefix}{tail}");
+            assert!(
+                shape(&source).substitutions > MAX_SUBSTITUTIONS,
+                "{prefix:?} hid the openers behind it"
+            );
+        }
+        // Re-balancing the stray quote must not help either.
+        let rebalanced = format!("# '\n{tail} '");
+        assert!(shape(&rebalanced).substitutions > MAX_SUBSTITUTIONS);
+        // Nor does a comment hide a statement chain.
+        let chain = format!("# '\n{}", vec!["a"; MAX_SEPARATORS + 2].join(";"));
+        assert!(shape(&chain).separators > MAX_SEPARATORS);
+    }
+
+    /// Prose is the common case for a heredoc body, and it must survive the
+    /// counters: apostrophes, unbalanced parens and English `if`/`for`/`while`.
+    #[test]
+    fn a_prose_document_stays_within_every_bound() {
+        let line = "It's `foo` (see below) if you want, for each case while we wait\n";
+        let body = line.repeat(1_200);
+        let source = format!("cat > /tmp/notes.md <<'EOF'\n{body}EOF\n");
+        assert!(shape(&source).violation().is_none());
     }
 
     #[test]
-    fn literal_parens_inside_double_quotes_are_text() {
-        assert_eq!(depth("echo \"((((((((((\""), 0);
-        assert_eq!(depth("python3 -c \"print(((1)))\""), 0);
+    fn a_long_script_stays_within_every_bound() {
+        let script = (0..500)
+            .map(|i| format!("if [ -f x{i} ]; then echo \"${{HOME}}/{i}\"; fi"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(shape(&script).violation().is_none());
     }
 
-    /// A quoted `)` is literal to bash, so letting it pop would let an attacker
-    /// hold the scanner at depth 0 while rable kept recursing.
+    /// Writing a config or fixture file through a heredoc is ordinary work, and
+    /// its braces are balanced — the cheap case the `MAX_BRACES` bound is not
+    /// aimed at.
     #[test]
-    fn a_quoted_closer_cannot_cancel_an_unquoted_construct() {
-        let source = "( echo \")\" ".repeat(MAX_NESTING + 1);
-        assert!(violation(&source).is_some_and(|d| d.contains("nesting depth")));
-    }
-
-    #[test]
-    fn command_substitution_inside_double_quotes_still_nests() {
-        let source = "echo \"$( ".repeat(MAX_NESTING + 1);
-        assert!(violation(&source).is_some_and(|d| d.contains("nesting depth")));
-    }
-
-    #[test]
-    fn quoted_text_is_not_scanned_for_keywords_or_separators() {
-        assert_eq!(depth("echo 'if case for while'"), 0);
-        assert_eq!(Scan::run("echo 'a;b;c;d'").statements, 0);
-        assert_eq!(Scan::run("echo \"a;b;c;d\"").statements, 0);
+    fn a_json_document_stays_within_every_bound() {
+        let body = "{\"key\": {\"value\": 1}}\n".repeat(2_000);
+        let source = format!("cat > /tmp/a.json <<'EOF'\n{body}EOF\n");
+        assert!(shape(&source).violation().is_none());
     }
 
     #[test]
-    fn a_long_flat_chain_is_refused_by_the_statement_bound() {
-        let flat = vec!["a"; MAX_STATEMENTS + 2].join(";");
-        assert!(violation(&flat).is_some_and(|d| d.contains("statements")));
-        let short = ["a"; 10].join(" && ");
-        assert!(violation(&short).is_none());
-    }
-
-    #[test]
-    fn multi_character_operators_count_as_one_statement() {
-        assert_eq!(Scan::run("a && b || c |& d").statements, 3);
-        assert_eq!(Scan::run("case x in a) ls ;; esac").statements, 1);
-    }
-
-    #[test]
-    fn an_escaped_metacharacter_is_not_a_construct() {
-        assert_eq!(depth("echo \\( \\( \\("), 0);
-        assert_eq!(Scan::run("find . -type f -exec rm {} \\;").statements, 0);
+    fn a_long_chain_of_commands_stays_within_every_bound() {
+        let chain = vec!["echo x"; 1_100].join(" && ");
+        assert!(shape(&chain).violation().is_none());
     }
 }
