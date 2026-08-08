@@ -431,3 +431,23 @@ decision = "allow"
 [[case]]
 command = "echo \"a\\`b\""
 decision = "allow"
+
+# ---- redirect targets are expanded before the redirect happens (#207) ----
+# The read shortcut returned Allow before any expansion check, so the command
+# naming the file ran unanalyzed. Direction is irrelevant to that hazard.
+
+[[case]]
+command = "cat < \"`rm -rf /`\""
+decision = "ask"
+
+[[case]]
+command = "cat < \"$(rm -rf /)\""
+decision = "ask"
+
+[[case]]
+command = "wc -l < \"`reboot`\""
+decision = "ask"
+
+[[case]]
+command = "cat < input.txt"
+decision = "allow"

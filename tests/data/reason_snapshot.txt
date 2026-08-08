@@ -633,6 +633,11 @@ case x in <(reboot)) echo hi;; esac	ask	shell expansion (process substitution re
 case "pre$(reboot)post" in a) echo hi;; esac	ask	shell expansion (command substitution requires execution)
 case x in @(a|$(reboot))) echo hi;; esac	ask	shell expansion (command substitution requires execution)
 case ${x:=$(reboot)} in a) echo hi;; esac	ask	shell expansion (${x:=...} operator not supported)
+(( $(rm -rf /) ))	ask	shell expansion (command substitution requires execution)
+(( i = `reboot` ))	ask	shell expansion (command substitution requires execution)
+for ((i=$(rm -rf /); i<0; i++)); do echo hi; done	ask	shell expansion (command substitution requires execution)
+for ((i=0; i<10; i++)); do echo hi; done	allow	echo is safe
+case x in y) ;; esac	allow	
 cat /etc/hostname	allow	cat is safe
 LD_PRELOAD=/tmp/evil.so cat /etc/hostname	ask	dangerous env-var assignment
 FOO=1 cat /etc/hostname	allow	cat is safe
@@ -748,6 +753,10 @@ FOO="`id`" ls	ask	assignment with expansion
 echo 'literal `not a substitution`'	allow	echo is safe
 echo "plain text"	allow	echo is safe
 echo "a\`b"	allow	echo is safe
+cat < "`rm -rf /`"	ask	shell expansion (command substitution requires execution)
+cat < "$(rm -rf /)"	ask	shell expansion (command substitution requires execution)
+wc -l < "`reboot`"	ask	shell expansion (command substitution requires execution)
+cat < input.txt	allow	input redirect
 git push origin main	ask	git push
 git push --force origin main	ask	git push
 git branch -D feature	ask	git branch (modify)

@@ -99,13 +99,18 @@ impl Verdict {
     /// The resolved command is preserved from the chosen verdict, or from any
     /// other verdict in the input if the chosen one has none — so resolution
     /// info is never accidentally dropped during combination.
+    ///
+    /// An **empty** slice means the caller analyzed nothing, which is an error
+    /// state rather than a safe one: it happens when a node's meaningful fields
+    /// were dropped (see docs/security-invariants.md#empty-combine). Returning
+    /// the `Default` here approved such a node — `(( $(rm -rf /) ))` came back
+    /// Allow with a blank reason — so the empty case fails closed to Ask.
     #[must_use]
     pub fn combine(verdicts: &[Self]) -> Self {
-        let mut chosen = verdicts
-            .iter()
-            .max_by_key(|v| v.decision)
-            .cloned()
-            .unwrap_or_default();
+        let Some(most_restrictive) = verdicts.iter().max_by_key(|v| v.decision) else {
+            return Self::ask("nothing to analyze");
+        };
+        let mut chosen = most_restrictive.clone();
         if chosen.resolved_command.is_none() {
             chosen.resolved_command = verdicts.iter().find_map(|v| v.resolved_command.clone());
         }
@@ -419,9 +424,25 @@ mod tests {
         assert_eq!(combined.reason, "needs review");
     }
 
+    /// An empty slice means the caller analyzed nothing. That is an error
+    /// state, not a safe one — it is what a node arm that dropped its
+    /// meaningful fields produces — so it must fail closed. A caller with a
+    /// genuinely inert construct states its own Allow instead (see
+    /// `analyze_case`).
     #[test]
-    fn combine_empty_defaults_to_allow() {
+    fn combine_empty_fails_closed() {
         let combined = Verdict::combine(&[]);
+        assert_eq!(combined.decision, Decision::Ask);
+    }
+
+    /// The empty case must not be reachable by a slice that merely contains
+    /// allows — those still combine to Allow.
+    #[test]
+    fn combine_of_allows_is_still_allow() {
+        let combined = Verdict::combine(&[
+            Verdict::allow(AllowReason::Empty),
+            Verdict::allow(AllowReason::handler("ls is safe")),
+        ]);
         assert_eq!(combined.decision, Decision::Allow);
     }
 

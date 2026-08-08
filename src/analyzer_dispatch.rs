@@ -3,7 +3,7 @@ use std::path::Path;
 use rable::{Node, NodeKind};
 
 use super::{
-    Analyzer, MAX_RESOLUTION_DEPTH, MAX_RESOLVED_LEN, annotate_with_resolution,
+    Analyzer, EXPANSION_ASK, MAX_RESOLUTION_DEPTH, MAX_RESOLVED_LEN, annotate_with_resolution,
     canonicalize_existing_ancestor,
 };
 use crate::allowlists;
@@ -143,6 +143,10 @@ impl Analyzer {
     }
 
     fn redirect_verdict(&self, op: ast::RedirectOp, target: &str, cwd: &Path) -> Verdict {
+        // Before the read shortcut: `cat < "$(x)"` reads a file *named by* `x`.
+        if ast::has_executing_substitution(target) {
+            return Verdict::ask(EXPANSION_ASK);
+        }
         if op == ast::RedirectOp::Read {
             return Verdict::allow(AllowReason::InputRedirect);
         }

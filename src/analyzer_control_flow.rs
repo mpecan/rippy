@@ -2,10 +2,10 @@ use std::path::Path;
 
 use rable::{Node, NodeKind};
 
-use super::Analyzer;
+use super::{Analyzer, EXPANSION_ASK};
 use crate::ast;
 use crate::resolve::{self, LocalBinding};
-use crate::verdict::Verdict;
+use crate::verdict::{AllowReason, Verdict};
 
 impl Analyzer {
     pub(super) fn analyze_control_flow(
@@ -41,9 +41,26 @@ impl Analyzer {
                 self.analyze_loop_binding(node, cwd, depth)
             }
             NodeKind::ForArith {
-                body, redirects, ..
+                init,
+                cond,
+                incr,
+                body,
+                redirects,
+            } => {
+                // rable hands these three back as raw text, so a substitution in
+                // `for ((i=$(rm -rf /); ...))` is only visible by scanning them.
+                let mut verdicts = Vec::new();
+                if [init, cond, incr]
+                    .iter()
+                    .any(|part| ast::has_executing_substitution(part))
+                {
+                    verdicts.push(Verdict::ask(EXPANSION_ASK));
+                }
+                verdicts.push(self.analyze_node(body, cwd, depth + 1));
+                verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+                Verdict::combine(&verdicts)
             }
-            | NodeKind::BraceGroup { body, redirects } => {
+            NodeKind::BraceGroup { body, redirects } => {
                 self.analyze_compound(&[body.as_ref()], redirects, cwd, depth)
             }
             NodeKind::Case { .. } => self.analyze_case(node, cwd, depth),
@@ -87,6 +104,12 @@ impl Analyzer {
                 .map(|b| self.analyze_node(b, cwd, depth + 1)),
         );
         verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+        if verdicts.is_empty() {
+            // All four sources examined and all inert — `case x in y) ;; esac`
+            // runs nothing. Said here so `combine` can keep failing closed on an
+            // empty slice. see docs/security-invariants.md#empty-combine
+            return Verdict::allow(AllowReason::Empty);
+        }
         Verdict::combine(&verdicts)
     }
 

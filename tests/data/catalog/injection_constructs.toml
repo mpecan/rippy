@@ -270,3 +270,31 @@ decision = "ask"
 [[case]]
 command = "case ${x:=$(reboot)} in a) echo hi;; esac"
 decision = "ask"
+
+# ---- arithmetic contexts carry executable expansions (#207) ----
+# `expression` / `init` / `cond` / `incr` were dropped by `..`, and
+# `Verdict::combine(&[])` returned Allow with a blank reason — so an arm that
+# dropped every field read as an approval. combine now fails closed; these pin
+# that plain arithmetic is still approved and a substitution inside it is not.
+
+[[case]]
+command = "(( $(rm -rf /) ))"
+decision = "ask"
+
+[[case]]
+command = "(( i = `reboot` ))"
+decision = "ask"
+
+[[case]]
+command = "for ((i=$(rm -rf /); i<0; i++)); do echo hi; done"
+decision = "ask"
+
+[[case]]
+command = "for ((i=0; i<10; i++)); do echo hi; done"
+decision = "allow"
+
+# A case whose branches are all empty runs nothing — the call site states this
+# Allow itself rather than inheriting it from an empty combine.
+[[case]]
+command = "case x in y) ;; esac"
+decision = "allow"

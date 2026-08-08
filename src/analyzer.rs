@@ -15,6 +15,11 @@ use crate::resolve::{LocalBinding, VarLookup};
 use crate::trace::{Stage, Trace, TraceEvent};
 use crate::verdict::{AllowReason, Decision, Verdict};
 
+/// Reason for an arithmetic context carrying a substitution bash resolves by
+/// running a command. Matches the wording `resolve` already emits for the same
+/// hazard so the two paths read alike on the wire.
+const EXPANSION_ASK: &str = "shell expansion (command substitution requires execution)";
+
 const MAX_DEPTH: usize = 256;
 
 /// Maximum number of AST nodes walked per command. Bounds tree *breadth*
@@ -314,12 +319,37 @@ impl Analyzer {
                 quoted, content, ..
             } => Self::analyze_heredoc_node(*quoted, Some(content.as_str())),
             NodeKind::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
-            NodeKind::ArithmeticCommand { redirects, .. } => {
-                Verdict::combine(&self.analyze_redirects(redirects, cwd, depth))
-            }
+            NodeKind::ArithmeticCommand {
+                redirects,
+                raw_content,
+                ..
+            } => self.analyze_arithmetic_command(raw_content, redirects, cwd, depth),
             _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
             _ => Verdict::ask("unrecognized shell construct"),
         }
+    }
+
+    /// `(( ... ))`. rable's `expression` is an arithmetic AST it does not
+    /// descend into for a nested substitution, so `raw_content` is the field
+    /// that still carries a `$(...)`.
+    fn analyze_arithmetic_command(
+        &mut self,
+        raw_content: &str,
+        redirects: &[Node],
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
+        let mut verdicts = Vec::new();
+        if ast::has_executing_substitution(raw_content) {
+            verdicts.push(Verdict::ask(EXPANSION_ASK));
+        }
+        verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+        if verdicts.is_empty() {
+            // Pure arithmetic with no redirect runs nothing. Said here so that
+            // `Verdict::combine` can keep failing closed on an empty slice.
+            return Verdict::allow(AllowReason::Empty);
+        }
+        Verdict::combine(&verdicts)
     }
 
     fn analyze_pipeline(&mut self, commands: &[Node], cwd: &Path, depth: usize) -> Verdict {

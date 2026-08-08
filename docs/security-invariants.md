@@ -82,6 +82,9 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#parser-stack-bound` | Plain nesting carries no rippy bound, so the widest the input cap allows must still answer | `tests/hook_fail_closed.rs::the_widest_plain_nesting_the_input_cap_allows_still_answers` |
 | `#parser-stack-bound` | Ordinary documents, scripts and nested commands are not refused for their shape | `src/nesting.rs::a_prose_document_stays_within_every_bound`, `src/nesting.rs::a_json_document_stays_within_every_bound`, `src/nesting.rs::a_long_script_stays_within_every_bound`, `tests/hook_fail_closed.rs::ordinary_documents_and_scripts_are_not_refused_for_their_shape`, `tests/hook_fail_closed.rs::a_legitimately_nested_command_still_gets_a_real_verdict` |
 | `#parser-stack-bound` | A shape that would make the parser hang is refused, since a hook that never answers reads as one that failed | `src/nesting.rs::the_bounds_refuse_what_they_name`, `tests/hook_fail_closed.rs::shapes_that_would_hang_the_parser_ask_promptly` |
+| `#empty-combine` | Combining an empty verdict set fails closed rather than returning the Allow default | `src/verdict.rs::combine_empty_fails_closed`, `src/verdict.rs::combine_of_allows_is_still_allow` |
+| `#empty-combine` | An arithmetic context carrying a substitution is not approved by the arm that drops its expression | `tests/data/catalog/injection_constructs.toml` |
+| `#empty-combine` | A redirect target is checked for substitutions in both directions, so the read shortcut cannot skip it | `tests/data/catalog/injection_expansion.toml` |
 
 ## env-prefix-strip
 
@@ -374,3 +377,19 @@ a stray quote re-balanced later in the string — desynced it into skipping the
 nesting it existed to measure, restoring the abort. Counting openers and never
 matching a closer needs no such interpretation, so no input, however malformed,
 can make a count come out low.
+
+
+## empty-combine
+
+`Verdict::combine` on an empty slice means the caller analyzed nothing. That is
+an error state, not a safe one: it is exactly what a node arm produces when its
+meaningful fields were discarded by `..`. Returning `Verdict::default()` there —
+an Allow with a blank reason — approved `(( $(rm -rf /) ))` and every other arm
+with the same shape, so the empty case now fails closed to Ask.
+
+A caller whose construct is genuinely inert states its own Allow instead of
+inheriting one: `case x in y) ;; esac` and `(( i = 1 ))` run nothing, and saying
+so at the call site keeps the combinator free to treat emptiness as the bug it
+usually is. The arms that dropped an executing expression — `ArithmeticCommand`,
+`ForArith`, and the input-redirect shortcut — read their raw text instead,
+because rable does not descend into arithmetic for a nested substitution.
