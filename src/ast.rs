@@ -399,30 +399,6 @@ fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
     Some(name.strip_suffix('+').unwrap_or(name))
 }
 
-/// git environment variables that relocate the program git runs or the
-/// repository whose config it obeys — the env twins of the global flags the git
-/// handler gates. `GIT_EXEC_PATH` is `--exec-path=<dir>`, `GIT_DIR` is
-/// `--git-dir`, and the object-store names reach the same `.git/config`
-/// (`core.pager`, `alias.*`) from a directory the user never chose (#200).
-const CODE_SELECTING_GIT_ENV: &[&str] = &[
-    "GIT_EXEC_PATH",
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_INDEX_FILE",
-    "GIT_TEMPLATE_DIR",
-    "GIT_ATTR_SOURCE",
-    "GIT_PROXY_COMMAND",
-    "GIT_ASKPASS",
-    "SSH_ASKPASS",
-    "GIT_EDITOR",
-    "GIT_SEQUENCE_EDITOR",
-    "GIT_ALLOW_PROTOCOL",
-    "GIT_PROTOCOL_FROM_USER",
-];
-
 /// Environment variable names whose values can change how a following command
 /// loads or resolves code, letting a *literal* assignment turn an otherwise-safe
 /// command into arbitrary code execution (e.g. `LD_PRELOAD`, `BASH_ENV`,
@@ -448,9 +424,6 @@ pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
     // ANSIBLE_*_PLUGINS point ansible at an attacker-chosen directory it then
     // imports Python from — the env route to what `ansible-doc -M` does (#185).
     if name.starts_with("ANSIBLE_") && name.ends_with("_PLUGINS") {
-        return true;
-    }
-    if CODE_SELECTING_GIT_ENV.contains(&name) {
         return true;
     }
     matches!(

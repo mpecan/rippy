@@ -9,7 +9,6 @@ mod find;
 mod getopt;
 mod gh;
 mod git;
-mod git_globals;
 mod git_subcommands;
 mod helm;
 mod mkdir;

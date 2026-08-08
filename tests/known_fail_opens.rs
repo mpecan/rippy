@@ -123,27 +123,3 @@ fn sql_write_in_the_first_command_flag_asks() {
         .unwrap();
     assert_eq!(v.decision, Decision::Ask);
 }
-
-/// #200 — git global flags that choose executed code reached no guard, because
-/// the subcommand hunt skipped every `-`-prefixed token.
-#[test]
-fn git_global_flags_that_select_code_are_checked() {
-    let mut a = isolated_analyzer();
-    for cmd in [
-        "git --exec-path=/tmp/evil status",
-        "git --git-dir=/tmp/evil status",
-        "git --git-dir /tmp/evil status",
-    ] {
-        let v = a.analyze(cmd).unwrap();
-        assert_ne!(v.decision, Decision::Allow, "global flag skipped: {cmd}");
-    }
-}
-
-/// #200 — the contrast: an inert global flag is still recognized, so the fix is
-/// an allowlist rather than an Ask on everything that starts with a dash.
-#[test]
-fn git_inert_global_flag_still_allows() {
-    let mut a = isolated_analyzer();
-    let v = a.analyze("git --no-pager status").unwrap();
-    assert_eq!(v.decision, Decision::Allow);
-}

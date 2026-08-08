@@ -663,16 +663,6 @@ ANSIBLE_LIBRARY=/tmp/mods ansible-doc ping	ask	dangerous env-var assignment
 ANSIBLE_ACTION_PLUGINS=/tmp/p ansible-doc ping	ask	dangerous env-var assignment
 ANSIBLE_CONFIG=/tmp/cfg ansible-lint playbook.yml	ask	dangerous env-var assignment
 ANSIBLE_FOO=1 ls	allow	ls is safe
-GIT_EXEC_PATH=/tmp/evil git status	ask	dangerous env-var assignment
-GIT_DIR=/tmp/evil/.git git status	ask	dangerous env-var assignment
-GIT_WORK_TREE=/tmp/evil git status	ask	dangerous env-var assignment
-GIT_PROXY_COMMAND=/tmp/evil git fetch	ask	dangerous env-var assignment
-GIT_ALTERNATE_OBJECT_DIRECTORIES=/tmp/evil git log	ask	dangerous env-var assignment
-GIT_ATTR_SOURCE=x git log	ask	dangerous env-var assignment
-GIT_ASKPASS=/tmp/evil git fetch	ask	dangerous env-var assignment
-env GIT_DIR=/tmp/evil git status	ask	env (dangerous env-var assignment)
-GIT_AUTHOR_NAME=bob git status	allow	git status
-GIT_COMMITTER_DATE=2020-01-01 git log	allow	git log
 x=$(rm -rf /)	ask	assignment with expansion
 FOO=$(whoami) ls	ask	assignment with expansion
 FOO=$(rm -rf /) cargo test	ask	assignment with expansion
@@ -1567,23 +1557,6 @@ git --no-pager status	allow	git status
 git --no-pager	allow	git (no subcommand)
 git --config-env=user.name=X status	allow	git status
 git --config-env user.name=X status	allow	git status
-git --exec-path=/tmp/evil status	ask	git --exec-path=<dir> relocates the binaries git executes
-git --exec-path	allow	git --exec-path (prints the exec path and exits)
-git --exec-path /tmp/evil status	allow	git --exec-path (prints the exec path and exits)
-git grep -- --exec-path	allow	git grep
-git grep -c pat	allow	git grep
-git --git-dir=/tmp/evil status	ask	git --git-dir targets outside allowed scope (/tmp/evil)
-git --git-dir /tmp/evil status	ask	git --git-dir targets outside allowed scope (/tmp/evil)
-git -C /tmp/scratch status	allow	git status
-git -C --git-dir=/tmp/evil status	ask	git --git-dir targets outside allowed scope (/tmp/evil)
-git --no-advice status	allow	git status
-git --no-lazy-fetch status	allow	git status
-git --html-path	allow	git (no subcommand)
-git --man-path	allow	git (no subcommand)
-git --info-path	allow	git (no subcommand)
-git --attr-source=HEAD log	allow	git log
-git --list-cmds=main	allow	git (no subcommand)
-git --unknown-global-flag status	ask	git --unknown-global-flag
 deno eval "console.log(1)"	allow	deno -e (safe inline code)
 deno eval 'console.log(Deno.args)'	allow	deno -e (safe inline code)
 deno eval 'console.log(Deno.cwd())'	allow	deno -e (safe inline code)

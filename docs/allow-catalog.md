@@ -490,8 +490,7 @@ Rows are written with `gcloud`; unless a row says otherwise they apply the same 
 
 | Approved invocation | Condition |
 | --- | --- |
-| `git` | no subcommand; -C must stay in the cwd, a declared safe scope or an auto-approved write area (/tmp, /var/tmp); --git-dir/--work-tree must stay in the cwd or a declared safe scope; any -c/--config-env key must be on the safe config-key list; and every other global flag must be a known-inert one (--exec-path=<dir> and anything unrecognized ask) |
-| `git --exec-path` | bare spelling only — git prints its exec path and exits before any subcommand runs; the --exec-path=<dir> form asks |
+| `git` | no subcommand; -C/--git-dir/--work-tree must stay in the cwd or a declared safe scope, and any -c/--config-env key must be on the safe config-key list |
 | `git -c <key>=<value> <subcommand>` | gate only, not an approval — the key must be one of user.name, user.email, color.ui, core.autocrlf, core.quotepath, init.defaultbranch, pull.rebase, advice.detachedhead, and the `<subcommand>` still has to be approved by its own row |
 | `git status` | — |
 | `git log` | — |
