@@ -399,59 +399,10 @@ fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
     Some(name.strip_suffix('+').unwrap_or(name))
 }
 
-/// Environment variable names whose values can change how a following command
-/// loads or resolves code, letting a *literal* assignment turn an otherwise-safe
-/// command into arbitrary code execution (e.g. `LD_PRELOAD`, `BASH_ENV`,
-/// `GIT_SSH_COMMAND`). The analyzer's assignment-name gate Asks on any command
-/// carrying such a prefix, and [`strip_env_prefix`] refuses to strip it so a
-/// string-layer allow rule cannot mask it either.
-///
-/// The `GIT_CONFIG`/`BASH_FUNC_` prefix matches are deliberately broad — each
-/// covers a whole injection family in one check, mirroring the `LD_`/`DYLD_`
-/// style. See docs/security-invariants.md#dangerous-env-name for the rationale.
-#[must_use]
-pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
-    // Dynamic-linker families: Linux `LD_*` (LD_PRELOAD, LD_LIBRARY_PATH,
-    // LD_AUDIT, ...) and macOS `DYLD_*` (DYLD_INSERT_LIBRARIES, ...).
-    if name.starts_with("LD_") || name.starts_with("DYLD_") {
-        return true;
-    }
-    // GIT_CONFIG* = env-based git-config injection; BASH_FUNC_* = exported
-    // function injection. see docs/security-invariants.md#dangerous-env-name
-    if name.starts_with("GIT_CONFIG") || name.starts_with("BASH_FUNC_") {
-        return true;
-    }
-    // ANSIBLE_*_PLUGINS point ansible at an attacker-chosen directory it then
-    // imports Python from — the env route to what `ansible-doc -M` does (#185).
-    if name.starts_with("ANSIBLE_") && name.ends_with("_PLUGINS") {
-        return true;
-    }
-    matches!(
-        name,
-        "BASH_ENV"
-            | "ENV"
-            | "SHELLOPTS"
-            | "BASHOPTS"
-            | "IFS"
-            | "PS4"
-            | "GIT_SSH"
-            | "GIT_SSH_COMMAND"
-            | "GIT_EXTERNAL_DIFF"
-            | "GIT_PAGER"
-            | "PAGER"
-            | "EDITOR"
-            | "VISUAL"
-            | "PERL5OPT"
-            | "PERL5LIB"
-            | "PYTHONSTARTUP"
-            | "PYTHONPATH"
-            | "NODE_OPTIONS"
-            | "RUBYOPT"
-            | "ANSIBLE_CONFIG"
-            | "ANSIBLE_LIBRARY"
-            | "ANSIBLE_MODULE_UTILS"
-    )
-}
+#[path = "ast/env_names.rs"]
+mod env_names;
+
+pub(crate) use env_names::is_dangerous_env_name;
 
 /// Redirect targets that discard or re-emit output and so cannot overwrite
 /// anything worth guarding.

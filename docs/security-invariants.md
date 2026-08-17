@@ -31,6 +31,9 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#dangerous-env-name` | `env -S` / `--split-string=` / `-vS` payloads are extracted and recursed into | `src/handlers/env_xargs.rs::split_string_separate_arg`, `src/handlers/env_xargs.rs::split_string_attached_short_and_long`, `src/handlers/env_xargs.rs::split_string_bundled_boolean_cluster`, `tests/data/catalog/injection_env_var.toml` |
 | `#dangerous-env-name` | A short cluster with an ambiguous option boundary yields an empty payload so the handler Asks | `src/handlers/env_xargs.rs::split_string_uncertain_cluster_fails_closed` |
 | `#dangerous-env-name` | A dangerous prefix cannot ride a chain to Allow | `tests/data/catalog/injection_string_rule_chokepoint.toml` |
+| `#dangerous-env-name` | Lookup-redirection names (`PATH`, `HOME`, `SHELL`, `XDG_*`) are dangerous — they choose the binary or the config naming a hook | `src/ast_tests.rs::is_dangerous_env_name_flags_lookup_redirection`, `tests/data/catalog/injection_env_var.toml` |
+| `#dangerous-env-name` | The tool-hook suffixes are matched as a family, so a variable no flag guard knows about still Asks | `src/ast_tests.rs::is_dangerous_env_name_flags_tool_hook_suffixes` |
+| `#dangerous-env-name` | `GIT_*` is dangerous unless known inert, and the inert names stay Allow | `src/ast_tests.rs::git_namespace_is_dangerous_unless_known_inert`, `tests/data/catalog/injection_env_var.toml` |
 | `#append-assignment-shadow` | `literal_assignment` rejects `NAME+=VALUE` | `src/ast_tests.rs::literal_assignment_rejects_append` |
 | `#append-assignment-shadow` | `append_assignment_name` matches append-only forms | `src/ast_tests.rs::append_assignment_name_matches_append_only` |
 | `#append-assignment-shadow` | An append shadows a prior literal as set-but-unknown rather than resolving the stale value | `src/analyzer_tests2.rs::append_assignment_shadows_prior_literal_not_a_stale_value`, `src/analyzer_tests2.rs::append_assignment_handler_still_asks` |
@@ -109,6 +112,24 @@ simple command carrying a literal assignment whose name matches
 `ast::is_dangerous_env_name`, before the safe-command path or any handler runs.
 The `env` handler applies the same check to the `NAME=VALUE` args it sets, since
 delegating to the inner command alone would hide them.
+
+Matching is by *capability family* wherever a family can be named, because a
+flag guard always has an environment twin and enumerating twins loses the race
+(#203): `git --exec-path` was guarded while `GIT_EXEC_PATH` was not, and
+`--use-compress-program` while `TAR_OPTIONS` was not. Three families carry it:
+
+- **Lookup redirection** (`PATH`, `HOME`, `SHELL`, `XDG_*`) decides which binary
+  runs, or which config file names a hook to run — `PATH=/tmp/evil git status`
+  executes an attacker's `git`, and `HOME=/tmp/evil git status` reaches the same
+  place via `core.fsmonitor` in a planted `.gitconfig`.
+- **Tool-hook suffixes** (`_COMMAND`, `_OPTIONS`, `_OPTS`, `_EDITOR`, `_PAGER`,
+  `_ASKPASS`, `_WRAPPER`) are a convention rather than a set: the next tool to
+  invent an argv-injection variable will spell it the same way.
+- **The `GIT_*` namespace** inverts polarity — dangerous unless the name is on a
+  short inert list (author/committer identity, `GIT_TERMINAL_PROMPT`). Git owns
+  the namespace and nearly every member changes what it reads or runs, so
+  enumerating the dangerous ones is what let `GIT_DIR`, `GIT_EXEC_PATH` and
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES` through.
 
 GNU `env -S "STRING"` / `--split-string=STRING` (also the `-vS` short cluster)
 reparses `STRING` as the whole command line. Because that payload arg contains

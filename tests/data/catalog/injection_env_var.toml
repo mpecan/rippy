@@ -169,3 +169,84 @@ decision = "ask"
 [[case]]
 command = "ANSIBLE_FOO=1 ls"
 decision = "allow"
+
+# ---- env twins of guarded flags (#203) ----
+# Every flag guard has an environment twin, and enumerating twins one at a time
+# loses the race: `--exec-path` was guarded while `GIT_EXEC_PATH` was not. These
+# are matched by capability family — lookup redirection, tool-hook suffixes, and
+# the GIT_ namespace (dangerous unless known inert).
+
+# Lookup redirection: these choose the binary, or the config naming a hook to run.
+[[case]]
+command = "PATH=/tmp/evil git status"
+decision = "ask"
+
+[[case]]
+command = "HOME=/tmp/evil git status"
+decision = "ask"
+
+[[case]]
+command = "XDG_CONFIG_HOME=/tmp/evil git status"
+decision = "ask"
+
+[[case]]
+command = "PATH=/tmp/evil ls"
+decision = "ask"
+
+# The GIT_ namespace. GIT_EXEC_PATH is the env twin of --exec-path; GIT_DIR of
+# --git-dir. Both were reachable while only the flags were guarded.
+[[case]]
+command = "GIT_EXEC_PATH=/tmp/evil git status"
+decision = "ask"
+
+[[case]]
+command = "GIT_DIR=/tmp/evil/.git git status"
+decision = "ask"
+
+[[case]]
+command = "GIT_WORK_TREE=/tmp/evil git status"
+decision = "ask"
+
+[[case]]
+command = "GIT_PROXY_COMMAND=/tmp/evil git fetch"
+decision = "ask"
+
+[[case]]
+command = "GIT_ALTERNATE_OBJECT_DIRECTORIES=/tmp/evil git log"
+decision = "ask"
+
+# Tool-hook suffixes: argv injection into tools that never had a flag guard.
+[[case]]
+command = "TAR_OPTIONS=--use-compress-program=sh tar --list --file a.tar"
+decision = "ask"
+
+[[case]]
+command = "JAVA_TOOL_OPTIONS=-javaagent:/tmp/e.jar java -version"
+decision = "ask"
+
+# The env handler applies the same predicate to the assignments it sets.
+[[case]]
+command = "env PATH=/tmp/evil git status"
+decision = "ask"
+
+# Safe neighbours: identity and locale vars change nothing about what runs, and
+# the GIT_ inert list is what keeps ordinary commit workflows quiet.
+[[case]]
+command = "GIT_AUTHOR_NAME=me git log"
+decision = "allow"
+
+[[case]]
+command = "GIT_COMMITTER_EMAIL=a@b git log"
+decision = "allow"
+
+[[case]]
+command = "GIT_TERMINAL_PROMPT=0 git fetch"
+decision = "allow"
+
+[[case]]
+command = "DEBIAN_FRONTEND=noninteractive ls"
+decision = "allow"
+
+[[case]]
+command = "env FOO=bar ls"
+decision = "allow"

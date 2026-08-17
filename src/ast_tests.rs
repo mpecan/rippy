@@ -497,7 +497,70 @@ fn is_dangerous_env_name_flags_git_config_and_bash_func_families() {
 
 #[test]
 fn is_dangerous_env_name_allows_ordinary_names() {
-    for name in ["FOO", "PATH", "HOME", "NODE_ENV", "CI", "RUST_LOG"] {
+    for name in [
+        "FOO",
+        "NODE_ENV",
+        "CI",
+        "RUST_LOG",
+        "LANG",
+        "TZ",
+        "DEBIAN_FRONTEND",
+    ] {
         assert!(!is_dangerous_env_name(name), "{name} should be safe");
+    }
+}
+
+/// #203 — `PATH` and `HOME` were asserted *safe* here, which is what let
+/// `PATH=/tmp/evil git status` run an attacker's `git`. They decide where a
+/// binary and its config come from, for every command.
+#[test]
+fn is_dangerous_env_name_flags_lookup_redirection() {
+    for name in ["PATH", "HOME", "SHELL", "XDG_CONFIG_HOME", "XDG_DATA_DIRS"] {
+        assert!(is_dangerous_env_name(name), "{name} should be dangerous");
+    }
+}
+
+/// The `_COMMAND`/`_OPTIONS`/`_OPTS` shape is a convention every tool reuses,
+/// so it is matched as a suffix — `TAR_OPTIONS` and `JAVA_TOOL_OPTIONS` inject
+/// argv into tools that never had a flag guard.
+#[test]
+fn is_dangerous_env_name_flags_tool_hook_suffixes() {
+    for name in [
+        "TAR_OPTIONS",
+        "JAVA_TOOL_OPTIONS",
+        "MAVEN_OPTS",
+        "GIT_PROXY_COMMAND",
+        "SUDO_ASKPASS",
+        "SOME_NEW_TOOL_EDITOR",
+    ] {
+        assert!(is_dangerous_env_name(name), "{name} should be dangerous");
+    }
+}
+
+/// `GIT_*` is dangerous unless known inert: enumerating the dangerous members
+/// is what let `GIT_DIR`, `GIT_EXEC_PATH` and
+/// `GIT_ALTERNATE_OBJECT_DIRECTORIES` through.
+#[test]
+fn git_namespace_is_dangerous_unless_known_inert() {
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_EXEC_PATH",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_ATTR_SOURCE",
+        "GIT_TRACE",
+        "GIT_NAMESPACE",
+        "GIT_INDEX_FILE",
+    ] {
+        assert!(is_dangerous_env_name(name), "{name} should be dangerous");
+    }
+    for name in [
+        "GIT_AUTHOR_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_AUTHOR_DATE",
+        "GIT_TERMINAL_PROMPT",
+        "GIT_REFLOG_ACTION",
+    ] {
+        assert!(!is_dangerous_env_name(name), "{name} should be inert");
     }
 }
