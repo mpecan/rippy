@@ -15,13 +15,12 @@ mod common;
 use common::isolated_analyzer;
 use rippy_cli::verdict::Decision;
 
-/// #193 — the `case` subject word is never analyzed.
+/// #193 — the `case` subject word used to go unanalyzed.
 ///
 /// `NodeKind::Case` carries the subject as `word`, which
-/// `analyzer_control_flow.rs` discards via `..`. Bash expands the subject
+/// `analyzer_control_flow.rs` discarded via `..`. Bash expands the subject
 /// before matching, so the substituted command really does run.
 #[test]
-#[ignore = "known fail-open, tracked in #193"]
 fn case_subject_expansion_is_analyzed() {
     let mut a = isolated_analyzer();
     for cmd in [
@@ -47,13 +46,12 @@ fn case_without_expansion_still_allows() {
     assert_eq!(v.decision, Decision::Allow);
 }
 
-/// #197 — `ConditionalExpr` drops its `redirects`, so a write attached to a
-/// `[[ ]]` test is never analyzed and self-protection degrades to Ask.
+/// #197 — `ConditionalExpr` used to drop its `redirects`, so a write attached to
+/// a `[[ ]]` test was never analyzed and self-protection degraded to Ask.
 ///
-/// The sibling `ArithmeticCommand` arm handles this correctly, which is the
-/// contrast that makes the omission visible.
+/// The sibling `ArithmeticCommand` arm always handled this correctly, which is
+/// the contrast that made the omission visible.
 #[test]
-#[ignore = "known fail-open, tracked in #197"]
 fn conditional_expr_redirect_is_analyzed() {
     let mut a = isolated_analyzer();
     let cond = a.analyze("[[ -f foo ]] > ~/.rippy/config.toml").unwrap();
@@ -74,10 +72,9 @@ fn arithmetic_command_redirect_is_analyzed() {
     assert_eq!(arith.decision, Decision::Deny);
 }
 
-/// #198 — `tar --to-command <prog>` recurses into `prog` and discards the tar
-/// verdict, so appending it *lowers* `tar -xf` from Ask to Allow.
+/// #198 — `tar --to-command <prog>` used to recurse into `prog` and discard the
+/// tar verdict, so appending it *lowered* `tar -xf` from Ask to Allow.
 #[test]
-#[ignore = "known fail-open, tracked in #198"]
 fn tar_to_command_does_not_downgrade_extraction() {
     let mut a = isolated_analyzer();
     let v = a.analyze("tar -xf a.tar --to-command cat").unwrap();
@@ -97,10 +94,10 @@ fn tar_to_command_glued_spelling_asks() {
     assert_eq!(v.decision, Decision::Ask);
 }
 
-/// #199 — only the first `-c`/`-e` is classified, so a read-only first
-/// statement launders a write in the second. Both clients run every occurrence.
+/// #199 — every `-c`/`-e` occurrence is classified, not just the first: both
+/// clients run all of them, so a read-only leading statement must not launder
+/// a write in a later one.
 #[test]
-#[ignore = "known fail-open, tracked in #199"]
 fn every_sql_command_flag_is_classified() {
     let mut a = isolated_analyzer();
     for cmd in [

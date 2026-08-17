@@ -74,6 +74,17 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#inspect-delegation` | The rendered provenance names the same approval route as the verdict's `AllowReason` | `src/inspect_tests.rs::trace_provenance_matches_allow_reason`, `src/inspect_tests.rs::trace_provenance_names_the_approval_route` |
 | `#inspect-delegation` | Every gate that can decide emits an event, so the trace never ends on a step contradicting the verdict | `src/inspect_tests.rs::trace_records_the_deciding_gate`, `src/inspect_tests.rs::trace_explains_every_non_allow_verdict` |
 | `#inspect-delegation` | A withheld whole-string ALLOW is recorded as a non-match, never as a hit | `src/inspect_tests.rs::trace_env_prefix_pipeline_records_withheld_allow_rule` |
+| `#parser-stack-bound` | Every unbounded lexer recursion is counted and refused past its limit | `src/nesting.rs::the_bounds_refuse_what_they_name` |
+| `#parser-stack-bound` | No quoting the scan cannot interpret — comment, heredoc body, `$'\''`, a re-balanced stray quote — lowers a count | `src/nesting.rs::nothing_that_looks_like_quoting_hides_an_opener`, `tests/hook_fail_closed.rs::quoting_the_scanner_cannot_read_still_asks_instead_of_aborting` |
+| `#parser-stack-bound` | Anything that can open a construct leaves the inline-parse path, so only a provably flat source parses on the caller's stack | `src/nesting.rs::every_construct_opener_leaves_the_flat_path`, `src/nesting.rs::ordinary_commands_open_nothing` |
+| `#parser-stack-bound` | A flat statement chain is bounded too, since list elements recurse the same way | `src/nesting.rs::the_bounds_refuse_what_they_name`, `tests/hook_fail_closed.rs::a_flat_statement_chain_asks_instead_of_aborting` |
+| `#parser-stack-bound` | Input past a bound comes back through the hook as a normal Ask, never an abort | `tests/hook_fail_closed.rs::deeply_nested_constructs_ask_instead_of_aborting` |
+| `#parser-stack-bound` | Plain nesting carries no rippy bound, so the widest the input cap allows must still answer | `tests/hook_fail_closed.rs::the_widest_plain_nesting_the_input_cap_allows_still_answers` |
+| `#parser-stack-bound` | Ordinary documents, scripts and nested commands are not refused for their shape | `src/nesting.rs::a_prose_document_stays_within_every_bound`, `src/nesting.rs::a_json_document_stays_within_every_bound`, `src/nesting.rs::a_long_script_stays_within_every_bound`, `tests/hook_fail_closed.rs::ordinary_documents_and_scripts_are_not_refused_for_their_shape`, `tests/hook_fail_closed.rs::a_legitimately_nested_command_still_gets_a_real_verdict` |
+| `#parser-stack-bound` | A shape that would make the parser hang is refused, since a hook that never answers reads as one that failed | `src/nesting.rs::the_bounds_refuse_what_they_name`, `tests/hook_fail_closed.rs::shapes_that_would_hang_the_parser_ask_promptly` |
+| `#empty-combine` | Combining an empty verdict set fails closed rather than returning the Allow default | `src/verdict.rs::combine_empty_fails_closed`, `src/verdict.rs::combine_of_allows_is_still_allow` |
+| `#empty-combine` | An arithmetic context carrying a substitution is not approved by the arm that drops its expression | `tests/data/catalog/injection_constructs.toml` |
+| `#empty-combine` | A redirect target is checked for substitutions in both directions, so the read shortcut cannot skip it | `tests/data/catalog/injection_expansion.toml` |
 
 ## env-prefix-strip
 
@@ -320,3 +331,65 @@ redirect pipeline (`Stage::Redirect`), the dangerous / expanding env prefix
 therefore each record their own verdict. `matched` means *this layer decided*,
 so a whole-string ALLOW withheld by #string-rule-chokepoint is recorded as a
 non-match with a "not applied" detail — never as a hit.
+
+## parser-stack-bound
+
+rable parses by recursive descent: one stack frame per open construct
+(`case`/`for`/`if`/`{`/`(`/`$(`) and per element of a `;`/`&&`/`|` list. The
+analyzer's own limits (`MAX_DEPTH` 256, `MAX_NODES` 10 000) only apply to a tree
+that already exists, so a command of ~250 nested constructs — or ~15 000 flat
+statements — overflowed the main thread's stack *during parsing* (#195).
+
+That is a fail-open, not a crash-bug: a stack overflow **aborts** the process
+instead of unwinding, so `fail_closed`'s `catch_unwind` net (#182) cannot
+convert it into an Ask. The hook died with exit 134 and an empty stdout, which
+the calling agent reads as a non-blocking hook failure — an auto-approval.
+
+Two things prevent it.
+
+**The parse runs on a 256 MB stack.** `parser::parse_on_a_deep_stack` hands the
+source to a scoped thread sized for the bounds below. rable stops its own
+descent at `MAX_DEPTH` 1 000 frames, which the most expensive construct (`case`)
+needs about 16 MB for, so with that stack no amount of `(`, `{`, backtick, `[[`
+or `if`/`for`/`case` nesting can overflow — measured up to the widest such input
+the 1 MB stdin cap can carry. Those constructs therefore carry no rippy bound at
+all, which is why a heredoc full of prose is no longer refused for containing
+English `if`s and unbalanced parens. A source that opens no construct at all
+skips the thread and parses inline.
+
+**`nesting::Shape` bounds what rable does not.** rable's `MAX_DEPTH` does not
+reach its *lexer's* substitution or brace-expansion work, so four shapes are
+counted and refused: `$(`/`<(`/`>(` at 128 (nesting them is super-linear — 128
+takes 0.5 s, 384 takes 37 s — and 16 384 overflow 256 MB), `${` at 4 096
+(~131 000 overflow), `{` at 8 192 (unclosed `{a,` costs the brace count times the
+input length: 8 192 takes 0.74 s, 50 000 takes 29 s), and runs of `;`/`&`/`|`/
+newline at 16 384 (~262 000 overflow). A hang is as much a fail-open as an abort
+— the agent reads a hook that never answers as a hook that failed — so the cost
+bounds sit alongside the stack ones. Exceeding one yields
+`RippyError::TooComplex`, which `Analyzer::analyze` renders as the ordinary
+fail-closed Ask, so a whole-string Deny/Ask rule still takes precedence.
+
+The scan is a genuine **over**-approximation: it skips nothing and never cancels
+a count against a closer. The first fix for #195 tried to lex quoting so it
+could skip quoted spans, and every construct that a scanner must interpret —
+an apostrophe in a `#` comment, a quote in a heredoc body, `\'` inside `$'…'`,
+a stray quote re-balanced later in the string — desynced it into skipping the
+nesting it existed to measure, restoring the abort. Counting openers and never
+matching a closer needs no such interpretation, so no input, however malformed,
+can make a count come out low.
+
+
+## empty-combine
+
+`Verdict::combine` on an empty slice means the caller analyzed nothing. That is
+an error state, not a safe one: it is exactly what a node arm produces when its
+meaningful fields were discarded by `..`. Returning `Verdict::default()` there —
+an Allow with a blank reason — approved `(( $(rm -rf /) ))` and every other arm
+with the same shape, so the empty case now fails closed to Ask.
+
+A caller whose construct is genuinely inert states its own Allow instead of
+inheriting one: `case x in y) ;; esac` and `(( i = 1 ))` run nothing, and saying
+so at the call site keeps the combinator free to treat emptiness as the bug it
+usually is. The arms that dropped an executing expression — `ArithmeticCommand`,
+`ForArith`, and the input-redirect shortcut — read their raw text instead,
+because rable does not descend into arithmetic for a nested substitution.

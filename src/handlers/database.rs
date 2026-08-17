@@ -1,6 +1,7 @@
+use super::getopt::{OptionName, OptionSpec, scan_options};
 use super::{
-    AllowEntry, Classification, Handler, HandlerContext, get_flag_value, has_flag,
-    is_sole_help_flag, positional_args,
+    AllowEntry, Classification, Handler, HandlerContext, has_flag, is_sole_help_flag,
+    positional_args,
 };
 use crate::sql::classify_sql;
 use crate::verdict::AllowReason;
@@ -18,6 +19,30 @@ pub(crate) static PSQL_HANDLER: PsqlHandler = PsqlHandler;
 
 pub(crate) struct PsqlHandler;
 
+/// psql's value-taking options. `-c`/`-f` are what gets classified; the rest
+/// are declared so their operand is not itself read as an option — without
+/// `-o`, `psql -o -copy.out` looks like a glued `-c opy.out` (#199).
+const PSQL_OPTIONS: OptionSpec = OptionSpec {
+    value_shorts: "cdfFhLoPpRTUv",
+    optional_shorts: "",
+    value_longs: &[
+        "command",
+        "dbname",
+        "field-separator",
+        "file",
+        "host",
+        "log-file",
+        "output",
+        "port",
+        "pset",
+        "record-separator",
+        "set",
+        "table-attr",
+        "username",
+        "variable",
+    ],
+};
+
 impl Handler for PsqlHandler {
     fn commands(&self) -> &[&str] {
         &["psql"]
@@ -27,19 +52,16 @@ impl Handler for PsqlHandler {
         if is_sole_help_flag(ctx.args, &["--help", "-?", "--version", "-V"]) {
             return Classification::Allow(AllowReason::handler("psql help/version"));
         }
+        let sql = scan_options(ctx.args, &PSQL_OPTIONS)
+            .into_iter()
+            .filter_map(|(name, value)| psql_sql_option(ctx, &name, value))
+            .reduce(least_safe);
+        if let Some(classification) = sql {
+            return classification;
+        }
+        // After the SQL scan: `psql -l -c "DROP TABLE t"` still runs the DROP.
         if has_flag(ctx.args, &["--list", "-l"]) {
             return Classification::Allow(AllowReason::handler("psql list databases"));
-        }
-        // -c SQL
-        if let Some(sql) = get_flag_value(ctx.args, &["-c", "--command"]) {
-            return classify_sql_command("psql", &sql);
-        }
-        // -f file — try to read and classify the SQL
-        if let Some(path) = get_flag_value(ctx.args, &["-f", "--file"]) {
-            if let Some(sql) = ctx.read_file(&path) {
-                return classify_sql_command("psql -f", &sql);
-            }
-            return Classification::Ask("psql -f (file execution)".into());
         }
         Classification::Ask("psql (interactive)".into())
     }
@@ -47,11 +69,25 @@ impl Handler for PsqlHandler {
     fn allow_surface(&self) -> Vec<AllowEntry> {
         vec![
             AllowEntry::guarded("psql --help|-?|--version|-V", "sole argument"),
-            AllowEntry::new("psql --list|-l"),
+            AllowEntry::guarded("psql --list|-l", "no -c/-f statement to run"),
             AllowEntry::guarded("psql -c|--command <sql>", READ_ONLY_SQL),
             AllowEntry::guarded("psql -f|--file <path>", READ_ONLY_SQL_FILE),
         ]
     }
+}
+
+/// Classify one psql option occurrence, or `None` if it carries no SQL.
+fn psql_sql_option(ctx: &HandlerContext, name: &OptionName, value: &str) -> Option<Classification> {
+    if name.is('c', &["command"]) {
+        return Some(classify_sql_command("psql", value));
+    }
+    if !name.is('f', &["file"]) {
+        return None;
+    }
+    Some(ctx.read_file(value).map_or_else(
+        || Classification::Ask("psql -f (file execution)".into()),
+        |sql| classify_sql_command("psql -f", &sql),
+    ))
 }
 
 // mysql
@@ -59,6 +95,24 @@ impl Handler for PsqlHandler {
 pub(crate) static MYSQL_HANDLER: MysqlHandler = MysqlHandler;
 
 pub(crate) struct MysqlHandler;
+
+/// mysql's value-taking options. `-p` is listed as optional-valued because its
+/// password only attaches when glued: a required `-p` would eat the `-e` after
+/// a bare one and hide the statement entirely.
+const MYSQL_OPTIONS: OptionSpec = OptionSpec {
+    value_shorts: "DePSuh",
+    optional_shorts: "p",
+    value_longs: &[
+        "database",
+        "default-character-set",
+        "execute",
+        "host",
+        "port",
+        "protocol",
+        "socket",
+        "user",
+    ],
+};
 
 impl Handler for MysqlHandler {
     fn commands(&self) -> &[&str] {
@@ -69,10 +123,12 @@ impl Handler for MysqlHandler {
         if is_sole_help_flag(ctx.args, &["--help", "--version", "-V"]) {
             return Classification::Allow(AllowReason::handler("mysql help/version"));
         }
-        if let Some(sql) = get_flag_value(ctx.args, &["-e", "--execute"]) {
-            return classify_sql_command("mysql", &sql);
-        }
-        Classification::Ask("mysql (interactive)".into())
+        scan_options(ctx.args, &MYSQL_OPTIONS)
+            .into_iter()
+            .filter(|(name, _)| name.is('e', &["execute"]))
+            .map(|(_, sql)| classify_sql_command("mysql", sql))
+            .reduce(least_safe)
+            .unwrap_or_else(|| Classification::Ask("mysql (interactive)".into()))
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -119,7 +175,27 @@ impl Handler for Sqlite3Handler {
 }
 
 fn classify_sql_command(tool: &str, sql: &str) -> Classification {
-    match classify_sql(sql) {
+    classification_for(tool, classify_sql(sql))
+}
+
+/// Keep the least safe of two classifications, since a client runs every
+/// statement it is given: an inline `SELECT` must not launder the `DROP` in a
+/// later `-c`, nor the script named by `-f` (#199).
+///
+/// Each occurrence is classified on its own rather than joined with `;`: a
+/// statement ending in a `--` line comment would otherwise swallow the one
+/// appended after it. Ties keep the first, so the reason names the earliest
+/// offending statement.
+fn least_safe(a: Classification, b: Classification) -> Classification {
+    match (&a, &b) {
+        (Classification::Allow(_), Classification::Ask(_) | Classification::Deny(_))
+        | (Classification::Ask(_), Classification::Deny(_)) => b,
+        _ => a,
+    }
+}
+
+fn classification_for(tool: &str, read_only: Option<bool>) -> Classification {
+    match read_only {
         Some(true) => {
             Classification::Allow(AllowReason::handler(format!("{tool} (read-only SQL)")))
         }
@@ -173,5 +249,51 @@ mod tests {
         };
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(result, Classification::Ask(_)));
+    }
+
+    /// Classify a psql run against a real SQL file in a temp working directory.
+    fn classify_with_file(file: &str, sql: &str, args: &[&str]) -> Classification {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(file), sql).unwrap();
+        let args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
+        let ctx = HandlerContext {
+            working_directory: dir.path(),
+            ..HandlerContext::test("psql", &args)
+        };
+        PSQL_HANDLER.classify(&ctx)
+    }
+
+    /// #199 follow-up: a readable script is the case a command string alone
+    /// cannot reach, and it is where cross-flag laundering pays off — the
+    /// leading `-c SELECT` must not approve the DROP the script runs.
+    #[test]
+    fn psql_c_does_not_launder_a_write_in_the_f_script() {
+        let result = classify_with_file(
+            "drop.sql",
+            "DROP TABLE users;",
+            &["-c", "SELECT 1", "-f", "drop.sql"],
+        );
+        assert!(matches!(result, Classification::Ask(_)), "{result:?}");
+    }
+
+    #[test]
+    fn psql_c_and_a_read_only_f_script_stay_allowed() {
+        let result = classify_with_file(
+            "query.sql",
+            "SELECT * FROM users;",
+            &["-c", "SELECT 1", "-f", "query.sql"],
+        );
+        assert!(matches!(result, Classification::Allow(_)), "{result:?}");
+    }
+
+    /// The same laundering through a cluster: `-Atf drop.sql` is `-A -t -f`.
+    #[test]
+    fn psql_reads_the_f_script_named_by_a_cluster() {
+        let result = classify_with_file(
+            "drop.sql",
+            "DROP TABLE users;",
+            &["-c", "SELECT 1", "-Atf", "drop.sql"],
+        );
+        assert!(matches!(result, Classification::Ask(_)), "{result:?}");
     }
 }

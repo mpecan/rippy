@@ -179,6 +179,34 @@ fn strip_regular_quotes_unchanged() {
     assert_eq!(strip_quotes("hello"), "hello");
 }
 
+/// #198: a quote pair spliced into the middle of a token is invisible to the
+/// command, so a handler must not see it either.
+#[test]
+fn strip_quotes_spliced_mid_token() {
+    assert_eq!(strip_quotes("--to-com'mand'"), "--to-command");
+    assert_eq!(strip_quotes("--to-command\"\""), "--to-command");
+    assert_eq!(strip_quotes("--to-command=\"a b\""), "--to-command=a b");
+    assert_eq!(strip_quotes("-x'f'"), "-xf");
+    assert_eq!(strip_quotes(r"a\ b"), "a b");
+    // Quoting is literal inside the other quote form.
+    assert_eq!(strip_quotes("\"it's\""), "it's");
+}
+
+/// An unbalanced quote means rable's tokenizer and the shell disagree about
+/// where the word ends, so the raw token is kept rather than a fabricated value.
+#[test]
+fn strip_quotes_keeps_unbalanced_token() {
+    assert_eq!(strip_quotes("it's"), "it's");
+}
+
+/// A `$'…'`/`$"…"` away from the front keeps its sigil: downstream guards read
+/// the resolved text to decide whether a value is statically known.
+#[test]
+fn strip_quotes_keeps_embedded_dollar_quote() {
+    assert_eq!(strip_quotes("/tmp/foo$\"x\""), "/tmp/foo$\"x\"");
+    assert_eq!(strip_quotes("/tmp/foo$'x'"), "/tmp/foo$'x'");
+}
+
 // Shell expansion pattern detection
 
 #[test]
@@ -225,6 +253,92 @@ fn expansion_pattern_detects_positional_and_special_params() {
     assert!(has_shell_expansion_pattern("$$"));
     assert!(has_shell_expansion_pattern("$!"));
     assert!(has_shell_expansion_pattern("$-"));
+}
+
+// Quote-aware backtick detection (#202). The catalog pins the end-to-end
+// verdicts; these pin the scanner's quote bookkeeping directly, since a command
+// string cannot isolate a single unbalanced or mixed-quoting token.
+
+#[test]
+fn backtick_substitution_detected_outside_single_quotes() {
+    assert!(has_backtick_substitution("`id`"));
+    assert!(has_backtick_substitution("\"`id`\""));
+    assert!(has_backtick_substitution("\"pre`id`post\""));
+    assert!(has_backtick_substitution("'inert'\"`id`\""));
+    // An unterminated double quote must not be read as "still inside a string".
+    assert!(has_backtick_substitution("\"`id`"));
+}
+
+#[test]
+fn backtick_substitution_ignores_inert_backticks() {
+    assert!(!has_backtick_substitution("'`id`'"));
+    assert!(!has_backtick_substitution("\"a\\`b\""));
+    assert!(!has_backtick_substitution("\\`"));
+    assert!(!has_backtick_substitution("plain text"));
+    assert!(!has_backtick_substitution(""));
+    // A backslash is literal inside single quotes, so the closing quote still
+    // closes and the following backtick is live.
+    assert!(has_backtick_substitution("'a\\'`id`"));
+}
+
+// Executing-substitution detection (#193 follow-up). The catalog pins the
+// `case` verdicts; these pin the distinction the narrowing rests on — a word
+// that merely fails to resolve versus one that runs a command.
+
+#[test]
+fn executing_substitution_detected() {
+    assert!(has_executing_substitution("$(id)"));
+    assert!(has_executing_substitution("\"$(id)\""));
+    assert!(has_executing_substitution("${x:-$(id)}"));
+    assert!(has_executing_substitution("`id`"));
+    assert!(has_executing_substitution("<(id)"));
+    assert!(has_executing_substitution(">(tee f)"));
+    assert!(has_executing_substitution("$((1+$(id)))"));
+}
+
+#[test]
+fn inert_expansions_are_not_executing_substitutions() {
+    for inert in [
+        "$OSTYPE",
+        "${VAR%%.*}",
+        "${VAR#pre}",
+        "${#x}",
+        "${!x}",
+        "*.tar.gz",
+        // Single quotes and a backslash both defuse the substitution.
+        "'$(id)'",
+        "\\$(id)",
+        // `<(` is literal text inside double quotes, unlike `$(`.
+        "\"<(id)\"",
+        // A lone `$` or `<` with nothing to open a substitution.
+        "$",
+        "a<b",
+    ] {
+        assert!(
+            !has_executing_substitution(inert),
+            "{inert} executes nothing"
+        );
+    }
+}
+
+/// Resolution-time re-analysis builds synthetic words whose `value` is empty
+/// while the substitution lives in `parts`, so the walk cannot lean on the text
+/// scan alone.
+#[test]
+fn word_executes_command_follows_parts_not_just_text() {
+    let substitution = Node::empty(NodeKind::CommandSubstitution {
+        command: Box::new(Node::empty(NodeKind::WordLiteral {
+            value: "id".to_string(),
+        })),
+        brace: false,
+    });
+    let synthetic = Node::empty(NodeKind::Word {
+        value: String::new(),
+        parts: vec![substitution],
+        spans: vec![],
+    });
+
+    assert!(word_executes_command(&synthetic));
 }
 
 // Env-prefix stripping

@@ -1,6 +1,14 @@
 use rable::Node;
 
 use crate::error::RippyError;
+use crate::nesting::Shape;
+
+/// Stack for the parse thread. rable caps its own parser recursion at 1 000
+/// frames, which the worst construct (`case`) needs ~16 MB for; `nesting` caps
+/// the lexer recursion rable does not. 256 MB leaves every one of those bounds
+/// a margin of 16x or better, and the mapping is only ever committed as it is
+/// touched. see docs/security-invariants.md#parser-stack-bound
+const PARSE_STACK: usize = 256 * 1024 * 1024;
 
 /// Wrapper around rable bash parser.
 pub struct BashParser;
@@ -19,10 +27,38 @@ impl BashParser {
     ///
     /// # Errors
     ///
-    /// Returns `RippyError::Parse` if the source cannot be parsed.
+    /// Returns `RippyError::TooComplex` for input whose shape rable could only
+    /// answer with a stack overflow (#195), and `RippyError::Parse` if the
+    /// source cannot be parsed.
     pub fn parse(&mut self, source: &str) -> Result<Vec<Node>, RippyError> {
-        rable::parse(source, false).map_err(|e| RippyError::Parse(format!("{e}")))
+        let shape = Shape::of(source);
+        if let Some(detail) = shape.violation() {
+            return Err(RippyError::TooComplex(detail));
+        }
+        if shape.is_flat() {
+            return rable::parse(source, false).map_err(|e| RippyError::Parse(format!("{e}")));
+        }
+        parse_on_a_deep_stack(source).map_err(RippyError::Parse)
     }
+}
+
+/// Parse on a thread sized for the bounds in `nesting`. A stack overflow aborts
+/// the process rather than unwinding, so the hook's fail-closed net would never
+/// see it and the agent would read the empty stdout as an approval (#195).
+fn parse_on_a_deep_stack(source: &str) -> Result<Vec<Node>, String> {
+    std::thread::scope(|scope| {
+        let spawned = std::thread::Builder::new()
+            .stack_size(PARSE_STACK)
+            .spawn_scoped(scope, || {
+                rable::parse(source, false).map_err(|e| format!("{e}"))
+            });
+        match spawned {
+            Ok(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("the parser panicked".to_owned())),
+            Err(e) => Err(format!("could not start a parser thread: {e}")),
+        }
+    })
 }
 
 #[cfg(test)]

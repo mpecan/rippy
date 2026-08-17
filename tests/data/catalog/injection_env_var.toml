@@ -116,14 +116,14 @@ command = 'env -vS "LD_PRELOAD=/tmp/x cat f"'
 decision = "ask"
 reason_contains = "dangerous env-var assignment"
 
-# Attached long form `--split-string=` must also fail closed. The parser keeps
-# the inner quotes on this attached word, so the payload recurses as a single
-# quoted "unknown command" rather than reaching the dangerous-env gate — either
-# way it Asks (never Allow), which is the security-relevant guarantee.
+# Attached long form `--split-string=` must also fail closed. The payload used
+# to recurse as a single quoted "unknown command" because the parser leaves the
+# inner quotes on an attached word; #198's dequoting hands the gate the real
+# payload, so it now names the dangerous assignment like every other spelling.
 [[case]]
 command = 'env --split-string="LD_PRELOAD=/tmp/x cat f"'
 decision = "ask"
-reason_contains = "unknown command"
+reason_contains = "dangerous env-var assignment"
 
 # A benign prefix with a dangerous INNER command must reach the inner analyzer
 # rather than being dropped as bare env. `rm` is an unknown/destructive command.

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc de097bf5b68a4622f338ebc603c45951b85579249915265d507f2a31443f200f # shrinks to spec = CmdSpec { stages: [Stage { env_prefix: None, wrapper: None, leaf: Handler { base: 0, sub: 0 }, args: [Bare("a")], redirect: None }], ops: [] }

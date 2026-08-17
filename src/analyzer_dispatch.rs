@@ -3,7 +3,7 @@ use std::path::Path;
 use rable::{Node, NodeKind};
 
 use super::{
-    Analyzer, MAX_RESOLUTION_DEPTH, MAX_RESOLVED_LEN, annotate_with_resolution,
+    Analyzer, EXPANSION_ASK, MAX_RESOLUTION_DEPTH, MAX_RESOLVED_LEN, annotate_with_resolution,
     canonicalize_existing_ancestor,
 };
 use crate::allowlists;
@@ -143,6 +143,10 @@ impl Analyzer {
     }
 
     fn redirect_verdict(&self, op: ast::RedirectOp, target: &str, cwd: &Path) -> Verdict {
+        // Before the read shortcut: `cat < "$(x)"` reads a file *named by* `x`.
+        if ast::has_executing_substitution(target) {
+            return Verdict::ask(EXPANSION_ASK);
+        }
         if op == ast::RedirectOp::Read {
             return Verdict::allow(AllowReason::InputRedirect);
         }
@@ -370,6 +374,14 @@ impl Analyzer {
             Classification::Recurse(inner) => {
                 self.trace(Stage::Command, true, || format!("recurse: {inner}"));
                 self.analyze_inner_command(&inner, cwd, depth)
+            }
+            Classification::RecurseAtLeast(inner, outer) => {
+                let outer = self.apply_classification(*outer, cwd, depth);
+                self.trace(Stage::Command, true, || format!("recurse: {inner}"));
+                let inner = self.analyze_inner_command(&inner, cwd, depth);
+                // Outer last so an equal-decision tie reports its reason, which
+                // names the flag that spawned the program.
+                Verdict::combine(&[inner, outer])
             }
             Classification::RecurseRemote(inner) => {
                 self.trace(Stage::Command, true, || {

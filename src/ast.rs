@@ -1,3 +1,6 @@
+use std::iter::Peekable;
+use std::str::Chars;
+
 use rable::{Node, NodeKind};
 
 use crate::allowlists;
@@ -105,6 +108,11 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
     }
     match kind {
         NodeKind::Word { value, parts, .. } => {
+            // A backtick inside a double-quoted part stays literal text in
+            // rable's AST, so no part is an expansion node to find (#202).
+            if has_backtick_substitution(value) {
+                return true;
+            }
             // Trust parsed parts; textual scan is only a fallback for synthetic
             // words. see docs/security-invariants.md#word-parts-trust
             if parts.is_empty() {
@@ -133,6 +141,97 @@ fn has_expansions_kind(kind: &NodeKind) -> bool {
         NodeKind::HereDoc {
             content, quoted, ..
         } => !quoted && has_shell_expansion_pattern(content),
+        _ => false,
+    }
+}
+
+/// Returns `true` when `text` carries a backtick that bash would run as a
+/// command substitution: one that is neither inside single quotes nor
+/// backslash-escaped.
+///
+/// Rable lifts a bare `` `cmd` `` into a [`NodeKind::CommandSubstitution`]
+/// part, but inside a double-quoted word it keeps the whole token as one
+/// literal part — while bash still executes it. Walking the parts therefore
+/// finds nothing, and this scan is the only signal (#202). Quote state is
+/// tracked rather than scanning for a bare backtick so `'a `b` c'`, where the
+/// backticks really are inert, is not falsely flagged.
+#[must_use]
+pub fn has_backtick_substitution(text: &str) -> bool {
+    scan_interpreted(text, |c, _next, _in_double| c == '`')
+}
+
+/// Returns `true` when `text` carries a substitution bash resolves by *running*
+/// a command: `$(...)`, an active backtick, or a `<(...)`/`>(...)` process
+/// substitution.
+///
+/// Deliberately narrower than [`has_shell_expansion_pattern`], which also fires
+/// on `$VAR` and `${VAR%%...}`. Callers that only need to know "does reading
+/// this word execute anything" — a `case` subject is matched, never run (#193)
+/// — must not treat a plain variable reference as dangerous.
+#[must_use]
+pub fn has_executing_substitution(text: &str) -> bool {
+    scan_interpreted(text, |c, next, in_double| match c {
+        '`' => true,
+        '$' => next == Some('('),
+        // `<(`/`>(` is literal text inside double quotes, unlike `$(`.
+        '<' | '>' => !in_double && next == Some('('),
+        _ => false,
+    })
+}
+
+/// Run `is_hit` over the characters of `text` that bash would interpret,
+/// skipping single-quoted and backslash-escaped ones, and report whether any
+/// matched. `is_hit` receives the character, the raw character after it, and
+/// whether the scan is inside double quotes.
+fn scan_interpreted(text: &str, mut is_hit: impl FnMut(char, Option<char>, bool) -> bool) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            // A backslash is literal inside single quotes; everywhere else it
+            // suppresses the next character.
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            _ if !in_single && is_hit(c, chars.peek().copied(), in_double) => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Returns `true` when expanding `node` runs a command.
+///
+/// That means a `$(...)`/backtick command substitution or a `<(...)`/`>(...)`
+/// process substitution, including one nested in an arithmetic expansion or in
+/// the default/alternate text of a parameter expansion.
+///
+/// This is the "does it execute" half of [`has_expansions`]: an unset variable
+/// or an unsupported parameter-expansion operator yields `false`, because
+/// reading them runs nothing.
+///
+/// A word's raw text is scanned as well as its parts, because rable keeps a
+/// double-quoted backtick as one literal (#202) and drops the inside of
+/// `$((1+$(id)))` entirely — neither surfaces as a substitution part.
+#[must_use]
+pub fn word_executes_command(node: &Node) -> bool {
+    match &node.kind {
+        NodeKind::CommandSubstitution { .. } | NodeKind::ProcessSubstitution { .. } => true,
+        NodeKind::Word { value, parts, .. } => {
+            has_executing_substitution(value) || parts.iter().any(word_executes_command)
+        }
+        NodeKind::WordLiteral { value } | NodeKind::LocaleString { inner: value, .. } => {
+            has_executing_substitution(value)
+        }
+        NodeKind::ParamExpansion { arg, .. } => {
+            arg.as_deref().is_some_and(has_executing_substitution)
+        }
         _ => false,
     }
 }
@@ -246,13 +345,16 @@ fn leftmost_simple_command(node: &Node) -> Option<(&[Node], &[Node])> {
 ///
 /// The value has any outer quotes stripped, matching how the analyzer treats
 /// argument words, so `FOO='a b'` yields `("FOO", "a b")`.
+///
+/// The expansion check reads the raw text as well as the parsed parts: a
+/// quoted-backtick value (`` x="`cmd`" ``) has no expansion part to find, so
+/// the parts walk alone would bind attacker-chosen output as a literal (#202).
 #[must_use]
 pub fn literal_assignment(assignment: &Node) -> Option<(String, String)> {
     let NodeKind::Word { value, parts, .. } = &assignment.kind else {
         return None;
     };
-    // A non-literal value (`x=$(cmd)`, `x=$y`) must never be bound.
-    if parts.iter().any(has_expansions) {
+    if has_backtick_substitution(value) || parts.iter().any(has_expansions) {
         return None;
     }
     let (name, val) = value.split_once('=')?;
@@ -422,18 +524,95 @@ const fn word_value(node: &Node) -> Option<&str> {
     }
 }
 
-/// Strip surrounding quotes from a string token.
+/// The quoting context a token scan is in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Quoting {
+    Bare,
+    Single,
+    Double,
+}
+
+/// Resolve a token to the literal argument text the shell hands the command.
+///
+/// rable keeps the quote characters in the word value, so matching a handler's
+/// flag against the raw token matches the attacker's *spelling* rather than the
+/// value the command receives: `--to-com'mand'` and `--to-command""` are both
+/// literally `--to-command` (#198). Quoting is therefore removed wherever it
+/// appears in the token, not just when it wraps the whole of it.
 fn strip_quotes(s: &str) -> String {
     let s = s.trim();
-    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
-        s[1..s.len() - 1].to_owned()
-    } else if s.len() >= 3
-        && ((s.starts_with("$'") && s.ends_with('\''))
-            || (s.starts_with("$\"") && s.ends_with('"')))
-    {
-        s[2..s.len() - 1].to_owned()
+    if has_embedded_dollar_quote(s) {
+        return s.to_owned();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut state = Quoting::Bare;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        state = match state {
+            Quoting::Bare => scan_bare(c, &mut chars, &mut out),
+            Quoting::Single if c == '\'' => Quoting::Bare,
+            Quoting::Single => {
+                out.push(c);
+                Quoting::Single
+            }
+            Quoting::Double => scan_double(c, &mut chars, &mut out),
+        };
+    }
+    // An unbalanced quote means rable's tokenizer and the shell disagree about
+    // where the word ends, so the dequoted text is not the runtime value of
+    // anything; keep the raw token rather than invent one.
+    if state == Quoting::Bare {
+        out
     } else {
         s.to_owned()
+    }
+}
+
+/// Returns `true` when a `$'…'` or `$"…"` starts anywhere but at the front of
+/// the token.
+///
+/// Such a token is left raw: guards downstream re-scan the resolved text for
+/// `$` to decide whether a value is statically known (a redirect target such as
+/// `/tmp/foo$"x"` must keep asking), and dequoting would erase the sigil they
+/// look for. Nothing is lost — a word carrying either form parses to an
+/// `AnsiCQuote`/`LocaleString` part, so the expansion stage has already asked
+/// before any handler sees it.
+fn has_embedded_dollar_quote(s: &str) -> bool {
+    s.match_indices('$')
+        .any(|(i, _)| i > 0 && matches!(s[i + 1..].chars().next(), Some('\'' | '"')))
+}
+
+/// One unquoted character: opens a quote, resolves a backslash escape, drops the
+/// `$` of a `$'…'` / `$"…"` literal, or contributes itself.
+fn scan_bare(c: char, chars: &mut Peekable<Chars<'_>>, out: &mut String) -> Quoting {
+    match c {
+        '\'' => Quoting::Single,
+        '"' => Quoting::Double,
+        '\\' => {
+            out.extend(chars.next());
+            Quoting::Bare
+        }
+        '$' if matches!(chars.peek(), Some('\'' | '"')) => Quoting::Bare,
+        _ => {
+            out.push(c);
+            Quoting::Bare
+        }
+    }
+}
+
+/// One character inside double quotes, where only `"`, `\`, `$` and a backtick
+/// can be backslash-escaped.
+fn scan_double(c: char, chars: &mut Peekable<Chars<'_>>, out: &mut String) -> Quoting {
+    match c {
+        '"' => Quoting::Bare,
+        '\\' if matches!(chars.peek(), Some('"' | '\\' | '$' | '`')) => {
+            out.extend(chars.next());
+            Quoting::Double
+        }
+        _ => {
+            out.push(c);
+            Quoting::Double
+        }
     }
 }
 

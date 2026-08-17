@@ -268,8 +268,13 @@ fn decode_arg(r: &mut Reader<'_>) -> Arg {
 
 /// Expansion fragments invariant 8 is stated over: a resolved `Literal` must
 /// never still contain one of these.
+///
+/// `"`id`"` is listed alongside the bare `` `id` `` because rable keeps a
+/// double-quoted backtick as one literal word part rather than lifting it to a
+/// `CommandSubstitution`, so the two forms exercise entirely different code
+/// paths and only the bare one was covered before #202.
 pub(crate) const EXPANSION_LEAVES: &[&str] = &[
-    "$(id)", "`id`", "<(id)", ">(id)", "$HOME", "$1", "$@", "safe",
+    "$(id)", "`id`", "\"`id`\"", "<(id)", ">(id)", "$HOME", "$1", "$@", "safe",
 ];
 
 /// Build an expansion-bearing word from raw bytes, for the libfuzzer version of

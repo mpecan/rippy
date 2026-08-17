@@ -15,6 +15,11 @@ use crate::resolve::{LocalBinding, VarLookup};
 use crate::trace::{Stage, Trace, TraceEvent};
 use crate::verdict::{AllowReason, Decision, Verdict};
 
+/// Reason for an arithmetic context carrying a substitution bash resolves by
+/// running a command. Matches the wording `resolve` already emits for the same
+/// hazard so the two paths read alike on the wire.
+const EXPANSION_ASK: &str = "shell expansion (command substitution requires execution)";
+
 const MAX_DEPTH: usize = 256;
 
 /// Maximum number of AST nodes walked per command. Bounds tree *breadth*
@@ -200,13 +205,9 @@ impl Analyzer {
         // Fail closed: the string-match layers above already had priority, so
         // anything rable cannot parse is gated with Ask — never an Err that would
         // exit non-blocking and let the command run un-gated (#150).
-        let Ok(nodes) = parsed else {
-            self.trace(Stage::Parse, false, || {
-                "rable could not parse this command".to_owned()
-            });
-            return Ok(Verdict::ask(
-                "rippy could not parse this command; approve manually",
-            ));
+        let nodes = match parsed {
+            Ok(nodes) => nodes,
+            Err(err) => return Ok(self.no_tree_ask(&err)),
         };
         self.trace(Stage::Parse, true, || {
             format!("{} top-level node(s)", nodes.len())
@@ -214,6 +215,20 @@ impl Analyzer {
         let cwd = self.working_directory.clone();
         self.node_budget = MAX_NODES;
         Ok(self.analyze_nodes(&nodes, &cwd, 0))
+    }
+
+    /// The Ask for a command that never became a tree. Input refused for its
+    /// shape names the bound it broke, so the user sees why (#195); everything
+    /// else is a plain parse failure.
+    fn no_tree_ask(&mut self, err: &RippyError) -> Verdict {
+        if let RippyError::TooComplex(detail) = err {
+            self.trace(Stage::Parse, false, || detail.clone());
+            return Verdict::ask(format!("command is too complex to analyze: {detail}"));
+        }
+        self.trace(Stage::Parse, false, || {
+            "rable could not parse this command".to_owned()
+        });
+        Verdict::ask("rippy could not parse this command; approve manually")
     }
 
     /// Whole-string CC-permission match, recorded whether or not it applies.
@@ -276,7 +291,10 @@ impl Analyzer {
             | NodeKind::Select { .. }
             | NodeKind::Case { .. }
             | NodeKind::BraceGroup { .. } => self.analyze_control_flow(node, cwd, depth),
-            NodeKind::Subshell { body, redirects } => {
+            // `[[ ]]` joins the subshell arm because both carry redirects that a
+            // body-only walk would leave unanalyzed (#197).
+            NodeKind::Subshell { body, redirects }
+            | NodeKind::ConditionalExpr { body, redirects } => {
                 let mut verdicts = vec![self.analyze_node(body, cwd, depth + 1)];
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
                 Verdict::combine(&verdicts)
@@ -301,13 +319,37 @@ impl Analyzer {
                 quoted, content, ..
             } => Self::analyze_heredoc_node(*quoted, Some(content.as_str())),
             NodeKind::Coproc { command, .. } => self.analyze_node(command, cwd, depth + 1),
-            NodeKind::ConditionalExpr { body, .. } => self.analyze_node(body, cwd, depth + 1),
-            NodeKind::ArithmeticCommand { redirects, .. } => {
-                Verdict::combine(&self.analyze_redirects(redirects, cwd, depth))
-            }
+            NodeKind::ArithmeticCommand {
+                redirects,
+                raw_content,
+                ..
+            } => self.analyze_arithmetic_command(raw_content, redirects, cwd, depth),
             _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
             _ => Verdict::ask("unrecognized shell construct"),
         }
+    }
+
+    /// `(( ... ))`. rable's `expression` is an arithmetic AST it does not
+    /// descend into for a nested substitution, so `raw_content` is the field
+    /// that still carries a `$(...)`.
+    fn analyze_arithmetic_command(
+        &mut self,
+        raw_content: &str,
+        redirects: &[Node],
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
+        let mut verdicts = Vec::new();
+        if ast::has_executing_substitution(raw_content) {
+            verdicts.push(Verdict::ask(EXPANSION_ASK));
+        }
+        verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
+        if verdicts.is_empty() {
+            // Pure arithmetic with no redirect runs nothing. Said here so that
+            // `Verdict::combine` can keep failing closed on an empty slice.
+            return Verdict::allow(AllowReason::Empty);
+        }
+        Verdict::combine(&verdicts)
     }
 
     fn analyze_pipeline(&mut self, commands: &[Node], cwd: &Path, depth: usize) -> Verdict {

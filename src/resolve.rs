@@ -202,6 +202,13 @@ pub(crate) fn resolve_word(node: &Node, vars: &dyn VarLookup) -> WordResolution 
 fn resolve_word_kind(kind: &NodeKind, vars: &dyn VarLookup) -> WordResolution {
     match kind {
         NodeKind::Word { value, parts, .. } => resolve_word_node(value, parts, vars),
+        // A double-quoted backtick reaches us as plain literal text (#202); it
+        // must never resolve to itself as inert data.
+        NodeKind::WordLiteral { value } if ast::has_backtick_substitution(value) => {
+            WordResolution::Unresolvable {
+                reason: "command substitution requires execution".to_string(),
+            }
+        }
         NodeKind::WordLiteral { value } => WordResolution::Literal(value.clone()),
         NodeKind::AnsiCQuote { decoded, .. } => WordResolution::Literal(decoded.clone()),
         NodeKind::LocaleString { inner, .. } => literal_if_inert(inner, "$\"...\" locale string"),

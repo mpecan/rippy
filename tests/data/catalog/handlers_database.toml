@@ -77,3 +77,104 @@ decision = "allow"
 [[case]]
 command = "psql -c \"SELECT 1 /*x*\""
 decision = "allow"
+
+# #199: `-c`/`-e` are cumulative, so every occurrence has to be classified. A
+# read-only leading statement must not launder a write in a later one.
+[[case]]
+command = "psql -c \"SELECT 1\" -c \"DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "mysql -e \"SELECT 1\" -e \"DROP TABLE t\""
+decision = "ask"
+
+# The write hides behind a trailing line comment, which is why the occurrences
+# are classified separately instead of being joined with `;`.
+[[case]]
+command = "psql -c \"SELECT 1 -- note\" -c \"DROP TABLE t\""
+decision = "ask"
+
+# The glued spellings are collected too. The parser keeps the inner quotes in a
+# partially-quoted word, so the statement reads as ambiguous — still an ask,
+# never an allow.
+[[case]]
+command = "psql -c \"SELECT 1\" --command=\"DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "mysql -e \"SELECT 1\" -e\"DROP TABLE t\""
+decision = "ask"
+
+# Safe neighbours: repeating the flag with read-only statements stays allowed.
+[[case]]
+command = "psql -c \"SELECT 1\" -c \"SELECT 2\""
+decision = "allow"
+
+[[case]]
+command = "mysql -e \"SELECT 1\" -e \"SELECT 2\""
+decision = "allow"
+
+# #199 follow-up: getopt clustering. In `-Atc SQL` the value-taking letter is
+# last, so the statement belongs to `-c` — a flag scan that only matches whole
+# `-c` tokens never sees it and the leading SELECT launders the DROP.
+[[case]]
+command = "psql -c \"SELECT 1\" -Atc \"DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "psql -c \"SELECT 1\" -tAc \"DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "psql -c \"SELECT 1\" -Xc \"DROP TABLE t\""
+decision = "ask"
+
+# #199 follow-up: laundering across *different* SQL-bearing flags. The script
+# named by `-f` runs too, so the run takes the least safe outcome of both.
+[[case]]
+command = "psql -c \"SELECT 1\" -f drop_table.sql"
+decision = "ask"
+reason_contains = "psql -f"
+
+# Reading the file the other way round changes nothing.
+[[case]]
+command = "psql -f drop_table.sql -c \"SELECT 1\""
+decision = "ask"
+reason_contains = "psql -f"
+
+# `-l` lists databases, but it does not stop a `-c` in the same argv from
+# running.
+[[case]]
+command = "psql -l -c \"DROP TABLE t\""
+decision = "ask"
+
+# Safe neighbours for the scan itself. A cluster of boolean formatting flags is
+# the ordinary way to write a scripted query and must not cry wolf.
+[[case]]
+command = "psql -Atc \"SELECT 1\""
+decision = "allow"
+
+[[case]]
+command = "psql -c \"SELECT 1\""
+decision = "allow"
+
+# The operand of a value-taking flag is not itself a flag: `-copy.out` is the
+# file `-o` writes to, not a glued `-c`.
+[[case]]
+command = "psql -o -copy.out -c \"SELECT 1\""
+decision = "allow"
+
+[[case]]
+command = "psql -U me -d mydb -c \"SELECT 1\""
+decision = "allow"
+
+# mysql's `-p` takes its password only when glued, so a bare `-p` must leave the
+# following `-e` visible — and a glued one must not have its letters re-read as
+# flags.
+[[case]]
+command = "mysql -p -e \"DROP TABLE t\""
+decision = "ask"
+
+[[case]]
+command = "mysql -psecret -e \"SELECT 1\""
+decision = "allow"

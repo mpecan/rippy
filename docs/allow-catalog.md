@@ -757,7 +757,7 @@ Rows are written with `npm`; unless a row says otherwise they apply the same way
 | Approved invocation | Condition |
 | --- | --- |
 | `psql --help\|-?\|--version\|-V` | sole argument |
-| `psql --list\|-l` | — |
+| `psql --list\|-l` | no -c/-f statement to run |
 | `psql -c\|--command <sql>` | statement classified read-only by src/sql.rs |
 | `psql -f\|--file <path>` | file readable from the working directory and classified read-only by src/sql.rs |
 
@@ -815,7 +815,7 @@ Rows are written with `ruby`; unless a row says otherwise they apply the same wa
 
 | Approved invocation | Condition |
 | --- | --- |
-| `tar -t\|--list` | no flag that runs an external program (-I, --use-compress-program, --to-command, --checkpoint-action, --rmt-command, -F, --info-script, --new-volume-script) |
+| `tar -t\|--list` | no flag that runs an external program (-I, -F, --use-compress-program, --to-command, --checkpoint-action, --rmt-command, --info-script, --new-volume-script, or any prefix abbreviation of those long options) |
 
 ### `tee`
 
