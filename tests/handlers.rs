@@ -79,7 +79,7 @@ fn fd_exec_batch_grep_allows() {
 
 #[test]
 fn env_inner_command_analyzed() {
-    let json = r#"{"tool_name":"Bash","tool_input":{"command":"env FOO=bar ls"}}"#;
+    let json = r#"{"tool_name":"Bash","tool_input":{"command":"env CI=bar ls"}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();

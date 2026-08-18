@@ -480,7 +480,7 @@ command = "env"
 decision = "allow"
 
 [[case]]
-command = "env FOO=bar git status"
+command = "env CI=bar git status"
 decision = "allow"
 
 [[case]]

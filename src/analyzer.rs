@@ -463,30 +463,46 @@ impl Analyzer {
     /// Applies the assignment-expansion guard (`x=$(cmd)` → Ask), then binds any
     /// literal `VAR=val` prefix for the duration of this one command so
     /// `VAR=val cmd $VAR` resolves within it, and unwinds the binding afterward.
+    ///
+    /// An env prefix rippy cannot vouch for Asks, but only after the command
+    /// itself is analyzed: the command may warrant Deny, and when it already
+    /// Asks its own reason is the more useful one. Tracing the prefix last also
+    /// keeps the deciding step last, which is what `rippy inspect` prints.
+    /// see docs/security-invariants.md#dangerous-env-name
     fn analyze_command(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
+        // Unreachable; fail closed so a dispatch change cannot approve blindly.
+        let NodeKind::Command { assignments, .. } = &node.kind else {
+            return Verdict::ask("internal: non-command node in analyze_command");
+        };
+        if ast::assignment_has_expansion(assignments) {
+            self.trace(Stage::EnvPrefix, true, || {
+                "ask: assignment value contains a shell expansion".to_owned()
+            });
+            return Verdict::ask("assignment with expansion");
+        }
+        let Some(name) = ast::dangerous_assignment_name(assignments) else {
+            return self.analyze_command_body(node, cwd, depth);
+        };
+        let verdict = self.analyze_command_body(node, cwd, depth);
+        if verdict.decision >= Decision::Ask {
+            return verdict;
+        }
+        self.trace(Stage::EnvPrefix, true, || {
+            format!("ask: {name} is not a known-inert variable")
+        });
+        Verdict::ask(format!("unrecognized env-var assignment ({name})"))
+    }
+
+    /// The command's own verdict, ignoring any env prefix.
+    fn analyze_command_body(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
         let NodeKind::Command {
             words,
             redirects,
             assignments,
         } = &node.kind
         else {
-            // Unreachable: only dispatched on `NodeKind::Command`. Fail closed
-            // for a security tool so a future dispatch change cannot silently
-            // approve an unhandled node kind.
-            return Verdict::ask("internal: non-command node in analyze_command");
+            return Verdict::ask("internal: non-command node in analyze_command_body");
         };
-        if Self::assignment_has_expansion(assignments) {
-            self.trace(Stage::EnvPrefix, true, || {
-                "ask: assignment value contains a shell expansion".to_owned()
-            });
-            return Verdict::ask("assignment with expansion");
-        }
-        if let Some(name) = Self::dangerous_assignment_name(assignments) {
-            self.trace(Stage::EnvPrefix, true, || {
-                format!("ask: {name} is a code-influencing variable")
-            });
-            return Verdict::ask("dangerous env-var assignment");
-        }
         // Per-leaf string-rule match (expansions resolved downstream first).
         // see docs/security-invariants.md#string-rule-chokepoint
         if !ast::has_expansions_in_slices(words, &[])
@@ -502,32 +518,6 @@ impl Analyzer {
         let v = self.analyze_command_node(words, redirects, cwd, depth);
         self.locals.truncate(checkpoint);
         v
-    }
-
-    /// Returns `true` if any `NAME=VALUE` assignment on a simple command has a
-    /// shell expansion in its value (e.g. a command substitution or backticks).
-    ///
-    /// Assignment values are not otherwise inspected by the analyzer, so this
-    /// guard — applied to every simple command, including those nested in
-    /// pipelines and lists — forces such commands to Ask. Literal assignments
-    /// (`FOO=bar ls`) contain no expansion and pass through unaffected.
-    fn assignment_has_expansion(assignments: &[Node]) -> bool {
-        assignments.iter().any(ast::has_expansions)
-    }
-
-    /// Returns the name of the first assignment on a simple command that sets a
-    /// code-influencing variable (`LD_PRELOAD`, `GIT_SSH_COMMAND`,
-    /// `GIT_CONFIG_*`, ...). Such a literal prefix turns an otherwise-safe
-    /// command into arbitrary code execution, so the analyzer Asks before the
-    /// safe-command fast path or any handler can approve it.
-    /// See docs/security-invariants.md#dangerous-env-name.
-    fn dangerous_assignment_name(assignments: &[Node]) -> Option<String> {
-        assignments.iter().find_map(|a| {
-            ast::literal_assignment(a)
-                .map(|(n, _)| n)
-                .or_else(|| ast::append_assignment_name(a))
-                .filter(|n| ast::is_dangerous_env_name(n))
-        })
     }
 
     fn analyze_command_node(
