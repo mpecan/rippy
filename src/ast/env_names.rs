@@ -3,112 +3,127 @@
 //! Split from `ast.rs` for the 700-line cap; see
 //! docs/security-invariants.md#dangerous-env-name.
 
-/// Environment variable names whose values can change how a following command
-/// loads or resolves code, letting a *literal* assignment turn an otherwise-safe
-/// command into arbitrary code execution (e.g. `LD_PRELOAD`, `BASH_ENV`,
-/// `GIT_SSH_COMMAND`). The analyzer's assignment-name gate Asks on any command
-/// carrying such a prefix, and [`strip_env_prefix`] refuses to strip it so a
-/// string-layer allow rule cannot mask it either.
+use rable::Node;
+
+use super::{append_assignment_name, has_expansions, literal_assignment};
+
+/// Whether a literal `NAME=VALUE` prefix can change how the following command
+/// loads or resolves code.
 ///
-/// Matching is by *capability family* rather than by member wherever a family
-/// can be named: a flag guard always has an env twin, and enumerating twins one
-/// at a time loses the race (#203). See
-/// docs/security-invariants.md#dangerous-env-name for the rationale.
+/// **The polarity is inverted: dangerous unless known inert.** Enumerating
+/// dangerous names does not converge (#203). Every tool invents its own
+/// variable for "where my config lives" or "which program to run", and each one
+/// is a twin of a flag guard: `--exec-path`/`GIT_EXEC_PATH`,
+/// `--use-compress-program`/`TAR_OPTIONS`, `--pager`/`MANPAGER`. Two rounds of
+/// enumeration each shipped, and each was then shown to miss a dozen more —
+/// `CARGO_HOME`, `RUSTC`, `RUSTFLAGS`, `KUBECONFIG`, `PSQLRC`, `PERLLIB`,
+/// `PYTHONHOME`, `NODE_PATH`, `LESSOPEN`, `DOCKER_CONFIG`, and so on. The list
+/// of names that are *harmless* is the one that can actually be closed, because
+/// it is a property of the name rather than of every tool that might read it.
+///
+/// An unknown name therefore Asks. That is one prompt for a variable rippy has
+/// not seen, against silent arbitrary code execution for every variable it has
+/// not seen.
 #[must_use]
 pub(crate) fn is_dangerous_env_name(name: &str) -> bool {
-    // Dynamic-linker families: Linux `LD_*` (LD_PRELOAD, LD_LIBRARY_PATH,
-    // LD_AUDIT, ...) and macOS `DYLD_*` (DYLD_INSERT_LIBRARIES, ...).
-    if name.starts_with("LD_") || name.starts_with("DYLD_") {
-        return true;
-    }
-    // GIT_CONFIG* = env-based git-config injection; BASH_FUNC_* = exported
-    // function injection. see docs/security-invariants.md#dangerous-env-name
-    if name.starts_with("GIT_CONFIG") || name.starts_with("BASH_FUNC_") {
-        return true;
-    }
-    // ANSIBLE_*_PLUGINS point ansible at an attacker-chosen directory it then
-    // imports Python from — the env route to what `ansible-doc -M` does (#185).
-    if name.starts_with("ANSIBLE_") && name.ends_with("_PLUGINS") {
-        return true;
-    }
-    if redirects_lookup(name) || is_tool_hook(name) || is_active_git_var(name) {
-        return true;
-    }
-    matches!(
-        name,
-        "BASH_ENV"
-            | "ENV"
-            | "SHELLOPTS"
-            | "BASHOPTS"
-            | "IFS"
-            | "PS4"
-            | "GIT_SSH"
-            | "GIT_SSH_COMMAND"
-            | "GIT_EXTERNAL_DIFF"
-            | "GIT_PAGER"
-            | "PAGER"
-            | "EDITOR"
-            | "VISUAL"
-            | "PERL5OPT"
-            | "PERL5LIB"
-            | "PYTHONSTARTUP"
-            | "PYTHONPATH"
-            | "NODE_OPTIONS"
-            | "RUBYOPT"
-            | "ANSIBLE_CONFIG"
-            | "ANSIBLE_LIBRARY"
-            | "ANSIBLE_MODULE_UTILS"
-    )
+    !is_inert(name)
 }
 
-/// Names that decide *where a command's binary or configuration comes from*,
-/// for every command rather than one tool. `PATH=/tmp/evil git status` runs an
-/// attacker's `git`; `HOME`/`XDG_CONFIG_HOME` do the same one level down, by
-/// choosing the config file that names a hook to run (`core.fsmonitor`).
-fn redirects_lookup(name: &str) -> bool {
-    matches!(
-        name,
-        "PATH"
-            | "HOME"
-            | "SHELL"
-            | "XDG_CONFIG_HOME"
-            | "XDG_CONFIG_DIRS"
-            | "XDG_DATA_HOME"
-            | "XDG_DATA_DIRS"
-    )
-}
-
-/// Suffixes a tool uses to mean "run this program" or "add these flags".
+/// Names that cannot select a program, a library path, or a config file that
+/// names either. Everything here is data a command reads *about* its run —
+/// locale, verbosity, identity, terminal geometry.
 ///
-/// A suffix rather than a list because the shape is a convention, not a set:
-/// `TAR_OPTIONS` and `JAVA_TOOL_OPTIONS` inject argv into a tool that never
-/// saw a flag guard, and the next tool to invent one will spell it the same
-/// way. `GIT_PROXY_COMMAND` and `GIT_SSH_COMMAND` are the same idea for
-/// programs.
-fn is_tool_hook(name: &str) -> bool {
-    const HOOK_SUFFIXES: &[&str] = &[
-        "_COMMAND", "_OPTIONS", "_OPTS", "_EDITOR", "_PAGER", "_ASKPASS", "_WRAPPER",
-    ];
-    HOOK_SUFFIXES.iter().any(|s| name.ends_with(s))
+/// Adding a name is widening rippy's auto-approved surface, so it needs the
+/// same bar as any other allow: it must be inert for *every* command, not just
+/// the one that prompted it. `PAGER`, `EDITOR`, `TMPDIR`, `MAKEFLAGS` and the
+/// proxy variables all look harmless and are not.
+fn is_inert(name: &str) -> bool {
+    // A closed POSIX set; `LOCPATH` (where locales *load from*) is not in it.
+    if name.starts_with("LC_") {
+        return true;
+    }
+    INERT_NAMES.contains(&name)
 }
 
-/// Git owns the whole `GIT_*` namespace and nearly every member of it changes
-/// what git reads or runs, so the polarity is inverted here: dangerous unless
-/// the name is known inert. Enumerating the dangerous ones is what let
-/// `GIT_DIR`, `GIT_EXEC_PATH` and `GIT_ALTERNATE_OBJECT_DIRECTORIES` through.
-fn is_active_git_var(name: &str) -> bool {
-    const INERT: &[&str] = &[
-        "GIT_AUTHOR_NAME",
-        "GIT_AUTHOR_EMAIL",
-        "GIT_AUTHOR_DATE",
-        "GIT_COMMITTER_NAME",
-        "GIT_COMMITTER_EMAIL",
-        "GIT_COMMITTER_DATE",
-        "GIT_TERMINAL_PROMPT",
-        "GIT_ADVICE",
-        "GIT_MERGE_AUTOEDIT",
-        "GIT_NOTES_REF",
-        "GIT_REFLOG_ACTION",
-    ];
-    name.starts_with("GIT_") && !INERT.contains(&name)
+/// see [`is_inert`] for the bar a new entry has to clear.
+const INERT_NAMES: &[&str] = &[
+    // Locale and time.
+    "LANG",
+    "LANGUAGE",
+    "TZ",
+    // Terminal presentation. `TERMINFO`/`TERMCAP` — where terminal
+    // descriptions load from — are dangerous and absent by design.
+    "TERM",
+    "COLUMNS",
+    "LINES",
+    "NO_COLOR",
+    "FORCE_COLOR",
+    "CLICOLOR",
+    "CLICOLOR_FORCE",
+    // Verbosity and diagnostics.
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+    "LOG_LEVEL",
+    "VERBOSE",
+    "DEBUG",
+    "QUIET",
+    // Environment markers a program branches on but does not execute.
+    "CI",
+    "CONTINUOUS_INTEGRATION",
+    "DEBIAN_FRONTEND",
+    "NODE_ENV",
+    "RAILS_ENV",
+    "RACK_ENV",
+    "APP_ENV",
+    "ENVIRONMENT",
+    "SOURCE_DATE_EPOCH",
+    "CARGO_TERM_COLOR",
+    // Interpreter behaviour that adds no load path and runs no hook.
+    "PYTHONDONTWRITEBYTECODE",
+    "PYTHONUNBUFFERED",
+    "PYTHONIOENCODING",
+    "PYTHONHASHSEED",
+    // Git identity and per-run behaviour. Every other GIT_* names a path, a
+    // program, or a config source.
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_AUTHOR_DATE",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_COMMITTER_DATE",
+    "GIT_TERMINAL_PROMPT",
+    "GIT_ADVICE",
+    "GIT_MERGE_AUTOEDIT",
+    "GIT_NOTES_REF",
+    "GIT_REFLOG_ACTION",
+    "GIT_LFS_SKIP_SMUDGE",
+    "GIT_OPTIONAL_LOCKS",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_CURL_VERBOSE",
+    "GIT_ASK_YESNO",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_HTTP_LOW_SPEED_LIMIT",
+    "GIT_HTTP_LOW_SPEED_TIME",
+];
+
+/// Whether any `NAME=VALUE` on a simple command has a shell expansion in its
+/// value (a command substitution, backticks, ...).
+///
+/// Assignment values are not otherwise inspected, so this guard — applied to
+/// every simple command, including those nested in pipelines and lists — forces
+/// such commands to Ask. Literal assignments (`CI=1 ls`) pass through.
+pub(crate) fn assignment_has_expansion(assignments: &[Node]) -> bool {
+    assignments.iter().any(has_expansions)
+}
+
+/// The name of the first assignment on a simple command that rippy cannot vouch
+/// for. Such a prefix can turn an otherwise-safe command into arbitrary code
+/// execution, so the analyzer Asks before any handler can approve it.
+pub(crate) fn dangerous_assignment_name(assignments: &[Node]) -> Option<String> {
+    assignments.iter().find_map(|a| {
+        literal_assignment(a)
+            .map(|(n, _)| n)
+            .or_else(|| append_assignment_name(a))
+            .filter(|n| is_dangerous_env_name(n))
+    })
 }

@@ -98,7 +98,7 @@ const RECURSIVE_TEMPLATES: &[&str] = &[
     "bash -c '{CMD}'",
     "sh -c '{CMD}'",
     "docker exec container {CMD}",
-    "env FOO=bar {CMD}",
+    "env CI=bar {CMD}",
     "xargs {CMD}",
     "time {CMD}",
     "nice {CMD}",

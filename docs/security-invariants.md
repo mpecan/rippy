@@ -24,16 +24,17 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#env-prefix-strip` | Ordinary vars are stripped and the command stays Allow | `src/ast_tests.rs::strip_env_prefix_allows_ordinary_vars`, `src/analyzer_tests2.rs::literal_assignment_prefix_still_allows` |
 | `#env-prefix-strip` | No Allow rule bypasses the redirect guards via an env prefix | `tests/security_invariants.rs::env_prefix_does_not_launder_redirect_past_self_protect` |
 | `#env-prefix-strip` | On unparseable input we fall back to the raw string: deny rules still match, and the parse error still surfaces as an Ask | `tests/security_invariants.rs::deny_rule_still_matches_unparseable_command`, `src/analyzer_tests.rs::unparseable_command_asks_fail_closed`, `tests/infrastructure.rs::claude_unparseable_command_asks_not_fail_open` |
-| `#dangerous-env-name` | `is_dangerous_env_name` flags the linker/interpreter hooks plus the `GIT_CONFIG*` and `BASH_FUNC_*` prefix families | `src/ast_tests.rs::is_dangerous_env_name_flags_git_config_and_bash_func_families` |
-| `#dangerous-env-name` | Ordinary build/CI names (`FOO`, `NODE_ENV`, `CI`, `RUST_LOG`) are not flagged | `src/ast_tests.rs::is_dangerous_env_name_allows_ordinary_names` |
+| `#dangerous-env-name` | `is_dangerous_env_name` flags the linker/interpreter hooks plus the `GIT_CONFIG*` and `BASH_FUNC_*` prefix families | `src/ast_tests.rs::is_dangerous_env_name_flags_known_injection_families` |
+| `#dangerous-env-name` | Common build/CI names on the inert list (`CI`, `NODE_ENV`, `RUST_LOG`, `LANG`) stay Allow | `src/ast_tests.rs::inert_env_names_are_allowed` |
 | `#dangerous-env-name` | A dangerous literal assignment Asks even on a safe-listed command, before the fast path or any handler runs | `tests/data/catalog/injection_env_var.toml`, `tests/security_invariants.rs::env_prefix_dangerous_var_asks_even_when_command_is_allow_ruled` |
 | `#dangerous-env-name` | The `env` handler applies the same check to the `NAME=VALUE` args it sets | `tests/data/catalog/injection_env_var.toml` |
 | `#dangerous-env-name` | `env -S` / `--split-string=` / `-vS` payloads are extracted and recursed into | `src/handlers/env_xargs.rs::split_string_separate_arg`, `src/handlers/env_xargs.rs::split_string_attached_short_and_long`, `src/handlers/env_xargs.rs::split_string_bundled_boolean_cluster`, `tests/data/catalog/injection_env_var.toml` |
 | `#dangerous-env-name` | A short cluster with an ambiguous option boundary yields an empty payload so the handler Asks | `src/handlers/env_xargs.rs::split_string_uncertain_cluster_fails_closed` |
 | `#dangerous-env-name` | A dangerous prefix cannot ride a chain to Allow | `tests/data/catalog/injection_string_rule_chokepoint.toml` |
-| `#dangerous-env-name` | Lookup-redirection names (`PATH`, `HOME`, `SHELL`, `XDG_*`) are dangerous — they choose the binary or the config naming a hook | `src/ast_tests.rs::is_dangerous_env_name_flags_lookup_redirection`, `tests/data/catalog/injection_env_var.toml` |
-| `#dangerous-env-name` | The tool-hook suffixes are matched as a family, so a variable no flag guard knows about still Asks | `src/ast_tests.rs::is_dangerous_env_name_flags_tool_hook_suffixes` |
-| `#dangerous-env-name` | `GIT_*` is dangerous unless known inert, and the inert names stay Allow | `src/ast_tests.rs::git_namespace_is_dangerous_unless_known_inert`, `tests/data/catalog/injection_env_var.toml` |
+| `#dangerous-env-name` | A name rippy has no entry for is dangerous — the predicate is inert-listed, not denylisted | `src/ast_tests.rs::unknown_env_names_are_dangerous`, `tests/data/catalog/injection_env_var.toml` |
+| `#dangerous-env-name` | Every inert name is pinned, so widening the list is a visible change | `src/ast_tests.rs::inert_env_names_are_allowed` |
+| `#dangerous-env-name` | Names that read as inert but select code (`LOCPATH`, `TERMINFO`, `PAGER`) stay dangerous | `src/ast_tests.rs::lookalike_env_names_stay_dangerous` |
+| `#dangerous-env-name` | The prefix Ask does not short-circuit the command's own verdict, so a Deny is not downgraded | `tests/data/catalog/injection_env_var.toml` |
 | `#append-assignment-shadow` | `literal_assignment` rejects `NAME+=VALUE` | `src/ast_tests.rs::literal_assignment_rejects_append` |
 | `#append-assignment-shadow` | `append_assignment_name` matches append-only forms | `src/ast_tests.rs::append_assignment_name_matches_append_only` |
 | `#append-assignment-shadow` | An append shadows a prior literal as set-but-unknown rather than resolving the stale value | `src/analyzer_tests2.rs::append_assignment_shadows_prior_literal_not_a_stale_value`, `src/analyzer_tests2.rs::append_assignment_handler_still_asks` |
@@ -113,23 +114,26 @@ simple command carrying a literal assignment whose name matches
 The `env` handler applies the same check to the `NAME=VALUE` args it sets, since
 delegating to the inner command alone would hide them.
 
-Matching is by *capability family* wherever a family can be named, because a
-flag guard always has an environment twin and enumerating twins loses the race
-(#203): `git --exec-path` was guarded while `GIT_EXEC_PATH` was not, and
-`--use-compress-program` while `TAR_OPTIONS` was not. Three families carry it:
+**The polarity is inverted: a name is dangerous unless it is on an inert list.**
+Enumerating dangerous names does not converge (#203). Every tool invents its own
+variable for "where my config lives" or "which program to run", and each is the
+twin of a flag guard — `--exec-path`/`GIT_EXEC_PATH`,
+`--use-compress-program`/`TAR_OPTIONS`, `--pager`/`MANPAGER`. Two rounds of
+enumeration shipped and were each then shown to miss a dozen more
+(`CARGO_HOME`, `RUSTC`, `RUSTFLAGS`, `KUBECONFIG`, `PSQLRC`, `PERLLIB`,
+`PYTHONHOME`, `NODE_PATH`, `LESSOPEN`, `DOCKER_CONFIG`, ...). The list of
+*harmless* names is the one that can be closed, because it is a property of the
+name rather than of every tool that might read it.
 
-- **Lookup redirection** (`PATH`, `HOME`, `SHELL`, `XDG_*`) decides which binary
-  runs, or which config file names a hook to run — `PATH=/tmp/evil git status`
-  executes an attacker's `git`, and `HOME=/tmp/evil git status` reaches the same
-  place via `core.fsmonitor` in a planted `.gitconfig`.
-- **Tool-hook suffixes** (`_COMMAND`, `_OPTIONS`, `_OPTS`, `_EDITOR`, `_PAGER`,
-  `_ASKPASS`, `_WRAPPER`) are a convention rather than a set: the next tool to
-  invent an argv-injection variable will spell it the same way.
-- **The `GIT_*` namespace** inverts polarity — dangerous unless the name is on a
-  short inert list (author/committer identity, `GIT_TERMINAL_PROMPT`). Git owns
-  the namespace and nearly every member changes what it reads or runs, so
-  enumerating the dangerous ones is what let `GIT_DIR`, `GIT_EXEC_PATH` and
-  `GIT_ALTERNATE_OBJECT_DIRECTORIES` through.
+An unknown name therefore Asks once, against silent arbitrary code execution for
+every variable rippy has not heard of. The inert list is an allow surface and is
+pinned test-by-test; `PAGER`, `EDITOR`, `TMPDIR`, `LOCPATH`, `TERMINFO` and the
+proxy variables all look harmless and are deliberately absent.
+
+The prefix Ask is combined with the command's own verdict rather than returned
+in its place. Short-circuiting would mask a `Deny` — `FOO=bar echo hi >
+~/.rippy/config.toml` must stay Deny — and would replace a more specific reason
+(`rm`, `shell expansion`) with a generic one.
 
 GNU `env -S "STRING"` / `--split-string=STRING` (also the `-vS` short cluster)
 reparses `STRING` as the whole command line. Because that payload arg contains

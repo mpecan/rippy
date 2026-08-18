@@ -402,7 +402,9 @@ fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
 #[path = "ast/env_names.rs"]
 mod env_names;
 
-pub(crate) use env_names::is_dangerous_env_name;
+pub(crate) use env_names::{
+    assignment_has_expansion, dangerous_assignment_name, is_dangerous_env_name,
+};
 
 /// Redirect targets that discard or re-emit output and so cannot overwrite
 /// anything worth guarding.
