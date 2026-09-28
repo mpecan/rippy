@@ -24,11 +24,18 @@ impl ModeArg {
     }
 }
 
+/// The version string; the `rippy-jev` build says so, so users can tell which
+/// distribution they are running.
+#[cfg(not(feature = "jev"))]
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+#[cfg(feature = "jev")]
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+jev");
+
 /// A shell command safety hook for AI coding tools.
 #[derive(Parser, Debug)]
 #[command(
     name = "rippy",
-    version,
+    version = VERSION,
     about,
     after_help = "\
 Reads a JSON hook payload from stdin and writes a verdict to stdout.\n\n\
@@ -81,6 +88,9 @@ pub enum Command {
     Profile(ProfileArgs),
     /// Manage safe scopes (directories trusted for cross-repo work)
     Scope(ScopeArgs),
+    /// Ask Jev about one command and show every step (rippy-jev build only)
+    #[cfg(feature = "jev")]
+    Jev(JevArgs),
 }
 
 /// Arguments for `rippy scope` — manage safe scope directories.
@@ -289,6 +299,22 @@ pub struct InspectArgs {
 #[derive(Args, Debug)]
 pub struct DebugArgs {
     /// The shell command to trace (e.g. "git push --force")
+    pub command: String,
+
+    /// Output in JSON format
+    #[arg(long)]
+    pub json: bool,
+
+    /// Override config file path
+    #[arg(long, env = "RIPPY_CONFIG")]
+    pub config: Option<PathBuf>,
+}
+
+/// Arguments for `rippy jev`.
+#[cfg(feature = "jev")]
+#[derive(Args, Debug)]
+pub struct JevArgs {
+    /// The shell command to review (e.g. "kubectl get pods -n $NS")
     pub command: String,
 
     /// Output in JSON format

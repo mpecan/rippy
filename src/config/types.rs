@@ -128,6 +128,8 @@ pub enum ConfigDirective {
     /// legacy `[cd] allowed-dirs` / `cd-allow`). Reads within it are allowed;
     /// writes still ask.
     SafeScope(PathBuf),
+    /// The `[jev]` section. Applied only outside the project section.
+    Jev(Box<crate::jev_settings::JevSettings>),
     /// Marker separating baseline (stdlib + global) from project rules.
     ProjectBoundary,
 }

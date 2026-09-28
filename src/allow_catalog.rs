@@ -246,7 +246,9 @@ fn render_user_controlled(out: &mut String) {
          - Custom packages under `~/.rippy/packages/`.\n\
          - Claude Code `permissions.allow` entries.\n\
          - `default-action = \"allow\"`, which approves anything no rule or handler matched.\n\
-         - `PostToolUse` after-rules, which report rather than gate.\n"
+         - `PostToolUse` after-rules, which report rather than gate.\n\
+         - Jev approvals of uncertain asks, only in the opt-in `rippy-jev` build with `[jev]` \
+         enabled in the global config (see `docs/jev.md`).\n"
     );
 }
 

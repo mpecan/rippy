@@ -36,6 +36,8 @@
 | `src/verdict.rs` | Decision (Allow/Ask/Deny), per-mode JSON serialization |
 | `src/allow_reason.rs` | Typed Allow provenance (`AllowReason`) + `Display` that reproduces the wire strings |
 | `src/ask_class.rs` | Typed Ask provenance (`AskClass`): approval vs uncertain; metadata only, never changes a verdict (docs/jev.md) |
+| `src/jev_settings.rs` | The `[jev]` config schema; always compiled, honoured only from global/override config |
+| `src/jev/` | Opt-in Jev review of uncertain asks, `--features jev` only (docs/jev.md) |
 | `src/mode.rs` | Mode (Claude/Gemini/Cursor/Codex) and HookType enums |
 | `src/error.rs` | RippyError via thiserror |
 | `src/sql.rs` | SQL read-only classifier for database handlers |

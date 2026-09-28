@@ -14,6 +14,8 @@ pub struct LogEntry<'a> {
     pub verdict: &'a Verdict,
     pub mode: Mode,
     pub raw_payload: Option<&'a serde_json::Value>,
+    /// What Jev review did, in the `rippy-jev` build (docs/jev.md#transparency).
+    pub jev: Option<&'a serde_json::Value>,
 }
 
 /// Write a JSON log line to the configured log file.
@@ -32,6 +34,10 @@ pub fn write_log_entry(entry: &LogEntry<'_>) {
 
     if let Some(cmd) = entry.command {
         json["command"] = serde_json::Value::String(cmd.to_owned());
+    }
+
+    if let Some(jev) = entry.jev {
+        json["jev"] = jev.clone();
     }
 
     if entry.log_full {
@@ -83,6 +89,7 @@ mod tests {
             verdict,
             mode: Mode::Claude,
             raw_payload,
+            jev: None,
         }
     }
 

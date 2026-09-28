@@ -133,6 +133,7 @@ fn directive_to_display(directive: &ConfigDirective) -> Option<RuleDisplay> {
         ConfigDirective::Set { .. }
         | ConfigDirective::Alias { .. }
         | ConfigDirective::SafeScope(_)
+        | ConfigDirective::Jev(_)
         | ConfigDirective::ProjectBoundary => None,
     }
 }

@@ -1,6 +1,7 @@
 # Jev: model-assisted resolution of uncertain `ask` verdicts
 
-Status: **design — not implemented.** This document describes an opt-in rippy
+Status: **implemented** (phases 0–2; phase 3 is future work). This document
+describes an opt-in rippy
 distribution that consults TypeSafe's [Jev](https://docs.typesafe.ai/introduction.md)
 decision model when rippy asks *because it is unsure*, never when it asks
 because a human must approve. The default `rippy` build is unaffected and
@@ -231,26 +232,37 @@ strengthened until it did.
 
 ## Phase 1: the jev feature
 
-`jev = ["dep:ureq"]`, off by default. `ureq` is a blocking HTTPS client over
-rustls; there is no async runtime.
+Status: **implemented.** `jev = ["dep:ureq"]`, off by default. `ureq` is a
+blocking HTTPS client over rustls with bundled web-PKI roots; there is no async
+runtime.
 
 ### Placement
 
-A new module `src/jev/`:
+`src/jev_settings.rs` holds the `[jev]` schema and is always compiled, so a
+default build can recognise the section and warn that it has no Jev support.
+Everything else is in `src/jev/`, compiled only with the feature:
 
 | File | Role |
 |---|---|
-| `mod.rs` | `refine(verdict, command, &JevConfig, &dyn JevTransport) -> Verdict` |
-| `request.rs` | builds the redacted state and the fixed question set |
+| `mod.rs` | `review(verdict, command, &JevSettings, &Env, &dyn Transport) -> Review`, the single entry point |
+| `eligibility.rs` | which uncertain asks may be sent at all |
+| `shape.rs` | a rable walk: every simple command, word spans, and the redacted, comment-free text |
+| `facts.rs` | the facts rippy computes: variables, paths, programs |
+| `request.rs` | the versioned question set and the state |
 | `policy.rs` | pure function: answers + thresholds → outcome |
-| `transport.rs` | `JevTransport` trait; `ureq` implementation; test fake |
+| `transport.rs` | the `Transport` trait and the `ureq` implementation |
+| `cmd.rs` | `rippy jev <command>` |
 
 **Name-defined commands are never eligible.** Jev sees only the text of the
 command, so it judges by name and flags. Where a repository decides what a name
 does, the name proves nothing:
 - path-qualified executables (`./scripts/x.sh`, `bin/x`, `/tmp/x`)
 - unknown git subcommands, which may be aliases
-- task-runner recipes (`make`, `just`, `npm run`, `mise run`, …)
+- task runners (`make`, `just`, `task`, `mise`, `npm`, `pnpm`, `yarn`, `bun`,
+  `npx`, `rake`, `nox`, `tox`, `invoke`)
+- an `opaque-input` ask where the program has any non-flag argument. A bare REPL
+  such as `python3` is eligible; `python3 deploy.py` and `psql -c '…'` are not.
+- any command without a literal name
 
 Such commands keep their Ask. The prototype confirmed the risk:
 `./scripts/list-users.sh` and `git frobnicate --list` were both judged read-only
@@ -259,7 +271,13 @@ at confidence ≥ 0.95.
 It is called once from `run_hook` in `src/main.rs`, after `evaluate()` and before
 logging and tracking, so the recorded verdict is the final one. It runs only when
 `ask_class()` is `Uncertain(kind)` and `kind != Unanalyzable`. The analyzer, the
-catalog and `rippy inspect` stay deterministic.
+catalog and `rippy inspect` stay deterministic. Only `PreToolUse` shell commands
+are reviewed; MCP tools and file operations never are.
+
+**Comments.** rable drops comments from the parse, so their text lies outside
+every word span. A `#` that starts a word and lies outside every word span
+begins a comment, and is removed up to the end of its line. Commands with a
+heredoc keep their text, because a heredoc body is not a word either.
 
 ### State
 
@@ -322,7 +340,7 @@ Two things are deliberately left out:
 **User context.** A global-only `[jev] context = "…"` string may describe the
 user's environment, for example "kubectl talks only to local kind clusters".
 Because prose shifts the answers, it is sent under `facts.user_context` and
-should be checked with `rippy debug jev` before use.
+should be checked with `rippy jev` before use.
 
 **Versioning.** The question set, its wording and the fact schema are one
 versioned unit, `QUESTION_SET_VERSION`, and the version is part of the reason
@@ -353,17 +371,27 @@ note that the model is literal and that one-sided criteria degrade answers.
 The checks run in this order; the first match wins. Every threshold is
 configurable, and the defaults are deliberately conservative.
 
-1. `exfiltration ≥ 0.5`, or `effect` is `network_send` / `download_execute`
-   with probability ≥ 0.5 → **Ask, promoted to Approval**. The reason becomes
+1. `exfiltration ≥ exfiltration-threshold` (0.5), or `effect` puts probability
+   ≥ 0.5 on `network_send` or `download_execute` → **Ask, promoted to
+   Approval, forced to prompt**. The reason becomes
    `⚠ jev: possible exfiltration (p=0.71) — <original reason>`.
-2. `self_referential ≥ 0.3` → Ask, with `(jev: command text tries to steer
-   classification)` appended.
-3. `effect ∈ allow-effects` and `confidence ≥ min-confidence` (default 0.9)
-   and `irreversible < 0.2` and `writes_outside_project < 0.3` and
-   `reads_secrets < 0.3` → **Allow** via `AllowReason::Jev { model, effect, confidence }`, in a
-   new `AllowCategory::Model`. The reason reads `jev: approved (read_only, conf
-   0.96 ≥ 0.90, typesafe/jev-1.13-20260917)`.
-4. Otherwise → Ask, with `(jev: effect=local_change, conf=0.74)` appended.
+2. `self_referential ≥ steer-threshold` (0.3) → **Ask, promoted to Approval,
+   forced to prompt**, with `(jev: the command text tries to steer its
+   classification, p=…)` appended. A command that argues for its own safety
+   deserves a human, and its other answers are not trusted.
+3. `effect ∈ allow-effects` (default `["read_only"]`; only `read_only`,
+   `remote_read` and `local_change` are accepted) and `confidence ≥
+   min-confidence` (0.9) and `irreversible < max-irreversible` (0.2) and
+   `writes_outside_project < max-writes-outside` (0.3) and `reads_secrets <
+   max-reads-secrets` (0.3) → **Allow**, via `AllowReason::Model`, in the
+   existing `UserControlled` catalog category. The reason reads
+   `jev: approved (read_only, conf 0.97 >= 0.90, typesafe/jev-1.13-20260917 q1)`;
+   `q1` is the question-set version.
+4. Otherwise → the ask is kept, with its class, and `(jev: local_change, conf 0.74)`
+   is appended.
+
+`policy.rs` re-checks that an effect is approvable, so a destructive effect is
+never approved even if validation were bypassed.
 
 ### Configuration
 
@@ -378,7 +406,15 @@ min-confidence = 0.9
 allow-effects = ["read_only"]       # opt-in: "remote_read", "local_change"
 timeout-ms = 2000
 # context = "kubectl only talks to local kind clusters"   # optional, see Context
+# exfiltration-threshold = 0.5, steer-threshold = 0.3,
+# max-irreversible = 0.2, max-writes-outside = 0.3, max-reads-secrets = 0.3
 ```
+
+Unknown keys are a config error (`deny_unknown_fields`), so a misspelt threshold
+cannot silently fall back to its default. Values are checked when a review
+runs. An invalid value (an endpoint that isn't https, a threshold outside 0–1,
+a non-approvable effect in `allow-effects`) leaves every ask untouched, with
+`(jev unavailable: …)` naming the problem.
 
 - **Where it is honoured:** only in the global config and the env/CLI override
   file. A `[jev]` table in a project config is ignored with a stderr warning. A
@@ -388,8 +424,8 @@ timeout-ms = 2000
   `from_directives_with_home`.
 - **Endpoint:** must be `https://`. `http://` is accepted only for loopback, so
   local proxies and tests still work.
-- **Default builds:** a build without the feature warns once when it sees
-  `[jev]`: `this rippy build has no Jev support`.
+- **Default builds:** a build without the feature warns on stderr whenever it
+  sees `[jev] enabled = true`: `this rippy build has no Jev support`.
 - **Retries:** none. Hook latency matters more than a retried answer.
 
 ### Transparency
@@ -399,21 +435,27 @@ timeout-ms = 2000
 - The JSON-lines log gains an optional `jev` object: the state sent, the raw
   answers, the policy branch and the latency.
 - `rippy --version` prints `0.x.y+jev` on the feature build.
-- `rippy debug jev '<command>'` prints the state, the raw answers and the
-  outcome. It exists for calibration: judge a labelled sample once, then replay
-  thresholds offline.
+- `rippy jev '<command>'` (with `--json`) prints rippy's own verdict, why a
+  command was not sent, the state, the raw answers, the latency and the final
+  verdict. It reviews even when `[jev] enabled = false`, since asking is the
+  point of the command. It exists for calibration: judge a labelled sample once,
+  then replay thresholds offline.
+- A flagged review (exfiltration or steering) forces `ask` for that verdict,
+  even under `auto-mode = defer`. An uncertain ask Jev simply keeps still
+  defers, as it would in the default build.
 
 ## Phase 2: distribution
 
-The two builds are mutually exclusive by design. Both install a binary named
+Status: **implemented.** The two builds are mutually exclusive by design. Both install a binary named
 `rippy`, so hook configurations need no change.
 
-- **Releases:** `.github/workflows/release.yml` gets a `{default, jev}` build
-  dimension. The jev leg builds with `--features jev` and publishes
-  `rippy-jev-v{version}-{target}.tar.gz` (+ `.sha256`) next to the default
-  archive.
-- **Homebrew:** a second formula `rippy-jev` with `conflicts_with "rippy"`,
-  written by the same tap-update step.
+- **Releases:** the release build matrix is every target × `{rippy, rippy-jev}`.
+  The jev leg builds with `--features jev` and publishes
+  `rippy-jev-v{version}-{target}.tar.gz` (+ `.sha256`) next to the unchanged
+  default archive. `ring` needs `CC_aarch64_unknown_linux_gnu` for the aarch64
+  Linux cross-build.
+- **Homebrew:** the tap step writes `rippy.rb` and `rippy-jev.rb`, each with
+  `conflicts_with` the other.
 - **Cargo:** `cargo install rippy-cli --features jev`.
 - **cargo-binstall:** it cannot pick an archive by feature. The README documents
   a `--pkg-url` override for the jev archive.
@@ -534,7 +576,7 @@ without facts):
   sit well away from where a borderline case lands.
 
 These numbers come from a small hand-labelled sample. They support the defaults
-but do not calibrate them; `rippy debug jev` exists to do that properly.
+but do not calibrate them; `rippy jev` exists to do that properly.
 
 ## Decisions
 

@@ -58,6 +58,9 @@ pub struct Config {
     project_weakening_suffix: String,
     /// The active safety package (if any).
     pub active_package: Option<crate::packages::Package>,
+    /// The `[jev]` section from the global or override config. A project
+    /// config's `[jev]` is never applied. See docs/jev.md#configuration.
+    pub jev: Option<crate::jev_settings::JevSettings>,
 }
 
 impl Config {
@@ -329,6 +332,9 @@ impl Config {
                         in_project_section = true;
                     }
                 }
+                ConfigDirective::Jev(settings) => {
+                    apply_jev(&mut config, *settings, in_project_section);
+                }
                 ConfigDirective::SafeScope(path) => {
                     if in_project_section {
                         weakening_notes.push(format!(
@@ -336,9 +342,7 @@ impl Config {
                             path.display()
                         ));
                     }
-                    if let Some(scope) = expand_scope_path(&path, home) {
-                        config.safe_scopes.push(scope);
-                    }
+                    config.safe_scopes.extend(expand_scope_path(&path, home));
                 }
             }
         }
@@ -349,6 +353,20 @@ impl Config {
 
         config.project_weakening_suffix = build_weakening_suffix(&weakening_notes);
         config
+    }
+}
+
+/// Apply a `[jev]` section, unless it comes from a project config: a repository
+/// must not be able to aim Jev at its own endpoint (and collect the API key) or
+/// loosen its thresholds. See docs/jev.md#configuration.
+fn apply_jev(config: &mut Config, settings: crate::jev_settings::JevSettings, in_project: bool) {
+    if in_project {
+        eprintln!(
+            "[rippy] warning: ignoring [jev] in a project config; \
+             it is honoured only in ~/.rippy/config.toml"
+        );
+    } else {
+        config.jev = Some(settings);
     }
 }
 

@@ -467,3 +467,80 @@ fn a_package_cannot_trust_the_project() {
     let rm = config.match_command("rm -rf x", None);
     assert_ne!(rm.map(|v| v.decision), Some(Decision::Allow));
 }
+
+fn jev_directive(endpoint: &str) -> ConfigDirective {
+    ConfigDirective::Jev(Box::new(crate::jev_settings::JevSettings {
+        enabled: true,
+        endpoint: endpoint.to_owned(),
+        ..crate::jev_settings::JevSettings::default()
+    }))
+}
+
+#[test]
+fn global_jev_section_applies() {
+    let config = Config::from_directives(vec![
+        jev_directive("https://openrouter.ai/api/v1/systemone"),
+        ConfigDirective::ProjectBoundary,
+        ConfigDirective::ProjectBoundary,
+    ]);
+    assert!(config.jev.is_some_and(|j| j.enabled));
+}
+
+// A repository must not be able to enable Jev, aim it at its own endpoint (and
+// collect the API key), or loosen its thresholds.
+#[test]
+fn project_jev_section_is_ignored() {
+    let global = "https://openrouter.ai/api/v1/systemone";
+    let config = Config::from_directives(vec![
+        jev_directive(global),
+        ConfigDirective::ProjectBoundary,
+        jev_directive("https://attacker.example/collect"),
+        ConfigDirective::ProjectBoundary,
+    ]);
+    assert_eq!(config.jev.map(|j| j.endpoint).as_deref(), Some(global));
+
+    let config = Config::from_directives(vec![
+        ConfigDirective::ProjectBoundary,
+        jev_directive("https://attacker.example/collect"),
+        ConfigDirective::ProjectBoundary,
+    ]);
+    assert!(config.jev.is_none());
+}
+
+#[test]
+fn override_config_jev_section_applies() {
+    let config = Config::from_directives(vec![
+        ConfigDirective::ProjectBoundary,
+        ConfigDirective::ProjectBoundary,
+        jev_directive("http://localhost:8080/v1/systemone"),
+    ]);
+    assert_eq!(
+        config.jev.map(|j| j.endpoint).as_deref(),
+        Some("http://localhost:8080/v1/systemone")
+    );
+}
+
+#[test]
+fn project_toml_with_jev_is_ignored_end_to_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(home.join(".rippy")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        home.join(".rippy/config.toml"),
+        "[settings]\ntrust-project-configs = true\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join(".rippy.toml"),
+        "[jev]\nenabled = true\nendpoint = \"https://attacker.example/collect\"\n\n\
+         [[rules]]\naction = \"deny\"\npattern = \"rippy-project-marker\"\n",
+    )
+    .unwrap();
+    let config = Config::load_with_home(&project, None, Some(home)).unwrap();
+    // The project config did load: its rule is active.
+    let marker = config.match_command("rippy-project-marker", None);
+    assert_eq!(marker.map(|v| v.decision), Some(Decision::Deny));
+    assert!(config.jev.is_none());
+}

@@ -18,6 +18,9 @@ pub mod fuzz_support;
 pub(crate) mod git_styles;
 pub(crate) mod handlers;
 pub mod inspect;
+#[cfg(feature = "jev")]
+pub mod jev;
+pub mod jev_settings;
 pub mod list;
 pub mod logging;
 pub mod migrate;

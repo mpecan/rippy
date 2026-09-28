@@ -76,10 +76,33 @@ jobs:
         # case or without a dangerous neighbor pinning where it stops.
         run: cargo test --test allow_completeness
 
+  jev:
+    # The opt-in `rippy-jev` distribution (docs/jev.md). Its code is compiled
+    # only with the feature, so the jobs above never see it.
+    name: Jev feature
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93.0"
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: jev
+
+      - name: Clippy (jev)
+        run: cargo clippy --all-targets --features jev -- -D warnings
+
+      - name: Test (jev)
+        run: cargo test --all-targets --features jev
+
   check:
     name: Check
     if: always()
-    needs: [lint, test]
+    needs: [lint, test, jev]
     runs-on: ubuntu-latest
     steps:
       - name: All jobs passed
@@ -90,6 +113,10 @@ jobs:
           fi
           if [[ "${{ needs.test.result }}" != "success" ]]; then
             echo "Test failed"
+            exit 1
+          fi
+          if [[ "${{ needs.jev.result }}" != "success" ]]; then
+            echo "Jev feature failed"
             exit 1
           fi
           echo "All checks passed"
