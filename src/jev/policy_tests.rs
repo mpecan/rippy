@@ -9,6 +9,8 @@ fn clean() -> Answers {
     Answers {
         effect: Effect::ReadOnly,
         confidence: 0.97,
+        chosen: 0.97,
+        destructive: 0.0,
         network_send: 0.0,
         download_execute: 0.0,
         exfiltration: 0.05,
@@ -211,4 +213,72 @@ fn malformed_responses_are_rejected() {
     assert!(Answers::parse(&stringly).is_err());
 
     assert!(Answers::parse(&json!(null)).is_err());
+}
+
+#[test]
+fn network_effects_escalate_at_exactly_the_threshold() {
+    for (network_send, download_execute) in [(0.5, 0.0), (0.0, 0.5)] {
+        let a = Answers {
+            network_send,
+            download_execute,
+            ..clean()
+        };
+        assert_eq!(
+            decide(&a, &settings()),
+            Outcome::Exfiltration { probability: 0.5 }
+        );
+    }
+    let a = Answers {
+        network_send: 0.49,
+        download_execute: 0.49,
+        ..clean()
+    };
+    assert!(matches!(decide(&a, &settings()), Outcome::Approve { .. }));
+}
+
+// A confidence that disagrees with the probability on the chosen effect, or a
+// split answer leaning destructive, is not a confident read-only answer.
+#[test]
+fn inconsistent_or_split_answers_are_kept() {
+    for a in [
+        Answers {
+            chosen: 0.6,
+            ..clean()
+        },
+        Answers {
+            destructive: 0.25,
+            ..clean()
+        },
+    ] {
+        assert!(
+            matches!(decide(&a, &settings()), Outcome::Keep { .. }),
+            "{a:?}"
+        );
+    }
+}
+
+#[test]
+fn each_risk_gate_approves_just_below_its_maximum() {
+    let a = Answers {
+        irreversible: 0.19,
+        writes_outside_project: 0.29,
+        reads_secrets: 0.29,
+        destructive: 0.19,
+        ..clean()
+    };
+    assert!(matches!(decide(&a, &settings()), Outcome::Approve { .. }));
+}
+
+#[test]
+fn remote_read_needs_opt_in() {
+    let a = Answers {
+        effect: Effect::RemoteRead,
+        ..clean()
+    };
+    assert!(matches!(decide(&a, &settings()), Outcome::Keep { .. }));
+    let opted_in = JevSettings {
+        allow_effects: vec![Effect::RemoteRead],
+        ..settings()
+    };
+    assert!(matches!(decide(&a, &opted_in), Outcome::Approve { .. }));
 }

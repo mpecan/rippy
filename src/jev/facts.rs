@@ -1,8 +1,8 @@
 //! Facts rippy computes without running anything, sent to Jev under `facts`.
 //!
-//! Labels only: variable values and full paths never leave the machine, so a
-//! secret in `$TOKEN` or a username in a home path is not disclosed.
-//! See docs/jev.md#context.
+//! Labels only: variable values never leave the machine, and a path is named
+//! only as it already appears in the sanitized command, so a fact can never
+//! carry text that redaction removed. See docs/jev.md#context.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -40,6 +40,14 @@ impl Places<'_> {
         } else {
             "outside project (system path)"
         }
+    }
+
+    /// A path as shown to Jev: under the home directory, relative to `~`.
+    fn display(&self, raw: &str) -> String {
+        self.home
+            .as_ref()
+            .and_then(|home| Path::new(raw).strip_prefix(home).ok())
+            .map_or_else(|| raw.to_owned(), |rest| format!("~/{}", rest.display()))
     }
 
     fn resolve(&self, cwd: &Path, raw: &str) -> PathBuf {
@@ -82,21 +90,34 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// A path argument worth labelling, present verbatim in what is sent.
+fn is_sendable_path(arg: &str, sanitized: &str) -> bool {
+    looks_like_path(arg) && !arg.contains('$') && sanitized.contains(arg)
+}
+
 fn looks_like_path(arg: &str) -> bool {
     !arg.contains("://")
         && !arg.starts_with('-')
         && (arg.starts_with(['/', '.', '~']) || arg.contains('/'))
 }
 
-/// Build the `facts` object. `lookup` reads an environment variable; it is a
-/// parameter so tests stay independent of the process environment.
+/// Where a command runs, for resolving and labelling what it names.
+pub struct Where<'a> {
+    pub cwd: &'a Path,
+    pub places: &'a Places<'a>,
+    /// Reads an environment variable; a parameter so tests stay independent
+    /// of the process environment.
+    pub lookup: &'a dyn Fn(&str) -> Option<String>,
+}
+
+/// Build the `facts` object.
 pub fn collect(
     shape: &Shape<'_>,
-    cwd: &Path,
-    places: &Places<'_>,
-    lookup: &dyn Fn(&str) -> Option<String>,
+    sanitized: &str,
+    at: &Where<'_>,
     user_context: Option<&str>,
 ) -> Value {
+    let (cwd, places, lookup) = (at.cwd, at.places, at.lookup);
     let mut variables = Map::new();
     let mut paths = Map::new();
     let mut programs = Map::new();
@@ -111,7 +132,7 @@ pub fn collect(
             for var in expanded_names(word) {
                 let role = role_of(leaf.words, i, name);
                 let status = match lookup(&var) {
-                    None => "not set".to_owned(),
+                    None => "not set in rippy's environment".to_owned(),
                     Some(v) if looks_like_path(&v) => {
                         format!("set to a path {}", places.label(&places.resolve(cwd, &v)))
                     }
@@ -120,13 +141,22 @@ pub fn collect(
                 variables.insert(var, json!(format!("{role}; {status}")));
             }
         }
-        for arg in leaf
-            .args
-            .iter()
-            .filter(|a| looks_like_path(a) && !a.contains('$'))
-        {
-            paths.insert(arg.clone(), json!(places.label(&places.resolve(cwd, arg))));
+        for arg in leaf.args.iter().filter(|a| is_sendable_path(a, sanitized)) {
+            paths.insert(
+                places.display(arg),
+                json!(places.label(&places.resolve(cwd, arg))),
+            );
         }
+    }
+    for target in shape
+        .redirect_targets
+        .iter()
+        .filter(|t| is_sendable_path(t, sanitized))
+    {
+        paths.insert(
+            places.display(target),
+            json!(places.label(&places.resolve(cwd, target))),
+        );
     }
     let mut facts = Map::new();
     for (key, map) in [

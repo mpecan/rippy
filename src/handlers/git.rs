@@ -162,7 +162,8 @@ impl Handler for GitHandler {
             "notes" => git_subcommands::classify_notes(&sub_args),
             "bisect" => git_subcommands::classify_bisect(&sub_args),
             "lfs" => git_subcommands::classify_lfs(&sub_args),
-            _ => Classification::Uncertain(UncertainKind::UnknownSubcommand, desc),
+            // An unknown subcommand may be a user or repository alias.
+            _ => Classification::Uncertain(UncertainKind::ProjectDefined, desc),
         }
     }
 

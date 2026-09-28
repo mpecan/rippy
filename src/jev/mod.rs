@@ -8,6 +8,7 @@ pub mod cmd;
 pub mod eligibility;
 pub mod facts;
 pub mod policy;
+mod redact;
 pub mod request;
 pub mod shape;
 pub mod transport;
@@ -90,14 +91,19 @@ pub fn review(
         home: env.home.clone(),
         path_var: path_var.as_deref(),
     };
+    let sanitized = shape.sanitized();
     let facts = facts::collect(
         &shape,
-        env.cwd,
-        &places,
-        env.var,
+        &sanitized,
+        &facts::Where {
+            cwd: env.cwd,
+            places: &places,
+            lookup: env.var,
+        },
         settings.context.as_deref(),
     );
-    let state = request::state(&shape.sanitized(), &verdict.reason, kind.as_str(), &facts);
+    let uncertainty = without_resolution(&verdict.reason);
+    let state = request::state(&sanitized, uncertainty, kind.as_str(), &facts);
     let log = json!({
         "kind": kind.as_str(),
         "question_set": request::QUESTION_SET_VERSION,
@@ -135,6 +141,7 @@ fn consult(
     };
     let model = response["model"]
         .as_str()
+        .filter(|m| is_model_id(m))
         .unwrap_or(&settings.model)
         .to_owned();
     let outcome = policy::decide(&answers, settings);
@@ -166,12 +173,31 @@ fn unavailable(mut verdict: Verdict, problem: &str, mut log: Value) -> Review {
     }
 }
 
+/// A reason's text before any `(resolved: …)` suffix, which carries the values
+/// rippy substituted for variables and must not be sent.
+fn without_resolution(reason: &str) -> &str {
+    reason
+        .find("(resolved: ")
+        .map_or(reason, |i| reason[..i].trim_end())
+}
+
+/// Whether a response's model id is safe to echo into a reason.
+fn is_model_id(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= 80
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '/' | ':' | '~'))
+}
+
 fn apply(verdict: Verdict, outcome: &Outcome, model: &str, s: &JevSettings) -> (Verdict, bool) {
     let resolved = verdict.resolved_command.clone();
-    match *outcome {
+    let tag = format!("{model} {}", request::QUESTION_SET_VERSION);
+    let asked = |reason: String| Verdict::ask(reason).with_optional_resolution(resolved.clone());
+    match outcome {
         Outcome::Approve { effect, confidence } => {
             let reason = AllowReason::Model {
-                model: format!("{model} {}", request::QUESTION_SET_VERSION),
+                model: tag,
                 summary: format!(
                     "{}, conf {confidence:.2} >= {:.2}",
                     effect.as_str(),
@@ -185,28 +211,27 @@ fn apply(verdict: Verdict, outcome: &Outcome, model: &str, s: &JevSettings) -> (
         }
         Outcome::Exfiltration { probability } => {
             let reason = format!(
-                "⚠ jev: possible exfiltration (p={probability:.2}) — {}",
+                "⚠ jev: possible exfiltration (p={probability:.2}, {tag}) — {}",
                 verdict.reason
             );
-            (
-                Verdict::ask(reason).with_optional_resolution(resolved),
-                true,
-            )
+            (asked(reason), true)
         }
         Outcome::Steered { probability } => {
             let reason = format!(
-                "{} (jev: the command text tries to steer its classification, p={probability:.2})",
+                "{} (jev: the command text tries to steer its classification, \
+                 p={probability:.2}, {tag})",
                 verdict.reason
             );
-            (
-                Verdict::ask(reason).with_optional_resolution(resolved),
-                true,
-            )
+            (asked(reason), true)
         }
-        Outcome::Keep { effect, confidence } => {
+        Outcome::Keep {
+            effect,
+            confidence,
+            because,
+        } => {
             let mut kept = verdict;
             kept.reason = format!(
-                "{} (jev: {}, conf {confidence:.2})",
+                "{} (jev: {}, conf {confidence:.2}; kept: {because}; {tag})",
                 kept.reason,
                 effect.as_str()
             );

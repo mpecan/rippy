@@ -93,6 +93,14 @@ jobs:
         with:
           key: jev
 
+      - name: Default build has no network code
+        # `cargo tree -i` succeeds only when the crate is in the graph.
+        run: |
+          if cargo tree -e normal -i ureq >/dev/null 2>&1; then
+            echo "::error::ureq is in the default build's dependency tree"
+            exit 1
+          fi
+
       - name: Clippy (jev)
         run: cargo clippy --all-targets --features jev -- -D warnings
 

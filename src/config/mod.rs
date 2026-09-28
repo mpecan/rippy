@@ -116,7 +116,7 @@ impl Config {
         // can override package rules. Only a trusted project may choose it.
         let package = resolve_package(home, project_package);
         if let Some(pkg) = &package {
-            directives.extend(crate::packages::package_directives(pkg)?);
+            directives.extend(without_jev(crate::packages::package_directives(pkg)?));
         }
         directives.extend(global);
 
@@ -354,6 +354,21 @@ impl Config {
         config.project_weakening_suffix = build_weakening_suffix(&weakening_notes);
         config
     }
+}
+
+/// Drop any `[jev]` from a package. A project can choose the active package,
+/// so a package must not be able to enable Jev or aim it anywhere.
+fn without_jev(directives: Vec<ConfigDirective>) -> Vec<ConfigDirective> {
+    let (jev, rest): (Vec<_>, Vec<_>) = directives
+        .into_iter()
+        .partition(|d| matches!(d, ConfigDirective::Jev(_)));
+    if !jev.is_empty() {
+        eprintln!(
+            "[rippy] warning: ignoring [jev] in a package; \
+             it is honoured only in ~/.rippy/config.toml"
+        );
+    }
+    rest
 }
 
 /// Apply a `[jev]` section, unless it comes from a project config: a repository

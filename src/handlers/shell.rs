@@ -1,5 +1,5 @@
 use super::{AllowEntry, Classification, Handler, HandlerContext};
-use crate::handlers::opaque_code;
+use crate::handlers::script_code;
 
 pub(crate) static SHELL_HANDLER: ShellHandler = ShellHandler;
 
@@ -36,7 +36,12 @@ impl Handler for ShellHandler {
             return Classification::Recurse(contents);
         }
 
-        opaque_code(ctx, format!("{} (interactive)", ctx.command_name))
+        let script = ctx
+            .args
+            .iter()
+            .find(|a| !a.starts_with('-'))
+            .map_or("", String::as_str);
+        script_code(ctx, script, format!("{} (interactive)", ctx.command_name))
     }
 
     /// Empty by design: this handler only re-analyzes a `-c` body or a script's
@@ -109,7 +114,7 @@ mod tests {
         let result = SHELL_HANDLER.classify(&ctx);
         assert!(matches!(
             result,
-            Classification::Uncertain(UncertainKind::OpaqueInput, _)
+            Classification::Uncertain(UncertainKind::ProjectDefined, _)
         ));
     }
 }

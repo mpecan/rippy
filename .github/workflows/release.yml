@@ -119,7 +119,10 @@ jobs:
   update-homebrew:
     name: Update Homebrew tap
     needs: build-binaries
-    if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v')
+    # Runs even if a leg failed (fail-fast is off): each formula is written only
+    # when all of its archives exist, so a broken rippy-jev leg never holds back
+    # the default formula.
+    if: ${{ !cancelled() && startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v') }}
     runs-on: ubuntu-latest
     steps:
       - name: Compute version
@@ -139,7 +142,8 @@ jobs:
               gh release download "${{ env.RELEASE_TAG }}" \
                 --repo "${{ github.repository }}" \
                 --pattern "${FLAVOR}-v${VERSION}-${TARGET}.tar.gz.sha256" \
-                --output "sums/${FLAVOR}-${TARGET}.sha256"
+                --output "sums/${FLAVOR}-${TARGET}.sha256" \
+                || echo "::warning::no ${FLAVOR} archive for ${TARGET}"
             done
           done
 
@@ -176,7 +180,13 @@ jobs:
               with open(f"sums/{flavor}-{target}.sha256") as f:
                   return f.read().strip()
           os.makedirs("homebrew-tools/Formula", exist_ok=True)
+          targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
+          written = []
           for flavor, (cls, other, desc) in flavors.items():
+              if not all(os.path.exists(f"sums/{flavor}-{t}.sha256") for t in targets):
+                  print(f"::warning::skipping {flavor}.rb: not every archive was built")
+                  continue
+              written.append(f"Formula/{flavor}.rb")
               def url(target):
                   return f"{base}/rippy-cli-v{v}/{flavor}-v{v}-{target}.tar.gz"
               formula = textwrap.dedent(f"""\
@@ -217,6 +227,8 @@ jobs:
               """)
               with open(f"homebrew-tools/Formula/{flavor}.rb", "w") as f:
                   f.write(formula)
+          if not written:
+              raise SystemExit("no formula could be written")
           PYEOF
 
       - name: Commit and push
@@ -224,6 +236,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/rippy.rb Formula/rippy-jev.rb
+          git add Formula/*.rb
           git diff --cached --quiet || git commit -m "rippy ${{ steps.version.outputs.version }}"
           git push

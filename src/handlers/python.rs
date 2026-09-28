@@ -2,10 +2,9 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
     has_flag, is_sole_help_flag, surface,
 };
-use crate::handlers::opaque_code;
+use crate::handlers::{opaque_code, script_code};
 use crate::python_safety::is_python_source_safe;
 use crate::verdict::AllowReason;
-use crate::verdict::UncertainKind;
 
 pub(crate) static PYTHON_HANDLER: PythonHandler = PythonHandler;
 
@@ -79,7 +78,7 @@ impl Handler for PythonHandler {
                 Classification::Ask(format!("python {script} (potentially dangerous)"))
             };
         }
-        Classification::Uncertain(UncertainKind::OpaqueInput, "python script execution".into())
+        script_code(ctx, script, "python script execution".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -151,7 +150,7 @@ mod tests {
         let result = PYTHON_HANDLER.classify(&ctx);
         assert!(matches!(
             result,
-            Classification::Uncertain(UncertainKind::OpaqueInput, _)
+            Classification::Uncertain(crate::verdict::UncertainKind::ProjectDefined, _)
         ));
     }
 }

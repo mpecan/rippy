@@ -10,11 +10,18 @@ use crate::jev_settings::{Effect, JevSettings};
 /// escalated regardless of the exfiltration noul.
 const NETWORK_EFFECT_THRESHOLD: f64 = 0.5;
 
+/// Largest probability on `destructive` an approval tolerates, whatever the
+/// chosen effect: a split answer is not a confident one.
+const MAX_DESTRUCTIVE: f64 = 0.2;
+
 /// Jev's answers to the question set, validated.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Answers {
     pub effect: Effect,
     pub confidence: f64,
+    /// The probability Jev put on the effect it chose.
+    pub chosen: f64,
+    pub destructive: f64,
     pub network_send: f64,
     pub download_execute: f64,
     pub exfiltration: f64,
@@ -41,6 +48,8 @@ impl Answers {
         Ok(Self {
             effect,
             confidence: probability(&effect_answer["confidence"], "effect.confidence")?,
+            chosen: option(effect.as_str())?,
+            destructive: option(Effect::Destructive.as_str())?,
             network_send: option(Effect::NetworkSend.as_str())?,
             download_execute: option(Effect::DownloadExecute.as_str())?,
             exfiltration: noul(answers, "exfiltration")?,
@@ -73,8 +82,12 @@ pub enum Outcome {
     Steered { probability: f64 },
     /// Confident, approvable, and every risk gate passed.
     Approve { effect: Effect, confidence: f64 },
-    /// Keep the ask, annotated with what Jev saw.
-    Keep { effect: Effect, confidence: f64 },
+    /// Keep the ask, annotated with what Jev saw and the gate that held it.
+    Keep {
+        effect: Effect,
+        confidence: f64,
+        because: String,
+    },
 }
 
 impl Outcome {
@@ -106,16 +119,48 @@ pub fn decide(a: &Answers, s: &JevSettings) -> Outcome {
         };
     }
     let (effect, confidence) = (a.effect, a.confidence);
-    let approvable = s.allow_effects.contains(&effect)
-        && effect.is_approvable()
-        && confidence >= s.min_confidence
-        && a.irreversible < s.max_irreversible
-        && a.writes_outside_project < s.max_writes_outside
-        && a.reads_secrets < s.max_reads_secrets;
-    if approvable {
-        Outcome::Approve { effect, confidence }
-    } else {
-        Outcome::Keep { effect, confidence }
+    let gates = [
+        (
+            s.allow_effects.contains(&effect) && effect.is_approvable(),
+            format!("{} is not an allowed effect", effect.as_str()),
+        ),
+        (
+            confidence >= s.min_confidence,
+            format!("confidence {confidence:.2} < {:.2}", s.min_confidence),
+        ),
+        (
+            a.chosen >= s.min_confidence,
+            format!(
+                "p({}) {:.2} < {:.2}",
+                effect.as_str(),
+                a.chosen,
+                s.min_confidence
+            ),
+        ),
+        (
+            a.destructive < MAX_DESTRUCTIVE,
+            format!("destructive {:.2}", a.destructive),
+        ),
+        (
+            a.irreversible < s.max_irreversible,
+            format!("irreversible {:.2}", a.irreversible),
+        ),
+        (
+            a.writes_outside_project < s.max_writes_outside,
+            format!("writes outside project {:.2}", a.writes_outside_project),
+        ),
+        (
+            a.reads_secrets < s.max_reads_secrets,
+            format!("reads secrets {:.2}", a.reads_secrets),
+        ),
+    ];
+    match gates.into_iter().find(|(passed, _)| !passed) {
+        None => Outcome::Approve { effect, confidence },
+        Some((_, because)) => Outcome::Keep {
+            effect,
+            confidence,
+            because,
+        },
     }
 }
 

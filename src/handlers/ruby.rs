@@ -2,10 +2,9 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
     is_sole_help_flag,
 };
-use crate::handlers::opaque_code;
+use crate::handlers::{opaque_code, script_code};
 use crate::ruby_safety::is_ruby_source_safe;
 use crate::verdict::AllowReason;
-use crate::verdict::UncertainKind;
 
 pub(crate) static RUBY_HANDLER: RubyHandler = RubyHandler;
 
@@ -49,7 +48,7 @@ impl Handler for RubyHandler {
                 Classification::Ask(format!("ruby {script} (potentially dangerous)"))
             };
         }
-        Classification::Uncertain(UncertainKind::OpaqueInput, "ruby script execution".into())
+        script_code(ctx, script, "ruby script execution".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {

@@ -3,6 +3,7 @@
 pub mod allow_catalog;
 pub mod allowlists;
 pub mod analyzer;
+pub(crate) mod ask_rules;
 pub mod ast;
 pub(crate) mod cc_permissions;
 pub mod cli;

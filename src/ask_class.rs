@@ -28,17 +28,28 @@ pub enum UncertainKind {
     /// rippy could not analyze the input at all: parse failure, size or depth
     /// limits, internal errors, fail-closed paths.
     Unanalyzable,
+    /// rippy judged a command it rebuilt from another command's arguments
+    /// (a wrapper, `env`, `xargs`, `find -exec`) or read from a file (a shell
+    /// script), so the command as written is not the text it judged.
+    Indirect,
+    /// What runs is defined outside the command text, by files or config the
+    /// project controls: a path-qualified or script-named program, a task
+    /// runner, a possible git alias, an interpreter given a script. A reviewer
+    /// that sees only the text cannot judge it.
+    ProjectDefined,
 }
 
 impl AskClass {
     /// Every class, for exhaustive tests and catalog validation.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Approval,
         Self::Uncertain(UncertainKind::UnknownCommand),
         Self::Uncertain(UncertainKind::UnknownSubcommand),
         Self::Uncertain(UncertainKind::DynamicExpansion),
         Self::Uncertain(UncertainKind::OpaqueInput),
         Self::Uncertain(UncertainKind::Unanalyzable),
+        Self::Uncertain(UncertainKind::Indirect),
+        Self::Uncertain(UncertainKind::ProjectDefined),
     ];
 
     /// Stable kebab-case name, used by the catalog and the reason snapshot.
@@ -50,15 +61,25 @@ impl AskClass {
         }
     }
 
-    /// Merge rank when several asks combine: `Approval` dominates, then
-    /// `Unanalyzable`, so a compound command is only as eligible for
-    /// model-assisted review as its least-understood part.
+    /// Merge rank when several asks combine: `Approval` dominates, then the
+    /// kinds a text-only reviewer can never judge, so a compound command is
+    /// only as eligible for model-assisted review as its least-understood part.
     const fn rank(self) -> u8 {
         match self {
             Self::Approval => 2,
-            Self::Uncertain(UncertainKind::Unanalyzable) => 1,
+            Self::Uncertain(
+                UncertainKind::Unanalyzable
+                | UncertainKind::Indirect
+                | UncertainKind::ProjectDefined,
+            ) => 1,
             Self::Uncertain(_) => 0,
         }
+    }
+
+    /// Whether a text-only reviewer could ever judge an ask of this class.
+    #[must_use]
+    pub const fn is_reviewable(self) -> bool {
+        self.rank() == 0
     }
 
     /// The more cautious of two classes; `self` wins ties.
@@ -81,6 +102,8 @@ impl UncertainKind {
             Self::DynamicExpansion => "dynamic-expansion",
             Self::OpaqueInput => "opaque-input",
             Self::Unanalyzable => "unanalyzable",
+            Self::Indirect => "indirect",
+            Self::ProjectDefined => "project-defined",
         }
     }
 }
@@ -110,7 +133,9 @@ mod tests {
                 "unknown-subcommand",
                 "dynamic-expansion",
                 "opaque-input",
-                "unanalyzable"
+                "unanalyzable",
+                "indirect",
+                "project-defined"
             ]
         );
     }

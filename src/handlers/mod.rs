@@ -342,6 +342,17 @@ pub(crate) fn placeholder_injects(inner: &[String], placeholders: &[&str]) -> bo
         || (CODE_READERS.contains(&name) && inner.iter().skip(1).any(holds))
 }
 
+/// An interpreter running a script rippy could not read. A named script is
+/// [`UncertainKind::ProjectDefined`]: its text is a file, not the command.
+/// With no script, or `-`, it reads stdin, as [`opaque_code`] decides.
+pub(crate) fn script_code(ctx: &HandlerContext, script: &str, desc: String) -> Classification {
+    if script.is_empty() || script == "-" {
+        opaque_code(ctx, desc)
+    } else {
+        Classification::Uncertain(UncertainKind::ProjectDefined, desc)
+    }
+}
+
 /// A program about to run code rippy cannot see. An interactive REPL is
 /// [`UncertainKind::OpaqueInput`]; piped stdin is code another command chose to
 /// feed it (`curl … | sh`), which a human must approve.

@@ -183,6 +183,9 @@ mod tests {
             "http://openrouter.ai/api/v1/systemone",
             "http://localhost.evil.com/x",
             "http://127.0.0.1.evil.com:80/x",
+            "http://localhost:1@evil.example/x",
+            "http://127.0.0.1:80@evil.example/",
+            "http://[::1]:9@evil.example/",
             "ftp://localhost/x",
             "openrouter.ai",
         ] {
@@ -216,6 +219,47 @@ mod tests {
             ..JevSettings::default()
         };
         assert!(s.validate().is_err());
+    }
+
+    #[test]
+    fn every_threshold_must_be_a_probability() {
+        type Set = fn(&mut JevSettings, f64);
+        let setters: [(&str, Set); 6] = [
+            ("min-confidence", |s, v| {
+                s.min_confidence = v;
+            }),
+            ("exfiltration-threshold", |s, v| {
+                s.exfiltration_threshold = v;
+            }),
+            ("steer-threshold", |s, v| {
+                s.steer_threshold = v;
+            }),
+            ("max-irreversible", |s, v| {
+                s.max_irreversible = v;
+            }),
+            ("max-writes-outside", |s, v| {
+                s.max_writes_outside = v;
+            }),
+            ("max-reads-secrets", |s, v| {
+                s.max_reads_secrets = v;
+            }),
+        ];
+        for (name, set) in setters {
+            for bad in [-0.1, 1.1, f64::NAN] {
+                let mut s = JevSettings::default();
+                set(&mut s, bad);
+                assert!(s.validate().unwrap_err().contains(name), "{name}={bad}");
+            }
+        }
+    }
+
+    #[test]
+    fn timeout_must_be_positive() {
+        let s = JevSettings {
+            timeout_ms: 0,
+            ..JevSettings::default()
+        };
+        assert!(s.validate().unwrap_err().contains("timeout-ms"));
     }
 
     #[test]

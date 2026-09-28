@@ -372,13 +372,17 @@ timeout-ms = 2000
 
 What to know before enabling it:
 
-- **Commands leave your machine.** Eligible commands are sent to the endpoint, with assignment
-  values, secret-looking tokens, URL credentials and comments removed. Redaction covers common
-  shapes; it is not a guarantee.
-- **It trades some safety for fewer prompts.** Jev judges a command by its text. Commands whose
-  meaning your repository defines (`./scripts/*`, `make`/`npm run`/`just` targets, unknown git
-  subcommands, interpreters given a script) are never sent, but a misleading program name on
-  `PATH` can still mislead it.
+- **Commands leave your machine.** Eligible commands are sent to the endpoint with comments
+  removed and secrets replaced by `<redacted>`: assignment and `NAME=value` values, credential
+  flags, `Bearer`/`Authorization` values, token shapes and JWTs, and URL credentials and query
+  secrets. Variable values are never sent. Redaction covers common shapes; it is not a
+  guarantee. Commands with a heredoc, multiple lines or non-ASCII text are never sent.
+- **It trades some safety for fewer prompts.** Jev judges a command by its text, so rippy never
+  sends one whose behaviour is defined elsewhere: `./scripts/*` and other path- or script-named
+  programs, task runners (`make`, `npm`, `poetry`, …), unknown git subcommands, interpreters
+  given a script, anything rippy judged through a wrapper or a script's contents (`timeout 5 …`,
+  `xargs …`, `bash script.sh`), remote contexts (`docker exec`), and rippy's own CLI. A misleading
+  program name on `PATH` can still mislead it.
 - **Suspicious answers escalate.** If Jev sees possible exfiltration, or the command text trying to
   steer its own classification, the ask stays, gets a warning, and always prompts, even under
   `auto-mode = "defer"`.

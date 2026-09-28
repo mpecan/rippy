@@ -32,8 +32,13 @@ impl Transport for HttpTransport {
         body: &Value,
         timeout: Duration,
     ) -> Result<Value, String> {
+        // No environment proxy (it would see the key over plain http to a
+        // loopback endpoint) and no redirects: the endpoint is exactly the
+        // configured one.
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
+            .proxy(None)
+            .max_redirects(0)
             .build()
             .into();
         let mut response = agent
@@ -41,6 +46,12 @@ impl Transport for HttpTransport {
             .header("Authorization", &format!("Bearer {api_key}"))
             .send_json(body)
             .map_err(|e| describe(&e, timeout))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "HTTP {} (redirects are not followed)",
+                response.status().as_u16()
+            ));
+        }
         response
             .body_mut()
             .read_json::<Value>()

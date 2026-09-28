@@ -2,10 +2,9 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
     has_flag, has_flag_or_prefixed, is_sole_help_flag,
 };
-use crate::handlers::opaque_code;
+use crate::handlers::{opaque_code, script_code};
 use crate::node_safety::is_node_source_safe;
 use crate::verdict::AllowReason;
-use crate::verdict::UncertainKind;
 
 pub(crate) static NODE_HANDLER: NodeHandler = NodeHandler;
 
@@ -96,8 +95,9 @@ impl Handler for NodeHandler {
                 ))
             };
         }
-        Classification::Uncertain(
-            UncertainKind::OpaqueInput,
+        script_code(
+            ctx,
+            script,
             format!("{} script execution", ctx.command_name),
         )
     }

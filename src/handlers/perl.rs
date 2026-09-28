@@ -2,10 +2,9 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_values,
     is_sole_help_flag,
 };
-use crate::handlers::opaque_code;
+use crate::handlers::{opaque_code, script_code};
 use crate::perl_safety::is_perl_source_safe;
 use crate::verdict::AllowReason;
-use crate::verdict::UncertainKind;
 
 pub(crate) static PERL_HANDLER: PerlHandler = PerlHandler;
 
@@ -47,7 +46,7 @@ impl Handler for PerlHandler {
                 Classification::Ask(format!("perl {script} (potentially dangerous)"))
             };
         }
-        Classification::Uncertain(UncertainKind::OpaqueInput, "perl script execution".into())
+        script_code(ctx, script, "perl script execution".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {

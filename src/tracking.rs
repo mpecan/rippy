@@ -288,8 +288,10 @@ pub fn query_command_breakdown(
     conn: &Connection,
     since: Option<&str>,
 ) -> Result<Vec<CommandBreakdown>, RippyError> {
+    // A model's per-command approvals are not evidence for a permanent rule
+    // (docs/jev.md#transparency), so `rippy suggest` never counts them.
     let base_query = "SELECT command, decision, COUNT(*) FROM decisions \
-                      WHERE command IS NOT NULL";
+                      WHERE command IS NOT NULL AND reason NOT LIKE 'jev: approved%'";
 
     if let Some(duration) = since {
         let modifier = format!("-{duration}");
@@ -496,6 +498,26 @@ mod tests {
         .unwrap();
         let counts = query_counts(&conn, None).unwrap();
         assert_eq!(counts.total, 1);
+    }
+
+    #[test]
+    fn query_command_breakdown_ignores_jev_approvals() {
+        let conn = in_memory_db();
+        for _ in 0..10 {
+            record_decision(
+                &conn,
+                &TrackingEntry {
+                    command: Some("somecli list"),
+                    reason: "jev: approved (read_only, conf 0.97 >= 0.90, m q1)",
+                    ..sample_entry()
+                },
+            )
+            .unwrap();
+        }
+        record_decision(&conn, &sample_entry()).unwrap();
+        let rows = query_command_breakdown(&conn, None).unwrap();
+        assert!(rows.iter().all(|r| r.command != "somecli list"), "{rows:?}");
+        assert!(!rows.is_empty());
     }
 
     #[test]

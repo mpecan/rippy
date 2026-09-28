@@ -131,3 +131,42 @@ fn a_failing_jev_changes_no_decision_or_class() {
     });
     assert_eq!(moved, 0);
 }
+
+// Review finding: wrappers hid a project-defined or approval command from the
+// eligibility check. Wrapping a command must never make it approvable.
+#[test]
+fn wrapping_an_unreviewable_ask_never_makes_it_approvable() {
+    let key = |name: &str| (name == "RIPPY_INVARIANT_KEY").then(|| "k".to_owned());
+    let env = Env {
+        cwd: Path::new("/tmp"),
+        home: None,
+        var: &key,
+    };
+    let settings = permissive();
+    let approve = reply("read_only", 0.0);
+    let mut analyzer = isolated_analyzer();
+    let mut checked = 0;
+    for case in common::catalog::load() {
+        let base = analyzer.analyze(&case.command).unwrap();
+        if base.decision != Decision::Ask || eligible_class(&base) {
+            continue;
+        }
+        for wrapper in ["timeout 5", "nohup", "env", "nice -n 5", "command"] {
+            let wrapped = format!("{wrapper} {}", case.command);
+            let before = analyzer.analyze(&wrapped).unwrap();
+            // An allow the analyzer itself returns (`env PATH=./bin ls`) is
+            // not Jev's doing; Jev must never create one.
+            if before.decision == Decision::Allow {
+                continue;
+            }
+            let after = review(before, &wrapped, &settings, &env, &approve).verdict;
+            assert_ne!(
+                after.decision,
+                Decision::Allow,
+                "{wrapped}: approved by jev"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 100, "only {checked} wrapped commands checked");
+}

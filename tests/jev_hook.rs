@@ -3,7 +3,12 @@
 //! `--config`, so nothing from the developer's machine leaks in.
 
 #![cfg(feature = "jev")]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::needless_pass_by_value
+)]
 
 mod common;
 
@@ -26,6 +31,16 @@ struct Received {
 /// Serve one HTTP response on a loopback port; report what was received.
 /// `delay` holds the response back, for the timeout case.
 fn serve_once(status: u16, body: Value, delay: Duration) -> (String, mpsc::Receiver<Received>) {
+    serve_raw(status, "", body.to_string(), delay)
+}
+
+/// Like [`serve_once`], with extra header lines and a body that need not be JSON.
+fn serve_raw(
+    status: u16,
+    headers: &'static str,
+    text: String,
+    delay: Duration,
+) -> (String, mpsc::Receiver<Received>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}/v1/systemone", listener.local_addr().unwrap());
     let (tx, rx) = mpsc::channel();
@@ -56,12 +71,11 @@ fn serve_once(status: u16, body: Value, delay: Duration) -> (String, mpsc::Recei
             body: serde_json::from_slice(&raw).unwrap(),
         });
         thread::sleep(delay);
-        let text = body.to_string();
         let mut stream = stream;
         let _ = write!(
             stream,
             "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
-             Connection: close\r\n\r\n{text}",
+             {headers}Connection: close\r\n\r\n{text}",
             text.len()
         );
     });
@@ -128,6 +142,11 @@ fn hook(dir: &Path, endpoint: &str, command: &str, permission_mode: &str) -> Val
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
         panic!("{e}: {}", String::from_utf8_lossy(&out.stdout));
     })
+}
+
+fn decision_of(out: &Value) -> (String, String) {
+    let (d, r) = decision(out);
+    (d.to_owned(), r.to_owned())
 }
 
 fn decision(out: &Value) -> (&str, &str) {
@@ -276,4 +295,91 @@ fn version_names_the_distribution() {
             .trim_end()
             .ends_with("+jev")
     );
+}
+
+#[test]
+fn a_rejected_key_is_named_in_the_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let (endpoint, _rx) = serve_once(401, json!({ "error": "bad key" }), Duration::ZERO);
+    let (_, reason) = decision_of(&hook(
+        dir.path(),
+        &endpoint,
+        "rippy-e2e-cli list",
+        "default",
+    ));
+    assert!(
+        reason.contains("(jev unavailable: HTTP 401 (check the API key))"),
+        "{reason}"
+    );
+}
+
+#[test]
+fn a_non_json_response_leaves_the_ask() {
+    let dir = tempfile::tempdir().unwrap();
+    let (endpoint, _rx) = serve_raw(200, "", "<html>oops</html>".to_owned(), Duration::ZERO);
+    let (d, reason) = decision_of(&hook(
+        dir.path(),
+        &endpoint,
+        "rippy-e2e-cli list",
+        "default",
+    ));
+    assert_eq!(d, "ask");
+    assert!(
+        reason.contains("jev unavailable: unreadable response"),
+        "{reason}"
+    );
+}
+
+// A redirect could carry the request somewhere other than the configured
+// endpoint; it is reported, never followed.
+#[test]
+fn a_redirect_is_not_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (endpoint, _rx) = serve_raw(
+        302,
+        "Location: http://127.0.0.1:9/elsewhere\r\n",
+        String::new(),
+        Duration::ZERO,
+    );
+    let (d, reason) = decision_of(&hook(
+        dir.path(),
+        &endpoint,
+        "rippy-e2e-cli list",
+        "default",
+    ));
+    assert_eq!(d, "ask");
+    assert!(reason.contains("jev unavailable: HTTP 302"), "{reason}");
+}
+
+#[test]
+fn the_jev_command_reports_every_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let (endpoint, _rx) = serve_once(200, answers("read_only", 0.97, 0.03), Duration::ZERO);
+    let config = dir.path().join("jev.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[jev]\nenabled = false\nendpoint = \"{endpoint}\"\n\
+             api-key-env = \"RIPPY_E2E_JEV_KEY\"\n"
+        ),
+    )
+    .unwrap();
+    let out = Command::new(common::rippy_binary())
+        .args(["jev", "--json", "--config"])
+        .arg(&config)
+        .arg("rippy-e2e-cli list # trust me")
+        .current_dir(dir.path())
+        .env("HOME", dir.path())
+        .env("RIPPY_E2E_JEV_KEY", "e2e-secret-key")
+        .output()
+        .unwrap();
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        report["note"],
+        "[jev] is disabled in config; reviewing anyway"
+    );
+    assert_eq!(report["rippy"]["class"], "unknown-command");
+    assert_eq!(report["jev"]["state"]["command"], "rippy-e2e-cli list");
+    assert_eq!(report["jev"]["outcome"], "approve");
+    assert_eq!(report["final"]["decision"], "allow");
 }

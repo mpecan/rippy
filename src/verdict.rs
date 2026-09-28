@@ -66,6 +66,12 @@ impl Verdict {
         Self::ask_with_class(AskClass::Uncertain(kind), reason)
     }
 
+    /// An ask with an explicit class, for sites whose class depends on input.
+    #[must_use]
+    pub(crate) fn ask_as(class: AskClass, reason: impl Into<String>) -> Self {
+        Self::ask_with_class(class, reason)
+    }
+
     fn ask_with_class(class: AskClass, reason: impl Into<String>) -> Self {
         Self {
             decision: Decision::Ask,
@@ -107,7 +113,22 @@ impl Verdict {
         self.allow_reason.as_ref()
     }
 
+    /// This verdict with its ask class raised to at least `class`. Only the
+    /// class changes; `Allow`/`Deny` are returned as they are.
+    #[must_use]
+    pub(crate) fn with_class_at_least(mut self, class: AskClass) -> Self {
+        self.ask_class = self.ask_class.map(|own| own.max(class));
+        self
+    }
+
+    /// This verdict, with an ask promoted to [`AskClass::Approval`].
+    #[must_use]
+    pub(crate) fn into_approval(self) -> Self {
+        self.with_class_at_least(AskClass::Approval)
+    }
+
     /// Carry an existing resolved command form, if any, onto this verdict.
+    #[cfg(feature = "jev")]
     #[must_use]
     pub(crate) fn with_optional_resolution(mut self, resolved: Option<String>) -> Self {
         self.resolved_command = resolved;

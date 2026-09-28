@@ -8,6 +8,7 @@ use std::ops::Range;
 
 use rable::{Node, NodeKind};
 
+use super::redact;
 use crate::ast;
 
 const REDACTED: &str = "<redacted>";
@@ -25,6 +26,8 @@ pub struct Shape<'a> {
     pub leaves: Vec<Leaf<'a>>,
     word_spans: Vec<Range<usize>>,
     assignment_spans: Vec<Range<usize>>,
+    /// Texts of redirect targets (`< ~/.ssh/id_rsa`), labelled as paths.
+    pub redirect_targets: Vec<String>,
     has_heredoc: bool,
 }
 
@@ -36,6 +39,7 @@ impl<'a> Shape<'a> {
             leaves: Vec::new(),
             word_spans: Vec::new(),
             assignment_spans: Vec::new(),
+            redirect_targets: Vec::new(),
             has_heredoc: false,
         };
         for node in nodes {
@@ -117,11 +121,34 @@ impl<'a> Shape<'a> {
         }
         for r in redirects {
             match &r.kind {
-                NodeKind::Redirect { target, .. } => self.visit_word(target),
+                NodeKind::Redirect { target, .. } => {
+                    if let NodeKind::Word { value, .. } = &target.kind {
+                        self.redirect_targets.push(value.clone());
+                    }
+                    self.visit_word(target);
+                }
                 NodeKind::HereDoc { .. } => self.has_heredoc = true,
                 _ => {}
             }
         }
+    }
+
+    /// Whether the source is ASCII. rable's word spans drift after multibyte
+    /// text, so spans are only trusted for ASCII input.
+    #[must_use]
+    pub const fn is_ascii(&self) -> bool {
+        self.source.is_ascii()
+    }
+
+    /// Whether the command spans more than one line.
+    #[must_use]
+    pub fn is_multiline(&self) -> bool {
+        self.source.trim_end().contains('\n')
+    }
+
+    #[must_use]
+    pub const fn has_heredoc(&self) -> bool {
+        self.has_heredoc
     }
 
     /// Record a word's span and descend into any substitution inside it.
@@ -194,91 +221,22 @@ impl<'a> Shape<'a> {
                 edits.push((span.start + eq + 1..span.end, REDACTED.to_owned()));
             }
         }
-        let mut previous_was_secret_flag = false;
+        let mut after_secret_flag = false;
         for span in &self.word_spans {
             if self.assignment_spans.contains(span) {
                 continue;
             }
             let text = &self.source[span.clone()];
-            if previous_was_secret_flag && !text.starts_with('-') {
-                edits.push((span.clone(), REDACTED.to_owned()));
-            } else if let Some(eq) = secret_flag_value_start(text) {
-                edits.push((span.start + eq..span.end, REDACTED.to_owned()));
-            } else if looks_like_secret(text.trim_matches(['"', '\''])) {
-                edits.push((span.clone(), REDACTED.to_owned()));
-            } else if let Some(userinfo) = url_userinfo(text) {
+            for r in redact::secret_ranges(text, after_secret_flag) {
                 edits.push((
-                    span.start + userinfo.start..span.start + userinfo.end,
+                    span.start + r.start..span.start + r.end,
                     REDACTED.to_owned(),
                 ));
             }
-            previous_was_secret_flag = is_secret_flag(text);
+            after_secret_flag = redact::is_secret_flag(text);
         }
         edits
     }
-}
-
-fn is_secret_flag(word: &str) -> bool {
-    if !word.starts_with('-') || word.contains('=') {
-        return false;
-    }
-    let lower = word.to_ascii_lowercase();
-    [
-        "token", "secret", "password", "passwd", "api-key", "apikey", "auth",
-    ]
-    .iter()
-    .any(|k| lower.contains(k))
-}
-
-/// `--token=VALUE` → offset of `VALUE`.
-fn secret_flag_value_start(word: &str) -> Option<usize> {
-    let eq = word.find('=')?;
-    (is_secret_flag(&word[..eq]) && eq + 1 < word.len()).then_some(eq + 1)
-}
-
-/// Token shapes from common providers, and long opaque base64/hex runs.
-fn looks_like_secret(word: &str) -> bool {
-    const PREFIXES: &[&str] = &[
-        "ghp_",
-        "gho_",
-        "ghu_",
-        "ghs_",
-        "ghr_",
-        "github_pat_",
-        "glpat-",
-        "sk-",
-        "sk_live_",
-        "rk_live_",
-        "xoxb-",
-        "xoxp-",
-        "xoxa-",
-        "AKIA",
-        "ASIA",
-        "npm_",
-        "hf_",
-    ];
-    if word.len() >= 16 && PREFIXES.iter().any(|p| word.starts_with(p)) {
-        return true;
-    }
-    let opaque = word
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '_' | '-'));
-    let mixed =
-        word.chars().any(|c| c.is_ascii_digit()) && word.chars().any(|c| c.is_ascii_alphabetic());
-    word.len() >= 32
-        && opaque
-        && mixed
-        && !word.starts_with(['/', '.', '-'])
-        && !word.contains("//")
-}
-
-/// `https://user:pass@host` → the range of `user:pass`.
-fn url_userinfo(word: &str) -> Option<Range<usize>> {
-    let scheme_end = word.find("://")? + 3;
-    let rest = &word[scheme_end..];
-    let at = rest.find('@')?;
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    (at < authority_end && at > 0).then(|| scheme_end..scheme_end + at)
 }
 
 fn apply_edits(source: &str, mut edits: Vec<(Range<usize>, String)>) -> String {
@@ -292,8 +250,7 @@ fn apply_edits(source: &str, mut edits: Vec<(Range<usize>, String)>) -> String {
         out.replace_range(range.clone(), &replacement);
         floor = range.start;
     }
-    let trimmed = out.trim_end();
-    trimmed.to_owned()
+    out.trim_end().to_owned()
 }
 
 #[cfg(test)]

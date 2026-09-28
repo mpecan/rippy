@@ -121,7 +121,12 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     }
 
     let tracking_db = config.tracking_db.clone();
-    let jev_settings = config.jev.clone();
+    // A remote target's facts cannot be computed here (docs/jev.md#placement).
+    let jev_settings = if args.remote {
+        None
+    } else {
+        config.jev.clone()
+    };
     let maybe_verdict = evaluate(&payload, config, args, cwd.clone())?;
 
     let Some(verdict) = maybe_verdict else {

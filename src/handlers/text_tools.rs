@@ -143,7 +143,7 @@ impl Handler for AwkHandler {
             return program.map_or_else(
                 || {
                     Classification::Uncertain(
-                        UncertainKind::OpaqueInput,
+                        UncertainKind::ProjectDefined,
                         format!("{} -f (script file)", ctx.command_name),
                     )
                 },
@@ -481,7 +481,7 @@ mod tests {
         let result = AWK_HANDLER.classify(&ctx);
         assert!(matches!(
             result,
-            Classification::Uncertain(UncertainKind::OpaqueInput, _)
+            Classification::Uncertain(UncertainKind::ProjectDefined, _)
         ));
     }
 }

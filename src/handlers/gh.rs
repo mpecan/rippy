@@ -153,7 +153,7 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
             };
         }
         return Classification::Uncertain(
-            UncertainKind::OpaqueInput,
+            UncertainKind::ProjectDefined,
             "gh api (--input, cannot verify contents)".into(),
         );
     }

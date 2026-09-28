@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use rable::{Node, NodeKind};
 
 use crate::allowlists;
+use crate::ask_rules;
 use crate::ast;
 use crate::cc_permissions::{self, CcRules};
 use crate::condition::MatchContext;
@@ -14,7 +15,7 @@ use crate::parser::BashParser;
 use crate::resolve::{LocalBinding, VarLookup};
 use crate::trace::{Stage, Trace, TraceEvent};
 use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable};
-use crate::verdict::{AllowReason, Decision, Verdict};
+use crate::verdict::{AllowReason, AskClass, Decision, UncertainKind, Verdict};
 
 /// Reason for an arithmetic context carrying a substitution bash resolves by
 /// running a command. Matches the wording `resolve` already emits for the same
@@ -491,7 +492,12 @@ impl Analyzer {
             } else {
                 DynamicExpansion
             };
-            return Verdict::uncertain(kind, "assignment with expansion");
+            let v = Verdict::uncertain(kind, "assignment with expansion");
+            return if ask_rules::sets_lookup_env(assignments) {
+                v.into_approval()
+            } else {
+                v
+            };
         }
         let Some(name) = ast::dangerous_assignment_name(assignments) else {
             return self.analyze_command_body(node, cwd, depth);
@@ -536,8 +542,11 @@ impl Analyzer {
         self.push_literal_bindings(assignments);
         let piped = self.piped || dispatch::stdin_redirected(redirects);
         let prev_piped = std::mem::replace(&mut self.piped, piped);
-        let v = self.analyze_command_node(words, redirects, cwd, depth);
+        let mut v = self.analyze_command_node(words, redirects, cwd, depth);
         self.piped = prev_piped;
+        if ask_rules::sets_lookup_env(assignments) {
+            v = v.into_approval();
+        }
         self.locals.truncate(checkpoint);
         v
     }
@@ -573,6 +582,7 @@ impl Analyzer {
                 Verdict::allow(AllowReason::Wrapper(cmd_name.clone()))
             } else {
                 self.analyze_inner_command(&crate::resolve::shell_join(inner_args), cwd, depth)
+                    .with_class_at_least(AskClass::Uncertain(UncertainKind::Indirect))
             };
             return self.with_redirects(verdict, redirects, cwd);
         }

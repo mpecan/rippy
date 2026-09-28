@@ -6,11 +6,12 @@ use super::{
     Analyzer, EXPANSION_ASK, MAX_RESOLUTION_DEPTH, MAX_RESOLVED_LEN, annotate_with_resolution,
 };
 use crate::allowlists;
+use crate::ask_rules;
 use crate::ast;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::resolve;
 use crate::trace::{Stage, Trace};
-use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable, UnknownCommand};
+use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable};
 use crate::verdict::{AllowReason, AskClass, Decision, Verdict};
 
 impl Analyzer {
@@ -65,7 +66,7 @@ impl Analyzer {
         self.trace(Stage::Handler, false, || {
             format!("no handler registered for {cmd_name}")
         });
-        self.default_verdict(cmd_name)
+        self.default_verdict(cmd_name, args, cwd)
     }
 
     /// Match a single simple command (leaf) against the CC-permission and config
@@ -340,11 +341,13 @@ impl Analyzer {
         Some(annotate_with_resolution(inner, &resolved_command))
     }
 
-    /// Promote a [`DynamicExpansion`] ask to [`AskClass::Approval`] when the
-    /// command asks anyway: re-classified with every expanded word replaced by
-    /// an inert placeholder, it still needs approval (`rm $f`), so the unknown
-    /// value is not what is in doubt. Only the class can change, never the
-    /// decision or reason, and the probe is not traced.
+    /// Raise a [`DynamicExpansion`] ask to the class the command has whatever
+    /// the unknown value is. A value handed to a program that runs code is code,
+    /// not data. Otherwise the command is classified again with each expansion
+    /// resolved to an inert placeholder, keeping the literal text around it
+    /// (`--output=$X`), and a class that probe asks with applies. Only the class
+    /// can change, never the decision or reason; the probe is not traced and
+    /// spends no node budget. See docs/jev.md#classification-rules.
     fn unless_asks_anyway(
         &mut self,
         v: Verdict,
@@ -358,27 +361,19 @@ impl Analyzer {
         let Some(name) = ast::command_name_from_words(words) else {
             return v;
         };
-        let mut argv = vec![name.to_owned()];
-        argv.extend(
-            words
-                .iter()
-                .skip(1)
-                .zip(ast::command_args_from_words(words))
-                .map(|(word, text)| {
-                    if ast::has_expansions(word) {
-                        "rippy-placeholder".into()
-                    } else {
-                        text
-                    }
-                }),
-        );
-        let saved = std::mem::replace(&mut self.trace, Trace::new(false));
+        if ask_rules::runs_code(self.config.resolve_alias(name)) {
+            return v.into_approval();
+        }
+        let argv = placeholder_argv(words);
+        let saved_trace = std::mem::replace(&mut self.trace, Trace::new(false));
+        let saved_budget = self.node_budget;
         let probe = self.analyze_inner_command(&resolve::shell_join(&argv), cwd, depth + 1);
-        self.trace = saved;
-        if probe.decision == Decision::Deny || probe.ask_class() == Some(AskClass::Approval) {
-            Verdict::ask(v.reason).with_optional_resolution(v.resolved_command)
-        } else {
-            v
+        self.trace = saved_trace;
+        self.node_budget = saved_budget;
+        match probe.decision {
+            Decision::Allow => v,
+            Decision::Ask => v.with_class_at_least(probe.ask_class().unwrap_or(AskClass::Approval)),
+            Decision::Deny => v.into_approval(),
         }
     }
 
@@ -428,11 +423,14 @@ impl Analyzer {
             Classification::Recurse(inner) => {
                 self.trace(Stage::Command, true, || format!("recurse: {inner}"));
                 self.analyze_inner_command(&inner, cwd, depth)
+                    .with_class_at_least(INDIRECT)
             }
             Classification::RecurseAtLeast(inner, outer) => {
                 let outer = self.apply_classification(*outer, cwd, depth);
                 self.trace(Stage::Command, true, || format!("recurse: {inner}"));
-                let inner = self.analyze_inner_command(&inner, cwd, depth);
+                let inner = self
+                    .analyze_inner_command(&inner, cwd, depth)
+                    .with_class_at_least(INDIRECT);
                 // Outer last so an equal-decision tie reports its reason, which
                 // names the flag that spawned the program.
                 Verdict::combine(&[inner, outer])
@@ -445,7 +443,8 @@ impl Analyzer {
                 self.remote = true;
                 let v = self.analyze_inner_command(&inner, cwd, depth);
                 self.remote = prev_remote;
-                v
+                // Facts about a remote target cannot be computed locally.
+                v.into_approval()
             }
             Classification::WithRedirects(reason, targets) => {
                 let mut verdicts = vec![Verdict::allow(reason)];
@@ -457,7 +456,12 @@ impl Analyzer {
         }
     }
 
-    pub(super) fn default_verdict(&mut self, cmd_name: &str) -> Verdict {
+    pub(super) fn default_verdict(
+        &mut self,
+        cmd_name: &str,
+        args: &[String],
+        cwd: &Path,
+    ) -> Verdict {
         let action = self.config.default_action;
         self.trace(Stage::Default, true, || {
             action.map_or_else(
@@ -465,16 +469,15 @@ impl Analyzer {
                 |a| format!("default action: {}", a.as_str()),
             )
         });
+        let class = ask_rules::unknown_command(cmd_name, args, cwd);
         self.config.default_action.map_or_else(
-            || Verdict::uncertain(UnknownCommand, format!("{cmd_name} (unknown command)")),
+            || Verdict::ask_as(class, format!("{cmd_name} (unknown command)")),
             |action| match action {
                 Decision::Allow => Verdict::allow(AllowReason::DefaultAction {
                     cmd: cmd_name.to_owned(),
                     weakening: self.config.weakening_suffix().to_owned(),
                 }),
-                Decision::Ask => {
-                    Verdict::uncertain(UnknownCommand, format!("{cmd_name} (default action)"))
-                }
+                Decision::Ask => Verdict::ask_as(class, format!("{cmd_name} (default action)")),
                 Decision::Deny => Verdict::deny(format!("{cmd_name} (default action)")),
             },
         )
@@ -529,4 +532,43 @@ pub(super) fn stdin_redirected(redirects: &[Node]) -> bool {
         matches!(r.kind, NodeKind::HereDoc { .. })
             || matches!(ast::redirect_info(r), Some((ast::RedirectOp::Read, _)))
     })
+}
+
+/// The class floor for anything judged through a handler's recursion: the
+/// text rippy judged is not the command as written (docs/jev.md).
+const INDIRECT: AskClass = AskClass::Uncertain(crate::verdict::UncertainKind::Indirect);
+
+/// The placeholder every unknown value resolves to in the class probe.
+const PLACEHOLDER: &str = "rippy-placeholder";
+
+struct PlaceholderLookup;
+
+impl resolve::VarLookup for PlaceholderLookup {
+    fn lookup(&self, _name: &str) -> Option<String> {
+        Some(PLACEHOLDER.to_owned())
+    }
+}
+
+/// `words` with every expansion replaced by [`PLACEHOLDER`]. The resolver keeps
+/// literal text around an expansion; a word it cannot resolve at all (an
+/// unsupported operator) is replaced whole.
+fn placeholder_argv(words: &[Node]) -> Vec<String> {
+    if let Some(args) = resolve::resolve_command_args(words, &PlaceholderLookup).args {
+        return args;
+    }
+    let texts = words.iter().zip(
+        ast::command_name_from_words(words)
+            .map(str::to_owned)
+            .into_iter()
+            .chain(ast::command_args_from_words(words)),
+    );
+    texts
+        .map(|(word, text)| {
+            if ast::has_expansions(word) {
+                PLACEHOLDER.to_owned()
+            } else {
+                text
+            }
+        })
+        .collect()
 }

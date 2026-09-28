@@ -175,7 +175,7 @@ fn classify_inventory(ctx: &HandlerContext) -> Classification {
             Classification::Allow(AllowReason::handler("ansible-inventory (read-only query)"))
         }
         Some(_) => Classification::Uncertain(
-            UncertainKind::OpaqueInput,
+            UncertainKind::ProjectDefined,
             "ansible-inventory (dynamic inventory script)".into(),
         ),
         None if has_flag(ctx.args, &["-i", "--inventory"]) => {

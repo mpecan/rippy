@@ -89,7 +89,7 @@ fn psql_sql_option(ctx: &HandlerContext, name: &OptionName, value: &str) -> Opti
     Some(ctx.read_file(value).map_or_else(
         || {
             Classification::Uncertain(
-                UncertainKind::OpaqueInput,
+                UncertainKind::ProjectDefined,
                 "psql -f (file execution)".into(),
             )
         },
@@ -288,7 +288,7 @@ mod tests {
         let result = PSQL_HANDLER.classify(&ctx);
         assert!(matches!(
             result,
-            Classification::Uncertain(UncertainKind::OpaqueInput, _)
+            Classification::Uncertain(UncertainKind::ProjectDefined, _)
         ));
     }
 

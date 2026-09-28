@@ -14,10 +14,25 @@ fn places() -> Places<'static> {
     }
 }
 
-fn facts_for(command: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Value {
+fn facts_with(
+    command: &str,
+    places: &Places<'_>,
+    lookup: &dyn Fn(&str) -> Option<String>,
+    context: Option<&str>,
+) -> Value {
     let nodes = rable::parse(command, false).unwrap();
     let shape = Shape::of(command, &nodes);
-    collect(&shape, Path::new("/work/app"), &places(), lookup, None)
+    let sanitized = shape.sanitized();
+    let at = Where {
+        cwd: Path::new("/work/app"),
+        places,
+        lookup,
+    };
+    collect(&shape, &sanitized, &at, context)
+}
+
+fn facts_for(command: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Value {
+    facts_with(command, &places(), lookup, None)
 }
 
 fn unset(_: &str) -> Option<String> {
@@ -29,7 +44,7 @@ fn unresolved_variable_names_its_role() {
     let facts = facts_for("kubectl get pods -n $NS", &unset);
     assert_eq!(
         facts["variables"]["NS"],
-        "argument after -n for kubectl; not set"
+        "argument after -n for kubectl; not set in rippy's environment"
     );
 }
 
@@ -70,6 +85,40 @@ fn paths_are_labelled_relative_to_the_project() {
     );
 }
 
+// Review finding: a value redacted from the command came back as a path key.
+#[test]
+fn a_redacted_value_never_becomes_a_path_fact() {
+    for command in [
+        "somecli --password hunter2/abc list",
+        "somecli --token ab/CDEFGHIJKLMNOP/xyz list",
+        "somecli wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    ] {
+        let facts = facts_for(command, &unset);
+        for secret in ["hunter2", "CDEFGHIJ", "wJalrXUtn"] {
+            assert!(!facts.to_string().contains(secret), "{command}: {facts}");
+        }
+    }
+}
+
+#[test]
+fn home_paths_are_shown_relative_to_home() {
+    let facts = facts_for("cat /home/dev/notes/todo.txt", &unset);
+    assert_eq!(
+        facts["paths"]["~/notes/todo.txt"],
+        "outside project (home directory)"
+    );
+    assert!(!facts.to_string().contains("/home/dev"));
+}
+
+#[test]
+fn redirect_targets_are_labelled() {
+    let facts = facts_for("somecli < ~/.ssh/id_rsa > out.txt", &unset);
+    assert_eq!(
+        facts["paths"]["~/.ssh/id_rsa"],
+        "outside project (home directory)"
+    );
+}
+
 #[test]
 fn urls_and_flags_are_not_paths() {
     let facts = facts_for("curl -s https://example.com/a/b --data-binary x", &unset);
@@ -88,11 +137,8 @@ fn programs_are_labelled_by_where_they_resolve() {
         home: None,
         path_var: Some(&path_var),
     };
-    let command = "rippy-fact-tool list | rippy-fact-missing";
-    let nodes = rable::parse(command, false).unwrap();
-    let facts = collect(
-        &Shape::of(command, &nodes),
-        dir.path(),
+    let facts = facts_with(
+        "rippy-fact-tool list | rippy-fact-missing",
         &places,
         &unset,
         None,
@@ -103,19 +149,9 @@ fn programs_are_labelled_by_where_they_resolve() {
 
 #[test]
 fn user_context_is_passed_through() {
-    let command = "ls";
-    let nodes = rable::parse(command, false).unwrap();
-    let facts = collect(
-        &Shape::of(command, &nodes),
-        Path::new("/work/app"),
-        &places(),
-        &unset,
-        Some("kubectl only talks to local kind clusters"),
-    );
-    assert_eq!(
-        facts["user_context"],
-        "kubectl only talks to local kind clusters"
-    );
+    let context = "kubectl only talks to local kind clusters";
+    let facts = facts_with("ls", &places(), &unset, Some(context));
+    assert_eq!(facts["user_context"], context);
 }
 
 #[test]
