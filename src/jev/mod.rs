@@ -102,8 +102,12 @@ pub fn review(
         },
         settings.context.as_deref(),
     );
-    let uncertainty = without_resolution(&verdict.reason);
-    let state = request::state(&sanitized, uncertainty, kind.as_str(), &facts);
+    let state = request::state(
+        &sanitized,
+        request::uncertainty(kind),
+        kind.as_str(),
+        &facts,
+    );
     let log = json!({
         "kind": kind.as_str(),
         "question_set": request::QUESTION_SET_VERSION,
@@ -171,14 +175,6 @@ fn unavailable(mut verdict: Verdict, problem: &str, mut log: Value) -> Review {
         force_prompt: false,
         log: Some(log),
     }
-}
-
-/// A reason's text before any `(resolved: …)` suffix, which carries the values
-/// rippy substituted for variables and must not be sent.
-fn without_resolution(reason: &str) -> &str {
-    reason
-        .find("(resolved: ")
-        .map_or(reason, |i| reason[..i].trim_end())
 }
 
 /// Whether a response's model id is safe to echo into a reason.

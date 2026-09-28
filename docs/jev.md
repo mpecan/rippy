@@ -177,10 +177,13 @@ in `src/ask_rules.rs`, `expansion_ask`/`unless_asks_anyway`
     Approval. They change rippy's rules, an agent's permissions, or how later
     commands resolve.
   - A path- or script-named program (`./x`, `bin/x`, `deploy.py`), a task runner
-    (`make`, `poetry`, `go`, `rake`, …), or an unknown program given a script or
-    an executable path (`strace ./x`, `somecli run task.sh`) is
+    (`make`, `poetry`, `go`, `rake`, `pipx`, `uvx`, …), or an unknown program
+    whose first operand is a relative path or which is given a script or an
+    executable path (`watch ./x`, `strace ./x`, `somecli run task.sh`) is
     `ProjectDefined`.
   - Anything else is `UnknownCommand`.
+- **Aliases.** A config alias that rewrites a command's name makes the ask
+  `Indirect`: rippy judged a different program from the one the text names.
 - **Indirect judgements.** A wrapper (`timeout`, `nohup`, `nice`, …) and every
   handler recursion (`env`, `xargs`, `find -exec`, `sh -c`, a readable shell
   script) re-analyze text that is not the command as written: rebuilt from
@@ -197,6 +200,8 @@ in `src/ask_rules.rs`, `expansion_ask`/`unless_asks_anyway`
   - An unresolved word that would run code (`$(…)`, backticks, `<(…)`) is
     Unanalyzable, because rippy never vetted that code. The same goes for
     heredocs with a substitution and assignments whose value runs code.
+  - An unknown value glued to literal text is part of a flag or operand
+    (`--output=$X`, `-o$X`, `of=$X`, `x-$X`), so it is Approval.
   - An unknown value handed to a program that runs code or other programs
     (`bash -c "$X"`, `node -e "$CODE"`, `env $X`, `timeout 5 $CMD`,
     `find -exec $X`, `sed "$X"`) is Approval: there the value is code.
@@ -294,13 +299,22 @@ rules mark them `project-defined` or `indirect` where the ask is minted. The
 prototype confirmed the risk: `./scripts/list-users.sh` and
 `git frobnicate --list` were both judged read-only at confidence ≥ 0.95.
 
-`eligibility.rs` then refuses, as defence in depth:
-- any command with a heredoc, text on more than one line, or non-ASCII text
-  (rable's word spans drift after multibyte text, so redaction and comment
-  stripping could not be trusted)
-- any leaf whose name is path- or script-like or a task runner
-- any leaf with no literal name (`$X list`); leaves that are only assignments
-  are skipped
+`eligibility.rs` then admits only *plain* commands: simple commands joined by
+pipes and `;`/`&&`/`||`. As defence in depth it refuses:
+- subshells, groups, loops, conditionals, functions, `coproc`, and command or
+  process substitutions
+- any stdin redirect (`<`, `<<<`, `0<`, `<&`) and any heredoc, so a file's
+  contents, which Jev cannot see, never decide a verdict
+- text on more than one line, or non-ASCII text (rable's word spans drift after
+  multibyte text, so redaction and comment stripping could not be trusted)
+- any `NAME=value` prefix, since its value is redacted and the command cannot be
+  shown as it runs
+- an interpreter given any argument (`python3 -i deploy.py`, `node -r ./x`);
+  only a bare REPL is sent
+- a `--flag=path` argument (`--kubeconfig=./x`, `--git-dir=../repo`), which may
+  configure what the program runs
+- any leaf whose name is path- or script-like or a task runner, or has no
+  literal name (`$X list`)
 - a lookup variable passed as an argument (`env PATH=./bin cmd`)
 
 `review` is called once from `run_hook` in `src/main.rs`, after `evaluate()`
@@ -317,22 +331,27 @@ begins a comment, and is removed up to the end of its line.
 - assignment values, and uppercase `NAME=value` arguments (`export TOKEN=…`,
   `env API_KEY=…`)
 - values of credential flags (`--token`, `--password`, `--api-key`, `--user`,
-  `-u`, `-p`, …, in `--flag=v` and `--flag v` form)
+  `--pw`, `-u`, `-p`, …, as `--flag=v`, `--flag v`, attached `-pv`, or a whole
+  quoted `'--password v'`)
+- credential-named operands (`token=…`, `api_key=…`, `'password=…'`)
 - `Bearer`/`Basic` credentials and `Authorization:`/`X-Api-Key:`/`Cookie:`
   header values
 - provider token shapes (also after a path, `./ghp_…`), JWTs, and long opaque
   base64/hex runs
-- URL userinfo (split at the last `@`) and credential-named query parameters
+- URL userinfo (split at the last `@`) and credential-named query and fragment
+  parameters
 
-The `rippy_uncertainty` sent is rippy's reason *without* its
-`(resolved: …)` suffix, which would carry the real values of variables.
+Expansions (`$X`, `${X:-y}`) are never redacted or mangled: their values are not
+in the text. `rippy_uncertainty` is a fixed description of the uncertain kind,
+never rippy's own reason: reasons can carry resolved variable values and handler
+detail (`7z $SECRET` names the resolved argument).
 
 ### State
 
 ```json
 {
   "command": "mkdir -p $OUT/build",
-  "rippy_uncertainty": "mkdir with variable expansion",
+  "rippy_uncertainty": "an argument comes from a variable or expansion whose value rippy cannot see",
   "uncertainty_kind": "dynamic-expansion",
   "facts": {
     "resolved_variables": { "OUT": "./target (inside project)" },
@@ -632,11 +651,28 @@ them are fixed and pinned by tests:
 | The placeholder probe spent node budget | Budget restored |
 | A failed `rippy-jev` release leg blocked the default Homebrew formula | Each formula is written only when its archives exist |
 
+A verification pass against the first remediation found a second round, also
+fixed and pinned (`tests/jev_invariants.rs` replays every reported bypass
+against a fake Jev that approves everything):
+
+| Finding | Fix |
+|---|---|
+| Stdin redirects on groups and loops (`(python3) < deploy.py`, `while …; done < f`) | Only plain commands with no stdin redirect are sent |
+| Interpreter flags that run repo code (`python3 -i deploy.py`, `node -r ./x`) | Interpreters are sent only with no arguments |
+| Repo config via `--kubeconfig=./x`, `KUBECONFIG=./x`, `--git-dir=./x` | `--flag=path` and any assignment prefix refused |
+| A config alias judged one program while the text named another | Alias rewrites are `Indirect` |
+| `rg --pre=$X`, `curl -o$X`, `dd of=$X` looked like plain values | Glued expansions are Approval |
+| `7z $SECRET` put the resolved value in the reason, which was sent | Only a fixed per-kind description is sent |
+| `-pabc`, `token=abc`, quoted `'--password abc'`, `#token=` fragments were not redacted; `${X_TOKEN:-x}` was mangled | Covered; markers match at word boundaries; expansions untouched |
+| `watch ./x`, `pipx run`, `coproc` | Project-defined, and compound constructs are refused |
+
 ## Known pre-existing issues
 
 The reviews also found issues in the default build that predate this work.
 They are **not** changed here, because doing so changes default-build
-behaviour. The Jev build is protected from each of them as described.
+behaviour. The Jev build is protected from each: where an issue makes the
+default build *allow* a command, Jev is never involved, and where it makes the
+analyzer judge the wrong text, the ask is `indirect` or refused.
 
 - **Wrapper and handler recursion re-joins arguments unquoted**
   (`analyzer.rs` wrapper branch; `env`, `xargs`, `find`, `docker`/`kubectl

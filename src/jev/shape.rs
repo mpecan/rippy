@@ -18,6 +18,8 @@ pub struct Leaf<'a> {
     pub name: Option<String>,
     pub args: Vec<String>,
     pub words: &'a [Node],
+    /// Whether it carries `NAME=value` prefixes, whose values are redacted.
+    pub has_assignments: bool,
 }
 
 /// Everything collected from one parse.
@@ -29,6 +31,8 @@ pub struct Shape<'a> {
     /// Texts of redirect targets (`< ~/.ssh/id_rsa`), labelled as paths.
     pub redirect_targets: Vec<String>,
     has_heredoc: bool,
+    has_compound: bool,
+    has_stdin_redirect: bool,
 }
 
 impl<'a> Shape<'a> {
@@ -41,6 +45,8 @@ impl<'a> Shape<'a> {
             assignment_spans: Vec::new(),
             redirect_targets: Vec::new(),
             has_heredoc: false,
+            has_compound: false,
+            has_stdin_redirect: false,
         };
         for node in nodes {
             shape.visit(node);
@@ -49,6 +55,7 @@ impl<'a> Shape<'a> {
     }
 
     fn visit(&mut self, node: &'a Node) {
+        self.has_compound |= is_compound(&node.kind);
         match &node.kind {
             NodeKind::Command {
                 assignments,
@@ -111,6 +118,7 @@ impl<'a> Shape<'a> {
             name: ast::command_name_from_words(words).map(str::to_owned),
             args: ast::command_args_from_words(words),
             words,
+            has_assignments: !assignments.is_empty(),
         });
         for a in assignments {
             self.assignment_spans.extend(self.span_of(a));
@@ -121,7 +129,8 @@ impl<'a> Shape<'a> {
         }
         for r in redirects {
             match &r.kind {
-                NodeKind::Redirect { target, .. } => {
+                NodeKind::Redirect { target, op, fd } => {
+                    self.has_stdin_redirect |= op.starts_with('<') || *fd == 0;
                     if let NodeKind::Word { value, .. } = &target.kind {
                         self.redirect_targets.push(value.clone());
                     }
@@ -131,6 +140,20 @@ impl<'a> Shape<'a> {
                 _ => {}
             }
         }
+    }
+
+    /// Whether any part is a compound construct (subshell, group, loop,
+    /// conditional, function, substitution): only plain commands joined by
+    /// pipes and lists are sent.
+    #[must_use]
+    pub const fn has_compound(&self) -> bool {
+        self.has_compound
+    }
+
+    /// Whether anything reads stdin from a file, here-string or descriptor.
+    #[must_use]
+    pub const fn has_stdin_redirect(&self) -> bool {
+        self.has_stdin_redirect
     }
 
     /// Whether the source is ASCII. rable's word spans drift after multibyte
@@ -237,6 +260,27 @@ impl<'a> Shape<'a> {
         }
         edits
     }
+}
+
+/// Constructs other than plain commands joined by pipes and lists.
+const fn is_compound(kind: &NodeKind) -> bool {
+    matches!(
+        kind,
+        NodeKind::If { .. }
+            | NodeKind::While { .. }
+            | NodeKind::Until { .. }
+            | NodeKind::For { .. }
+            | NodeKind::ForArith { .. }
+            | NodeKind::Select { .. }
+            | NodeKind::Case { .. }
+            | NodeKind::Function { .. }
+            | NodeKind::Subshell { .. }
+            | NodeKind::BraceGroup { .. }
+            | NodeKind::ConditionalExpr { .. }
+            | NodeKind::Coproc { .. }
+            | NodeKind::CommandSubstitution { .. }
+            | NodeKind::ProcessSubstitution { .. }
+    )
 }
 
 fn apply_edits(source: &str, mut edits: Vec<(Range<usize>, String)>) -> String {

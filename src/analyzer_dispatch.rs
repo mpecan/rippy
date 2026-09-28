@@ -361,7 +361,9 @@ impl Analyzer {
         let Some(name) = ast::command_name_from_words(words) else {
             return v;
         };
-        if ask_rules::runs_code(self.config.resolve_alias(name)) {
+        if ask_rules::runs_code(self.config.resolve_alias(name))
+            || words.iter().skip(1).any(is_glued_expansion)
+        {
             return v.into_approval();
         }
         let argv = placeholder_argv(words);
@@ -375,6 +377,12 @@ impl Analyzer {
             Decision::Ask => v.with_class_at_least(probe.ask_class().unwrap_or(AskClass::Approval)),
             Decision::Deny => v.into_approval(),
         }
+    }
+
+    /// Whether a config alias rewrites this command's name, so the program
+    /// judged is not the one the text names.
+    pub(super) fn is_aliased(&self, words: &[Node]) -> bool {
+        ast::command_name_from_words(words).is_some_and(|n| self.config.resolve_alias(n) != n)
     }
 
     /// Verdict for a command with a dynamic-known argument (`$loopvar`, `$?`).
@@ -423,14 +431,14 @@ impl Analyzer {
             Classification::Recurse(inner) => {
                 self.trace(Stage::Command, true, || format!("recurse: {inner}"));
                 self.analyze_inner_command(&inner, cwd, depth)
-                    .with_class_at_least(INDIRECT)
+                    .with_class_at_least(ask_rules::INDIRECT)
             }
             Classification::RecurseAtLeast(inner, outer) => {
                 let outer = self.apply_classification(*outer, cwd, depth);
                 self.trace(Stage::Command, true, || format!("recurse: {inner}"));
                 let inner = self
                     .analyze_inner_command(&inner, cwd, depth)
-                    .with_class_at_least(INDIRECT);
+                    .with_class_at_least(ask_rules::INDIRECT);
                 // Outer last so an equal-decision tie reports its reason, which
                 // names the flag that spawned the program.
                 Verdict::combine(&[inner, outer])
@@ -534,9 +542,14 @@ pub(super) fn stdin_redirected(redirects: &[Node]) -> bool {
     })
 }
 
-/// The class floor for anything judged through a handler's recursion: the
-/// text rippy judged is not the command as written (docs/jev.md).
-const INDIRECT: AskClass = AskClass::Uncertain(crate::verdict::UncertainKind::Indirect);
+/// An expansion with literal text before it (`--output=$X`, `-o$X`, `of=$X`)
+/// is part of a flag or operand, not a plain value: what the program does with
+/// it depends on the value.
+fn is_glued_expansion(word: &Node) -> bool {
+    ast::has_expansions(word)
+        && matches!(&word.kind, NodeKind::Word { value, .. }
+            if !value.trim_start_matches(['"', '\'']).starts_with('$'))
+}
 
 /// The placeholder every unknown value resolves to in the class probe.
 const PLACEHOLDER: &str = "rippy-placeholder";

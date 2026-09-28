@@ -18,6 +18,7 @@ const SECRET_FLAG_PARTS: &[&str] = &[
     "credential",
     "cookie",
     "user",
+    "pw",
 ];
 
 /// Short flags whose value is commonly a credential (`-u user:pass`, `-p pw`).
@@ -56,6 +57,20 @@ const CREDENTIAL_MARKERS: &[&str] = &[
     "token:",
 ];
 
+/// Parts of an operand name (`api_key=…`, `token=…`) that mark a credential.
+const SECRET_NAME_PARTS: &[&str] = &[
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "api_key",
+    "apikey",
+    "api-key",
+    "auth",
+    "credential",
+    "pw",
+];
+
 /// URL query parameters whose value is a credential.
 const SECRET_PARAMS: &[&str] = &[
     "token",
@@ -91,43 +106,86 @@ pub(super) fn secret_ranges(word: &str, after_secret_flag: bool) -> Vec<Range<us
     if after_secret_flag && !word.starts_with('-') {
         return vec![whole];
     }
+    // An expansion's value is never part of the text, and its operators
+    // (`${X:-y}`) must not be mistaken for credential markers.
+    if word.starts_with('$') && !word.starts_with("$'") {
+        return Vec::new();
+    }
+    let lead = word.len() - word.trim_start_matches(['"', '\'']).len();
     let bare = word.trim_matches(['"', '\'']);
     if is_token(bare) || is_jwt(bare) || bare.rsplit('/').next().is_some_and(is_token) {
         return vec![whole];
     }
-    if let Some(start) = value_start(word).or_else(|| credential_marker_end(word)) {
-        let value = start..unquoted_end(word);
+    let start = attached_short_value(bare)
+        .or_else(|| spaced_flag_value(bare))
+        .or_else(|| value_start(bare))
+        .or_else(|| credential_marker_end(bare));
+    if let Some(start) = start.map(|s| lead + s) {
+        // A value that opens its own quoting runs to the end of the word.
+        let end = if word[start..].starts_with(['\'', '"', '$']) {
+            word.len()
+        } else {
+            unquoted_end(word)
+        };
+        let value = start..end;
         return vec![value];
     }
     let mut ranges: Vec<Range<usize>> = url_userinfo(word).into_iter().collect();
-    ranges.extend(secret_query_values(word));
+    ranges.extend(secret_url_params(word));
     ranges
 }
 
-/// `--token=VALUE` or an environment-style `API_TOKEN=VALUE` → where `VALUE`
-/// starts. Lowercase `name=value` (`dd of=…`) is left alone: those are
-/// operands whose value tells a reviewer what the command touches.
+/// `-pVALUE`, `-uVALUE` → where `VALUE` starts.
+fn attached_short_value(word: &str) -> Option<usize> {
+    SECRET_SHORT_FLAGS
+        .iter()
+        .find(|f| word.len() > f.len() && word.starts_with(**f) && !word.starts_with("--"))
+        .map(|f| f.len())
+}
+
+/// A whole flag and value quoted as one word (`'--password abc'`).
+fn spaced_flag_value(word: &str) -> Option<usize> {
+    let (flag, rest) = word.split_once(' ')?;
+    (is_secret_flag(flag) && !rest.trim().is_empty()).then(|| flag.len() + 1)
+}
+
+/// `--token=VALUE`, `API_TOKEN=VALUE` or `api_key=VALUE` → where `VALUE`
+/// starts. Other lowercase `name=value` operands (`dd of=…`) are left alone:
+/// their value tells a reviewer what the command touches.
 fn value_start(word: &str) -> Option<usize> {
     let eq = word.find('=')?;
     let name = &word[..eq];
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+    {
+        return None;
+    }
     let env_style = name.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
         && name
             .chars()
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
-    let secret = env_style || is_secret_flag(name);
-    (secret && eq + 1 < unquoted_end(word)).then_some(eq + 1)
+    let lower = name.to_ascii_lowercase();
+    let secret_name = SECRET_NAME_PARTS.iter().any(|p| lower.contains(p));
+    let secret = env_style || secret_name || is_secret_flag(name);
+    (secret && eq + 1 < word.len()).then_some(eq + 1)
 }
 
+/// The end of a credential marker (`Bearer `, `Authorization:`) that starts at
+/// a word boundary, so `${MY_TOKEN:-x}` is not read as `token:`.
 fn credential_marker_end(word: &str) -> Option<usize> {
     let lower = word.to_ascii_lowercase();
+    let at_boundary =
+        |i: usize| i == 0 || !lower[..i].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_');
     let end = CREDENTIAL_MARKERS
         .iter()
-        .filter_map(|m| lower.find(m).map(|i| i + m.len()))
+        .flat_map(|m| lower.match_indices(m).map(move |(i, _)| (i, m.len())))
+        .filter(|(i, _)| at_boundary(*i))
+        .map(|(i, len)| i + len)
         .max()?;
     let end = end + word[end..].len() - word[end..].trim_start().len();
-    (end < unquoted_end(word)).then_some(end)
+    (end < word.len()).then_some(end)
 }
-
 fn unquoted_end(word: &str) -> usize {
     word.trim_end_matches(['"', '\'']).len()
 }
@@ -170,32 +228,32 @@ fn url_userinfo(word: &str) -> Option<Range<usize>> {
     (at > 0).then(|| scheme_end..scheme_end + at)
 }
 
-/// Values of credential-named query parameters in a URL.
-fn secret_query_values(word: &str) -> Vec<Range<usize>> {
-    let Some(query_start) = word
-        .find("://")
-        .and_then(|s| word[s..].find('?').map(|q| s + q + 1))
-    else {
+/// Values of credential-named parameters in a URL's query or fragment.
+fn secret_url_params(word: &str) -> Vec<Range<usize>> {
+    let Some(scheme) = word.find("://") else {
         return Vec::new();
     };
-    let query_end = word[query_start..]
-        .find('#')
-        .map_or_else(|| unquoted_end(word), |h| query_start + h);
+    let end = unquoted_end(word);
     let mut ranges = Vec::new();
-    let mut offset = query_start;
-    for pair in word[query_start..query_end].split('&') {
-        if let Some((name, value)) = pair.split_once('=')
-            && !value.is_empty()
-            && SECRET_PARAMS.contains(&name.to_ascii_lowercase().as_str())
-        {
-            let start = offset + name.len() + 1;
-            ranges.push(start..start + value.len());
+    for marker in ['?', '#'] {
+        let Some(start) = word[scheme..end].find(marker).map(|i| scheme + i + 1) else {
+            continue;
+        };
+        let stop = word[start..end].find(['#', '?']).map_or(end, |i| start + i);
+        let mut offset = start;
+        for pair in word[start..stop].split('&') {
+            if let Some((name, value)) = pair.split_once('=')
+                && !value.is_empty()
+                && SECRET_PARAMS.contains(&name.to_ascii_lowercase().as_str())
+            {
+                let value_start = offset + name.len() + 1;
+                ranges.push(value_start..value_start + value.len());
+            }
+            offset += pair.len() + 1;
         }
-        offset += pair.len() + 1;
     }
     ranges
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,7 +280,7 @@ mod tests {
     #[test]
     fn environment_style_assignments_are_redacted_operands_are_not() {
         assert_eq!(redact("GITHUB_TOKEN=abc123", false), "GITHUB_TOKEN=<r>");
-        assert_eq!(redact("API_KEY=\"a b\"", false), "API_KEY=<r>\"");
+        assert_eq!(redact("API_KEY=\"a b\"", false), "API_KEY=<r>");
         assert_eq!(redact("of=/dev/sda", false), "of=/dev/sda");
         assert_eq!(redact("EMPTY=", false), "EMPTY=");
     }
@@ -258,6 +316,35 @@ mod tests {
             redact("production-cluster-eu-west-1", false),
             "production-cluster-eu-west-1"
         );
+    }
+
+    // Verification-pass findings.
+    #[test]
+    fn more_credential_shapes_are_redacted() {
+        assert_eq!(redact("-pabc123", false), "-p<r>");
+        assert_eq!(redact("-upassword123", false), "-u<r>");
+        assert_eq!(redact("--pw", false), "--pw");
+        assert!(is_secret_flag("--pw"));
+        assert_eq!(redact("token=abc123", false), "token=<r>");
+        assert_eq!(redact("api_key=abc123", false), "api_key=<r>");
+        assert_eq!(redact("'password=abc123'", false), "'password=<r>'");
+        assert_eq!(redact("'--password abc123'", false), "'--password <r>'");
+        assert_eq!(redact("\"--password=abc123\"", false), "\"--password=<r>\"");
+        assert_eq!(redact("--password=$'abc123'", false), "--password=<r>");
+        assert_eq!(
+            redact("https://x.io/a#token=abc123", false),
+            "https://x.io/a#token=<r>"
+        );
+    }
+
+    #[test]
+    fn expansions_are_left_intact() {
+        assert_eq!(
+            redact("${MY_SECRET_TOKEN:-x}", false),
+            "${MY_SECRET_TOKEN:-x}"
+        );
+        assert_eq!(redact("$MY_TOKEN", false), "$MY_TOKEN");
+        assert_eq!(redact("my_token:x", false), "my_token:x");
     }
 
     #[test]

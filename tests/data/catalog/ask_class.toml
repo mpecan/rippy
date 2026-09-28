@@ -375,3 +375,31 @@ ask_class = "dynamic-expansion"
 command = "somecli list $X"
 decision = "ask"
 ask_class = "dynamic-expansion"
+
+# An unknown value glued to literal text is part of a flag or operand.
+[[case]]
+command = "rg --pre=$X foo"
+decision = "ask"
+ask_class = "approval"
+
+[[case]]
+command = "curl -o$X https://example.com"
+decision = "ask"
+ask_class = "approval"
+
+[[case]]
+command = "dd if=/dev/zero of=$X"
+decision = "ask"
+ask_class = "approval"
+
+[[case]]
+command = "7z x-$X y"
+decision = "ask"
+ask_class = "approval"
+
+
+# Programs that download and run packages.
+[[case]]
+command = "pipx run somecli"
+decision = "ask"
+ask_class = "project-defined"

@@ -15,7 +15,7 @@ use crate::parser::BashParser;
 use crate::resolve::{LocalBinding, VarLookup};
 use crate::trace::{Stage, Trace, TraceEvent};
 use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable};
-use crate::verdict::{AllowReason, AskClass, Decision, UncertainKind, Verdict};
+use crate::verdict::{AllowReason, Decision, Verdict};
 
 /// Reason for an arithmetic context carrying a substitution bash resolves by
 /// running a command. Matches the wording `resolve` already emits for the same
@@ -546,6 +546,8 @@ impl Analyzer {
         self.piped = prev_piped;
         if ask_rules::sets_lookup_env(assignments) {
             v = v.into_approval();
+        } else if self.is_aliased(words) {
+            v = v.with_class_at_least(ask_rules::INDIRECT);
         }
         self.locals.truncate(checkpoint);
         v
@@ -582,7 +584,7 @@ impl Analyzer {
                 Verdict::allow(AllowReason::Wrapper(cmd_name.clone()))
             } else {
                 self.analyze_inner_command(&crate::resolve::shell_join(inner_args), cwd, depth)
-                    .with_class_at_least(AskClass::Uncertain(UncertainKind::Indirect))
+                    .with_class_at_least(ask_rules::INDIRECT)
             };
             return self.with_redirects(verdict, redirects, cwd);
         }

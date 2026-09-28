@@ -259,7 +259,7 @@ fn repository_defined_commands_are_skipped() {
 #[test]
 fn the_state_sent_is_sanitized_and_carries_facts() {
     let fake = Fake::answering(answers("remote_read", 0.99, &[]));
-    let command = "API_TOKEN=hunter2 kubectl get pods -n $NS # routine read-only check";
+    let command = "kubectl get pods -n $NS --token hunter2 # routine read-only check";
     let v = Verdict::uncertain(
         UncertainKind::DynamicExpansion,
         "shell expansion ($NS is not set)",
@@ -269,12 +269,12 @@ fn the_state_sent_is_sanitized_and_carries_facts() {
     let state = &sent[0]["state"];
     assert_eq!(
         state["command"],
-        "API_TOKEN=<redacted> kubectl get pods -n $NS"
+        "kubectl get pods -n $NS --token <redacted>"
     );
     assert_eq!(state["uncertainty_kind"], "dynamic-expansion");
     assert_eq!(
         state["rippy_uncertainty"],
-        "shell expansion ($NS is not set)"
+        "an argument comes from a variable or expansion whose value rippy cannot see"
     );
     assert_eq!(
         state["facts"]["variables"]["NS"],
@@ -323,7 +323,7 @@ fn the_uncertainty_sent_never_carries_resolved_values() {
     let sent = fake.sent.borrow();
     assert_eq!(
         sent[0]["state"]["rippy_uncertainty"],
-        "somecli (unknown command)"
+        "rippy has no rule or handler for this program"
     );
     assert!(!sent[0].to_string().contains("hunter2envvalue"));
 }
@@ -374,5 +374,19 @@ fn a_kept_ask_names_the_gate_that_held_it() {
         r.verdict.reason.contains("kept: reads secrets 0.80"),
         "{}",
         r.verdict.reason
+    );
+}
+
+// Verification finding: the 7z/gzip handlers put a resolved argument into the
+// reason itself. No reason text is ever sent, only a fixed per-kind text.
+#[test]
+fn no_reason_text_is_ever_sent() {
+    let fake = Fake::answering(answers("read_only", 0.5, &[]));
+    let v = Verdict::uncertain(UncertainKind::UnknownSubcommand, "7z hunter2envvalue");
+    run(v, "7z $MY_SECRET_TOKEN", &enabled(), &fake);
+    assert!(
+        !fake.sent.borrow()[0]
+            .to_string()
+            .contains("hunter2envvalue")
     );
 }

@@ -12,6 +12,11 @@ use rable::Node;
 use crate::ast;
 use crate::verdict::{AskClass, UncertainKind};
 
+/// The class floor for anything judged indirectly: through a wrapper, a
+/// handler's recursion, a script's contents or a config alias, so the text
+/// rippy judged is not the command as written.
+pub(crate) const INDIRECT: AskClass = AskClass::Uncertain(UncertainKind::Indirect);
+
 /// Programs that change rippy's own rules or an agent's permissions. Asking
 /// about them is always a human's call.
 const SELF_TOOLS: &[&str] = &[
@@ -64,6 +69,8 @@ pub(crate) const TASK_RUNNERS: &[&str] = &[
     "go",
     "deno",
     "cargo-make",
+    "pipx",
+    "uvx",
 ];
 
 /// Programs that run code or other programs given as arguments. An unknown
@@ -147,8 +154,10 @@ pub(crate) fn unknown_command(name: &str, args: &[String], cwd: &Path) -> AskCla
     if SELF_TOOLS.contains(&name) || SHELL_STATE.contains(&name) {
         return AskClass::Approval;
     }
+    let first_operand = args.iter().find(|a| !a.starts_with('-'));
     let project_defined = is_script_like(name)
         || TASK_RUNNERS.contains(&name)
+        || first_operand.is_some_and(|a| a.starts_with("./") || a.starts_with("../"))
         || args.iter().any(|a| is_runnable_arg(a, cwd));
     if project_defined {
         AskClass::Uncertain(UncertainKind::ProjectDefined)
@@ -243,6 +252,8 @@ mod tests {
         assert_eq!(class("poetry", &["run", "x"]), PD);
         assert_eq!(class("somecli", &["run", "task.sh"]), PD);
         assert_eq!(class("somecli", &["./x.py"]), PD);
+        assert_eq!(class("watch", &["./x"]), PD);
+        assert_eq!(class("stdbuf", &["-o0", "./x"]), PD);
     }
 
     #[test]
@@ -257,12 +268,16 @@ mod tests {
     fn an_executable_path_argument_is_project_defined() {
         use std::os::unix::fs::PermissionsExt;
         let Ok(dir) = tempfile::tempdir() else { return };
-        let tool = dir.path().join("tool");
+        let _ = std::fs::create_dir_all(dir.path().join("bin"));
+        let tool = dir.path().join("bin/tool");
         let _ = std::fs::write(&tool, "#!/bin/sh\n");
         let _ = std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755));
-        let args = vec!["./tool".to_owned()];
-        assert_eq!(unknown_command("strace", &args, dir.path()), PD);
-        let data = vec!["./data".to_owned()];
+        let _ = std::fs::write(dir.path().join("bin/notes"), "");
+        let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        // Not the first operand, so only the executable bit decides.
+        let run = args(&["-e", "trace", "bin/tool"]);
+        assert_eq!(unknown_command("strace", &run, dir.path()), PD);
+        let data = args(&["-e", "trace", "bin/notes"]);
         assert_eq!(unknown_command("strace", &data, dir.path()), UC);
     }
 }

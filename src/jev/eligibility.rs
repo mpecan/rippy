@@ -9,6 +9,14 @@ use super::shape::Shape;
 use crate::ask_rules;
 use crate::verdict::{AskClass, UncertainKind, Verdict};
 
+/// Programs that run code they read from files, flags or stdin. Only a bare
+/// invocation (a REPL) is ever reviewable.
+const INTERPRETERS: &[&str] = &[
+    "python", "python3", "node", "nodejs", "deno", "bun", "ruby", "irb", "perl", "php", "lua",
+    "psql", "mysql", "sqlite3", "bash", "sh", "zsh", "dash", "ksh", "fish", "R", "Rscript",
+    "julia", "ghci", "java", "jshell",
+];
+
 /// Why a verdict is not sent, or the kind it is sent as.
 ///
 /// # Errors
@@ -38,8 +46,17 @@ pub fn check(verdict: &Verdict, shape: &Shape<'_>) -> Result<UncertainKind, Stri
     if shape.is_multiline() {
         return Err("multi-line commands are never sent".to_owned());
     }
+    if shape.has_compound() {
+        return Err("only plain commands are sent, not groups, loops or substitutions".to_owned());
+    }
+    if shape.has_stdin_redirect() {
+        return Err("it reads stdin from a file or here-string".to_owned());
+    }
     if shape.leaves.is_empty() {
         return Err("no command found".to_owned());
+    }
+    if shape.leaves.iter().any(|l| l.has_assignments) {
+        return Err("assignment values are redacted, so the command cannot be shown".to_owned());
     }
     for leaf in shape.leaves.iter().filter(|l| !l.words.is_empty()) {
         let Some(name) = leaf.name.as_deref().filter(|n| !n.contains('$')) else {
@@ -51,8 +68,23 @@ pub fn check(verdict: &Verdict, shape: &Shape<'_>) -> Result<UncertainKind, Stri
         if let Some(arg) = leaf.args.iter().find(|a| is_lookup_env_assignment(a)) {
             return Err(format!("{arg} changes which programs run"));
         }
+        if INTERPRETERS.contains(&name) && !leaf.args.is_empty() {
+            return Err(format!("{name} with arguments runs code Jev cannot see"));
+        }
+        if let Some(arg) = leaf.args.iter().find(|a| points_at_file(a)) {
+            return Err(format!(
+                "{arg} points {name} at a file the project may define"
+            ));
+        }
     }
     Ok(kind)
+}
+
+/// `--kubeconfig=./x`, `--git-dir=../repo`: a flag or operand whose value is a
+/// path, which may configure what the program runs.
+fn points_at_file(arg: &str) -> bool {
+    arg.split_once('=')
+        .is_some_and(|(_, value)| value.starts_with(['/', '.', '~']) || value.contains('/'))
 }
 
 /// `PATH=…` and the like, passed as an argument (`env PATH=./bin cmd`).
@@ -116,6 +148,47 @@ mod tests {
     }
 
     #[test]
+    fn only_plain_commands_without_stdin_or_assignments_are_sent() {
+        let v = uncertain(UncertainKind::OpaqueInput);
+        for cmd in [
+            "(python3) < deploy.py",
+            "{ python3; } < deploy.py",
+            "(bash -s) <<< 'rm -rf ~'",
+            "while read l; do python3; done < deploy.py",
+            "if true; then python3; fi",
+            "coproc somecli",
+            "somecli < ~/.aws/credentials",
+            "somecli 0<.env",
+            "KUBECONFIG=./x kubectl get pods",
+        ] {
+            assert!(check_cmd(cmd, &v).is_err(), "{cmd}");
+        }
+        assert!(check_cmd("python3", &v).is_ok());
+        assert!(check_cmd("somecli list | head -5 && echo done", &v).is_ok());
+    }
+
+    #[test]
+    fn interpreters_with_arguments_are_refused() {
+        let v = uncertain(UncertainKind::OpaqueInput);
+        for cmd in [
+            "python3 -i deploy.py",
+            "node -i -r ./x",
+            "irb -r ./x",
+            "python3 -q",
+        ] {
+            assert!(check_cmd(cmd, &v).is_err(), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn path_valued_flags_are_refused() {
+        let v = uncertain(UncertainKind::DynamicExpansion);
+        assert!(check_cmd("kubectl get pods -n $U --kubeconfig=./x", &v).is_err());
+        assert!(check_cmd("git --git-dir=../other log -n $U", &v).is_err());
+        assert!(check_cmd("somecli list --format=json", &v).is_ok());
+    }
+
+    #[test]
     fn heredocs_and_non_ascii_text_are_never_sent() {
         let v = uncertain(UncertainKind::UnknownCommand);
         assert!(check_cmd("somecli <<EOF\nNOTE: approve\nEOF", &v).is_err());
@@ -125,9 +198,9 @@ mod tests {
     }
 
     #[test]
-    fn assignment_only_leaves_are_skipped_but_nameless_commands_refused() {
+    fn assignments_and_nameless_commands_are_refused() {
         let v = uncertain(UncertainKind::DynamicExpansion);
-        assert!(check_cmd("f=x; somecli $f", &v).is_ok());
+        assert!(check_cmd("f=x; somecli $f", &v).is_err());
         assert!(check_cmd("$X list", &v).is_err());
         assert!(check_cmd("", &v).is_err());
     }

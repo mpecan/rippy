@@ -170,3 +170,104 @@ fn wrapping_an_unreviewable_ask_never_makes_it_approvable() {
     }
     assert!(checked > 100, "only {checked} wrapped commands checked");
 }
+
+/// Every bypass the five reviews and the verification pass reported. Each was
+/// once sent to Jev and approved by a fake that approves everything.
+const REPORTED_BYPASSES: &[&str] = &[
+    "timeout 5 ./scripts/x.sh",
+    "env ./x",
+    "nohup ./x",
+    "nice ./x",
+    "command ./x",
+    "builtin ./x",
+    "xargs ./x",
+    "env -i ./x",
+    "sh -c ./x",
+    "bash -c \"./x --list\"",
+    r"find . -exec ./x {} \;",
+    "env -S ./x",
+    ". ./x",
+    "timeout 5 git frobnicate",
+    "nohup rake db:drop",
+    "timeout 9 tox -e lint",
+    "uv run task",
+    "poetry run deploy",
+    "go run .",
+    "watch ./x",
+    "script -c ./x",
+    "stdbuf -o0 ./x",
+    "docker exec c somecli",
+    "kubectl exec pod -- somecli",
+    "git frobnicate; somecli",
+    "rippy allow \"rm *\"",
+    "rippy trust",
+    "claude config set x",
+    "export PATH=./bin; ls",
+    "PATH=./bin somecli",
+    "PATH=.:$PATH ls",
+    "env PATH=./bin somecli",
+    "hash -p ./evil ls; ls",
+    "trap \"rm -rf ~\" EXIT",
+    "export BASH_ENV=./x; bash -c ls",
+    "sh -c \"$X\"",
+    "bash $X",
+    "python3 -c \"$X\"",
+    "node -e \"$X\"",
+    "env $X",
+    "xargs $X",
+    r"find . -exec $X \;",
+    "git $X",
+    "awk \"$X\"",
+    "sed \"$X\" f",
+    "sort --output=$X f",
+    "sort -o$X f",
+    "rg --pre=$X foo",
+    "curl -o$X https://x",
+    "dd if=/dev/zero of=$X",
+    "timeout 5 $CMD",
+    "python3 - < x.py",
+    "(python3) < deploy.py",
+    "{ python3; } < deploy.py",
+    "(bash -s) <<< 'rm -rf ~'",
+    "(python3; true) < deploy.py",
+    "while read l; do python3; done < deploy.py",
+    "if true; then python3; fi < deploy.py",
+    "(python3) <<< 'import os'",
+    "curl -s x | python3 -",
+    "python3 -i deploy.py",
+    "node -i -r ./x",
+    "irb -r ./x",
+    "kubectl get pods -n $U --kubeconfig=./x",
+    "KUBECONFIG=./x kubectl get pods -n $U",
+    "git --git-dir=./x log -n $U",
+    "somecli < ~/.aws/credentials",
+    "somecli list < /etc/shadow",
+    "pipx run somecli",
+    "coproc somecli",
+    "timeout 5 mysql -e \"SELECT a-b FROM t; DROP TABLE tmp\"",
+    "env xargs -0 -n 5",
+];
+
+#[test]
+fn no_reported_bypass_is_approved() {
+    let key = |name: &str| (name == "RIPPY_INVARIANT_KEY").then(|| "k".to_owned());
+    let env = Env {
+        cwd: Path::new("/tmp"),
+        home: None,
+        var: &key,
+    };
+    let approve = reply("read_only", 0.0);
+    let mut analyzer = isolated_analyzer();
+    for command in REPORTED_BYPASSES {
+        let before = analyzer.analyze(command).unwrap();
+        if before.decision == Decision::Allow {
+            continue;
+        }
+        let after = review(before, command, &permissive(), &env, &approve).verdict;
+        assert_ne!(
+            after.decision,
+            Decision::Allow,
+            "{command}: approved by jev"
+        );
+    }
+}

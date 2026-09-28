@@ -5,6 +5,7 @@
 use serde_json::{Value, json};
 
 use crate::jev_settings::Effect;
+use crate::verdict::UncertainKind;
 
 /// Changes whenever a question, its wording, or the fact schema changes. It is
 /// part of every Jev reason string and log line, so answers from different
@@ -93,6 +94,24 @@ fn noul(instructions: &str, yes: &str, no: &str) -> Value {
         "instructions": instructions,
         "criteria": { "true": yes, "false": no },
     })
+}
+
+/// Why rippy could not decide, as sent to Jev. A fixed text per kind: rippy's
+/// own reason strings can carry resolved variable values and handler detail,
+/// so they never leave the machine.
+#[must_use]
+pub const fn uncertainty(kind: UncertainKind) -> &'static str {
+    match kind {
+        UncertainKind::UnknownCommand => "rippy has no rule or handler for this program",
+        UncertainKind::UnknownSubcommand => "rippy knows this program but not this subcommand",
+        UncertainKind::DynamicExpansion => {
+            "an argument comes from a variable or expansion whose value rippy cannot see"
+        }
+        UncertainKind::OpaqueInput => "the program reads input rippy cannot see, such as a REPL",
+        UncertainKind::Unanalyzable | UncertainKind::Indirect | UncertainKind::ProjectDefined => {
+            "rippy could not judge the command from its text"
+        }
+    }
 }
 
 /// The `state` for one command. `command` must already be redacted and
