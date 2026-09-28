@@ -1,3 +1,4 @@
+use crate::verdict::UncertainKind;
 use std::path::Path;
 
 use super::{
@@ -161,7 +162,7 @@ impl Handler for GitHandler {
             "notes" => git_subcommands::classify_notes(&sub_args),
             "bisect" => git_subcommands::classify_bisect(&sub_args),
             "lfs" => git_subcommands::classify_lfs(&sub_args),
-            _ => Classification::Ask(desc),
+            _ => Classification::Uncertain(UncertainKind::UnknownSubcommand, desc),
         }
     }
 

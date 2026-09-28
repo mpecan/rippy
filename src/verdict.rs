@@ -5,6 +5,11 @@ mod allow_reason;
 
 pub use allow_reason::{AllowCategory, AllowReason, RuleSource};
 
+#[path = "ask_class.rs"]
+mod ask_class;
+
+pub use ask_class::{AskClass, UncertainKind};
+
 /// The three possible safety decisions, ordered so `max()` gives the most restrictive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Decision {
@@ -33,6 +38,8 @@ pub struct Verdict {
     pub resolved_command: Option<String>,
     /// Typed provenance of an approval; always `None` for `Ask`/`Deny`.
     allow_reason: Option<AllowReason>,
+    /// Why an `Ask` asks; always `None` for `Allow`/`Deny`.
+    ask_class: Option<AskClass>,
 }
 
 impl Verdict {
@@ -43,16 +50,29 @@ impl Verdict {
             reason: reason.to_string(),
             resolved_command: None,
             allow_reason: Some(reason),
+            ask_class: None,
         }
     }
 
+    /// An ask a human must approve ([`AskClass::Approval`]).
     #[must_use]
     pub fn ask(reason: impl Into<String>) -> Self {
+        Self::ask_with_class(AskClass::Approval, reason)
+    }
+
+    /// An ask rippy mints because it could not decide.
+    #[must_use]
+    pub fn uncertain(kind: UncertainKind, reason: impl Into<String>) -> Self {
+        Self::ask_with_class(AskClass::Uncertain(kind), reason)
+    }
+
+    fn ask_with_class(class: AskClass, reason: impl Into<String>) -> Self {
         Self {
             decision: Decision::Ask,
             reason: reason.into(),
             resolved_command: None,
             allow_reason: None,
+            ask_class: Some(class),
         }
     }
 
@@ -63,6 +83,7 @@ impl Verdict {
             reason: reason.into(),
             resolved_command: None,
             allow_reason: None,
+            ask_class: None,
         }
     }
 
@@ -86,6 +107,19 @@ impl Verdict {
         self.allow_reason.as_ref()
     }
 
+    /// Carry an existing resolved command form, if any, onto this verdict.
+    #[must_use]
+    pub(crate) fn with_optional_resolution(mut self, resolved: Option<String>) -> Self {
+        self.resolved_command = resolved;
+        self
+    }
+
+    /// Why this verdict asks, or `None` for `Allow`/`Deny`.
+    #[must_use]
+    pub const fn ask_class(&self) -> Option<AskClass> {
+        self.ask_class
+    }
+
     /// Attach a resolved command form to this verdict for transparency.
     #[must_use]
     pub fn with_resolution(mut self, resolved: impl Into<String>) -> Self {
@@ -105,14 +139,38 @@ impl Verdict {
     /// were dropped (see docs/security-invariants.md#empty-combine). Returning
     /// the `Default` here approved such a node — `(( $(rm -rf /) ))` came back
     /// Allow with a blank reason — so the empty case fails closed to Ask.
+    ///
+    /// When the result asks, its class is the most cautious among all asking
+    /// inputs (see [`AskClass::max`]); the reason is still the chosen one's.
     #[must_use]
     pub fn combine(verdicts: &[Self]) -> Self {
         let Some(most_restrictive) = verdicts.iter().max_by_key(|v| v.decision) else {
-            return Self::ask("nothing to analyze");
+            return Self::uncertain(UncertainKind::Unanalyzable, "nothing to analyze");
         };
         let mut chosen = most_restrictive.clone();
         if chosen.resolved_command.is_none() {
             chosen.resolved_command = verdicts.iter().find_map(|v| v.resolved_command.clone());
+        }
+        chosen.ask_class = chosen.ask_class.map(|own| {
+            verdicts
+                .iter()
+                .filter_map(|v| v.ask_class)
+                .fold(own, AskClass::max)
+        });
+        chosen
+    }
+
+    /// The more restrictive of two verdicts, `a` winning ties; the class merges
+    /// as in [`Self::combine`] but, unlike it, `resolved_command` is not carried.
+    #[must_use]
+    pub fn most_restrictive(a: Self, b: Self) -> Self {
+        let (mut chosen, other) = if a.decision >= b.decision {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        if let (Some(own), Some(theirs)) = (chosen.ask_class, other.ask_class) {
+            chosen.ask_class = Some(own.max(theirs));
         }
         chosen
     }

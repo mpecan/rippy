@@ -13,6 +13,7 @@ use crate::handlers::is_sole_help_flag;
 use crate::parser::BashParser;
 use crate::resolve::{LocalBinding, VarLookup};
 use crate::trace::{Stage, Trace, TraceEvent};
+use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable};
 use crate::verdict::{AllowReason, Decision, Verdict};
 
 /// Reason for an arithmetic context carrying a substitution bash resolves by
@@ -223,12 +224,18 @@ impl Analyzer {
     fn no_tree_ask(&mut self, err: &RippyError) -> Verdict {
         if let RippyError::TooComplex(detail) = err {
             self.trace(Stage::Parse, false, || detail.clone());
-            return Verdict::ask(format!("command is too complex to analyze: {detail}"));
+            return Verdict::uncertain(
+                Unanalyzable,
+                format!("command is too complex to analyze: {detail}"),
+            );
         }
         self.trace(Stage::Parse, false, || {
             "rable could not parse this command".to_owned()
         });
-        Verdict::ask("rippy could not parse this command; approve manually")
+        Verdict::uncertain(
+            Unanalyzable,
+            "rippy could not parse this command; approve manually",
+        )
     }
 
     /// Whole-string CC-permission match, recorded whether or not it applies.
@@ -273,10 +280,10 @@ impl Analyzer {
 
     fn analyze_node(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
         if depth > MAX_DEPTH {
-            return Verdict::ask("nesting depth exceeded");
+            return Verdict::uncertain(Unanalyzable, "nesting depth exceeded");
         }
         if self.node_budget == 0 {
-            return Verdict::ask("ast node count exceeded");
+            return Verdict::uncertain(Unanalyzable, "ast node count exceeded");
         }
         self.node_budget -= 1;
         match &node.kind {
@@ -299,19 +306,18 @@ impl Analyzer {
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
                 Verdict::combine(&verdicts)
             }
-            NodeKind::CommandSubstitution { command, .. } => {
-                let inner = self.analyze_node(command, cwd, depth + 1);
-                if ast::is_safe_heredoc_substitution(command) {
-                    inner
-                } else {
-                    most_restrictive(inner, Verdict::ask("command substitution"))
-                }
+            NodeKind::CommandSubstitution { command, .. }
+                if ast::is_safe_heredoc_substitution(command) =>
+            {
+                self.analyze_node(command, cwd, depth + 1)
             }
-            NodeKind::ProcessSubstitution { command, .. } => {
+            NodeKind::CommandSubstitution { command, .. }
+            | NodeKind::ProcessSubstitution { command, .. } => {
                 let inner = self.analyze_node(command, cwd, depth + 1);
-                most_restrictive(inner, Verdict::ask("command substitution"))
+                let outer = Verdict::uncertain(DynamicExpansion, "command substitution");
+                Verdict::most_restrictive(inner, outer)
             }
-            NodeKind::Function { .. } => Verdict::ask("function definition"),
+            NodeKind::Function { .. } => Verdict::uncertain(Unanalyzable, "function definition"),
             NodeKind::Negation { pipeline } | NodeKind::Time { pipeline, .. } => {
                 self.analyze_node(pipeline, cwd, depth + 1)
             }
@@ -324,8 +330,10 @@ impl Analyzer {
                 raw_content,
                 ..
             } => self.analyze_arithmetic_command(raw_content, redirects, cwd, depth),
-            _ if ast::is_expansion_node(&node.kind) => Verdict::ask("shell expansion"),
-            _ => Verdict::ask("unrecognized shell construct"),
+            _ if ast::is_expansion_node(&node.kind) => {
+                Verdict::uncertain(Unanalyzable, "shell expansion")
+            }
+            _ => Verdict::uncertain(Unanalyzable, "unrecognized shell construct"),
         }
     }
 
@@ -341,7 +349,7 @@ impl Analyzer {
     ) -> Verdict {
         let mut verdicts = Vec::new();
         if ast::has_executing_substitution(raw_content) {
-            verdicts.push(Verdict::ask(EXPANSION_ASK));
+            verdicts.push(Verdict::uncertain(Unanalyzable, EXPANSION_ASK));
         }
         verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
         if verdicts.is_empty() {
@@ -472,25 +480,33 @@ impl Analyzer {
     fn analyze_command(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
         // Unreachable; fail closed so a dispatch change cannot approve blindly.
         let NodeKind::Command { assignments, .. } = &node.kind else {
-            return Verdict::ask("internal: non-command node in analyze_command");
+            return Verdict::uncertain(Unanalyzable, "internal: non-command node in analyze_command");
         };
         if ast::assignment_has_expansion(assignments) {
             self.trace(Stage::EnvPrefix, true, || {
                 "ask: assignment value contains a shell expansion".to_owned()
             });
-            return Verdict::ask("assignment with expansion");
+            let kind = if assignments.iter().any(ast::word_executes_command) {
+                Unanalyzable
+            } else {
+                DynamicExpansion
+            };
+            return Verdict::uncertain(kind, "assignment with expansion");
         }
         let Some(name) = ast::dangerous_assignment_name(assignments) else {
             return self.analyze_command_body(node, cwd, depth);
         };
+        let prefix = Verdict::ask(format!("unrecognized env-var assignment ({name})"));
         let verdict = self.analyze_command_body(node, cwd, depth);
         if verdict.decision >= Decision::Ask {
-            return verdict;
+            // The body's reason stands, but an unvetted prefix makes the ask an
+            // approval: a reviewer judging the command alone never sees it.
+            return Verdict::most_restrictive(verdict, prefix);
         }
         self.trace(Stage::EnvPrefix, true, || {
             format!("ask: {name} is not a known-inert variable")
         });
-        Verdict::ask(format!("unrecognized env-var assignment ({name})"))
+        prefix
     }
 
     /// The command's own verdict, ignoring any env prefix.
@@ -501,7 +517,10 @@ impl Analyzer {
             assignments,
         } = &node.kind
         else {
-            return Verdict::ask("internal: non-command node in analyze_command_body");
+            return Verdict::uncertain(
+                Unanalyzable,
+                "internal: non-command node in analyze_command_body",
+            );
         };
         // Per-leaf string-rule match (expansions resolved downstream first).
         // see docs/security-invariants.md#string-rule-chokepoint
@@ -515,7 +534,10 @@ impl Analyzer {
         }
         let checkpoint = self.locals.len();
         self.push_literal_bindings(assignments);
+        let piped = self.piped || dispatch::stdin_redirected(redirects);
+        let prev_piped = std::mem::replace(&mut self.piped, piped);
         let v = self.analyze_command_node(words, redirects, cwd, depth);
+        self.piped = prev_piped;
         self.locals.truncate(checkpoint);
         v
     }
@@ -597,6 +619,7 @@ mod control_flow;
 
 #[path = "analyzer_dispatch.rs"]
 mod dispatch;
+use dispatch::expansion_ask;
 
 /// Trace detail for a whole-string rule match, disclosing when a matching ALLOW
 /// was withheld. A withheld rule is recorded as a non-match (`matched = false`)
@@ -632,32 +655,6 @@ fn annotate_with_resolution(mut v: Verdict, resolved: &str) -> Verdict {
     v
 }
 
-/// Resolve symlinks by canonicalizing the deepest ancestor of `path` that
-/// exists on disk, then re-appending the non-existing tail components.
-///
-/// Unlike [`handlers::normalize_path`] (purely logical), this follows symlinks,
-/// so a redirect target routed through a planted symlink resolves to its real
-/// location. The tail is preserved because a write target usually does not
-/// exist yet. Falls back to the input path when nothing can be canonicalized.
-fn canonicalize_existing_ancestor(path: &Path) -> PathBuf {
-    let mut ancestor = path;
-    let mut tail: Vec<std::ffi::OsString> = Vec::new();
-    loop {
-        if let Ok(real) = std::fs::canonicalize(ancestor) {
-            let mut result = real;
-            result.extend(tail.iter().rev());
-            return result;
-        }
-        match (ancestor.file_name(), ancestor.parent()) {
-            (Some(name), Some(parent)) => {
-                tail.push(name.to_os_string());
-                ancestor = parent;
-            }
-            _ => return path.to_path_buf(),
-        }
-    }
-}
-
 fn extract_cd_target(node: &Node) -> Option<String> {
     let name = ast::command_name(node)?;
     if name != "cd" {
@@ -665,10 +662,6 @@ fn extract_cd_target(node: &Node) -> Option<String> {
     }
     let args = ast::command_args(node);
     args.first().cloned()
-}
-
-fn most_restrictive(a: Verdict, b: Verdict) -> Verdict {
-    if a.decision >= b.decision { a } else { b }
 }
 
 #[cfg(test)]

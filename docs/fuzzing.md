@@ -56,6 +56,11 @@ non-`Allow` outcome and satisfies every invariant below.
 8. **Resolver `Literal` invariant.** No `WordResolution::Literal` returned by
    resolution contains `ast::has_shell_expansion_pattern` or a process
    substitution.
+9. **Approval dominates.** For every separator in `;`, `&&`, `||` and every
+   approval-grade command in `rm -rf build`, `curl x|sh`, joined before or
+   after `cmd`, and also with an unknown command appended after both: an `Ask`
+   verdict's `ask_class()` is `approval` or `unanalyzable`, never another
+   uncertain kind.
 
 ### Invariant 6
 
@@ -85,6 +90,21 @@ command-position dynamic branch in `src/analyzer_dispatch.rs` returns `Ask`
 `Verdict::combine` likewise keeps `resolved_command` when a redirect verdict
 dominates, so the resolved string can omit the redirect that drove the decision.
 Only the monotone direction expresses "never fail open".
+
+### Invariant 9
+
+About the ask *class*, not the decision. The decision side is already covered
+by invariants 1 and 2. What this adds is that a part rippy knows needs human
+approval can never be averaged away into "rippy was merely unsure", which would
+make a compound command eligible for model-assisted review
+([docs/jev.md](jev.md#two-kinds-of-ask)). `unanalyzable` is accepted because it
+is never eligible either: when the joined string defeats analysis, rippy does
+not know the approval part is there.
+
+The appended unknown command matters. Generated commands almost always allow,
+so without an uncertain part present the approval part wins on decision alone
+and class merging is never exercised. A mutation that dropped the merge
+survived the first version of this invariant for exactly that reason.
 
 ## Running the harnesses
 

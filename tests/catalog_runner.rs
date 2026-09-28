@@ -13,7 +13,7 @@ mod common;
 
 use common::isolated_analyzer;
 use rippy_cli::analyzer::Analyzer;
-use rippy_cli::verdict::Decision;
+use rippy_cli::verdict::{AskClass, Decision};
 
 // Assertion helpers called by generated test functions
 
@@ -33,6 +33,7 @@ struct Case<'a> {
     command: &'a str,
     decision: &'a str,
     reason_contains: Option<&'a str>,
+    ask_class: Option<&'a str>,
 }
 
 fn run_case(analyzer: &mut Analyzer, c: &Case<'_>) {
@@ -49,6 +50,18 @@ fn run_case(analyzer: &mut Analyzer, c: &Case<'_>) {
         "[{} #{}] {:?}: expected {expected:?}, got {:?}. reason: {:?}",
         c.file, c.idx, c.command, verdict.decision, verdict.reason,
     );
+
+    if let Some(class) = c.ask_class {
+        assert_eq!(
+            verdict.ask_class().map(AskClass::as_str),
+            Some(class),
+            "[{} #{}] {:?}: wrong ask class. reason: {:?}",
+            c.file,
+            c.idx,
+            c.command,
+            verdict.reason,
+        );
+    }
 
     if let Some(pattern) = c.reason_contains {
         assert!(

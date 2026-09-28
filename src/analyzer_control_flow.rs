@@ -2,9 +2,10 @@ use std::path::Path;
 
 use rable::{Node, NodeKind};
 
-use super::{Analyzer, EXPANSION_ASK};
+use super::{Analyzer, EXPANSION_ASK, expansion_ask};
 use crate::ast;
 use crate::resolve::{self, LocalBinding};
+use crate::verdict::UncertainKind::Unanalyzable;
 use crate::verdict::{AllowReason, Verdict};
 
 impl Analyzer {
@@ -54,7 +55,7 @@ impl Analyzer {
                     .iter()
                     .any(|part| ast::has_executing_substitution(part))
                 {
-                    verdicts.push(Verdict::ask(EXPANSION_ASK));
+                    verdicts.push(Verdict::uncertain(Unanalyzable, EXPANSION_ASK));
                 }
                 verdicts.push(self.analyze_node(body, cwd, depth + 1));
                 verdicts.extend(self.analyze_redirects(redirects, cwd, depth));
@@ -67,7 +68,7 @@ impl Analyzer {
             // Unreachable today: `analyze_node` routes only the eight kinds
             // matched above. Ask keeps a kind added to that dispatch without an
             // arm here fail-closed rather than approved unanalyzed.
-            _ => Verdict::ask("unhandled control-flow construct"),
+            _ => Verdict::uncertain(Unanalyzable, "unhandled control-flow construct"),
         }
     }
 
@@ -91,7 +92,7 @@ impl Analyzer {
         else {
             // Unreachable: only dispatched on `NodeKind::Case`. Fail closed
             // rather than fail open for defense in depth.
-            return Verdict::ask("internal: non-case node in analyze_case");
+            return Verdict::uncertain(Unanalyzable, "internal: non-case node in analyze_case");
         };
         let subject_and_labels = std::iter::once(word.as_ref())
             .chain(patterns.iter().flat_map(|p| p.patterns.iter()))
@@ -135,7 +136,10 @@ impl Analyzer {
         else {
             // Unreachable: only dispatched on `NodeKind::For`/`NodeKind::Select`.
             // Fail closed rather than fail open for defense in depth.
-            return Verdict::ask("internal: non-loop node in analyze_loop_binding");
+            return Verdict::uncertain(
+                Unanalyzable,
+                "internal: non-loop node in analyze_loop_binding",
+            );
         };
         let checkpoint = self.locals.len();
         let mut verdicts = self.analyze_expanded_words(words.as_deref().unwrap_or_default());
@@ -163,9 +167,10 @@ impl Analyzer {
         words
             .into_iter()
             .filter_map(|w| match resolve::resolve_word(w, &scoped) {
-                resolve::WordResolution::Unresolvable { reason } => {
-                    Some(Verdict::ask(format!("shell expansion ({reason})")))
-                }
+                resolve::WordResolution::Unresolvable { reason } => Some(expansion_ask(
+                    std::slice::from_ref(w),
+                    format!("shell expansion ({reason})"),
+                )),
                 _ => None,
             })
             .collect()

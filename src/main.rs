@@ -11,7 +11,7 @@ use rippy_cli::error::RippyError;
 use rippy_cli::mode::{HookType, Mode, PermissionMode};
 use rippy_cli::payload::{FileOp, Payload};
 use rippy_cli::setup;
-use rippy_cli::verdict::{AllowReason, AutoMode, ClaudeContext, Decision, Verdict};
+use rippy_cli::verdict::{AllowReason, AutoMode, ClaudeContext, Decision, UncertainKind, Verdict};
 
 /// Evaluate a payload. Returns `None` for passthrough (file tools with no matching rule).
 fn evaluate(
@@ -69,7 +69,10 @@ fn evaluate_pre_tool(
         return Ok(Some(analyzer.analyze(command)?));
     }
 
-    Ok(Some(Verdict::ask("no command found in payload")))
+    Ok(Some(Verdict::uncertain(
+        UncertainKind::Unanalyzable,
+        "no command found in payload",
+    )))
 }
 
 fn evaluate_post_tool(payload: &Payload, config: &Config) -> Verdict {
@@ -247,7 +250,10 @@ const FAIL_CLOSED_CONTEXT: ClaudeContext = ClaudeContext {
 };
 
 fn forced_ask_verdict(detail: &str) -> Verdict {
-    Verdict::ask(format!("rippy could not evaluate this input: {detail}"))
+    Verdict::uncertain(
+        UncertainKind::Unanalyzable,
+        format!("rippy could not evaluate this input: {detail}"),
+    )
 }
 
 fn forced_ask(args: &HookArgs, detail: &str) -> ExitCode {

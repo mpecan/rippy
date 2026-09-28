@@ -29,6 +29,9 @@ struct TestCase {
     command: String,
     decision: String,
     reason_contains: Option<String>,
+    /// For `ask` cases: the expected `AskClass` name (`approval`,
+    /// `unknown-command`, `dynamic-expansion`, …).
+    ask_class: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,8 +126,8 @@ fn emit_cases(
         let _ = writeln!(
             output,
             "    run_case(&mut a, &Case {{ file: {:?}, idx: {i}, command: {:?}, \
-             decision: {:?}, reason_contains: {:?} }});",
-            file_stem, case.command, case.decision, case.reason_contains,
+             decision: {:?}, reason_contains: {:?}, ask_class: {:?} }});",
+            file_stem, case.command, case.decision, case.reason_contains, case.ask_class,
         );
         let _ = writeln!(output, "}}");
         let _ = writeln!(output);

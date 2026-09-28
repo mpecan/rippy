@@ -3,6 +3,7 @@ use super::{
     has_flag_or_prefixed, has_glued_short_flag, surface,
 };
 use crate::verdict::AllowReason;
+use crate::verdict::UncertainKind;
 
 /// Extensions that indicate a static inventory file rather than a dynamic
 /// (executable) inventory script.
@@ -50,7 +51,10 @@ impl Handler for AnsibleHandler {
             "ansible-galaxy" => classify_galaxy(ctx),
             "ansible-config" => classify_config(ctx),
             "ansible-inventory" => classify_inventory(ctx),
-            _ => Classification::Ask(format!("{} (unknown ansible command)", ctx.command_name)),
+            _ => Classification::Uncertain(
+                UncertainKind::UnknownCommand,
+                format!("{} (unknown ansible command)", ctx.command_name),
+            ),
         }
     }
 
@@ -170,7 +174,10 @@ fn classify_inventory(ctx: &HandlerContext) -> Classification {
         {
             Classification::Allow(AllowReason::handler("ansible-inventory (read-only query)"))
         }
-        Some(_) => Classification::Ask("ansible-inventory (dynamic inventory script)".into()),
+        Some(_) => Classification::Uncertain(
+            UncertainKind::OpaqueInput,
+            "ansible-inventory (dynamic inventory script)".into(),
+        ),
         None if has_flag(ctx.args, &["-i", "--inventory"]) => {
             Classification::Ask("ansible-inventory (inventory target not extractable)".into())
         }

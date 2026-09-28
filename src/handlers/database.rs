@@ -3,8 +3,10 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, has_flag, is_sole_help_flag,
     positional_args,
 };
+use crate::handlers::opaque_code;
 use crate::sql::classify_sql;
 use crate::verdict::AllowReason;
+use crate::verdict::UncertainKind;
 
 /// Guard shared by every inline-SQL entry: the statement itself decides.
 const READ_ONLY_SQL: &str = "statement classified read-only by src/sql.rs";
@@ -63,7 +65,7 @@ impl Handler for PsqlHandler {
         if has_flag(ctx.args, &["--list", "-l"]) {
             return Classification::Allow(AllowReason::handler("psql list databases"));
         }
-        Classification::Ask("psql (interactive)".into())
+        opaque_code(ctx, "psql (interactive)".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -85,7 +87,12 @@ fn psql_sql_option(ctx: &HandlerContext, name: &OptionName, value: &str) -> Opti
         return None;
     }
     Some(ctx.read_file(value).map_or_else(
-        || Classification::Ask("psql -f (file execution)".into()),
+        || {
+            Classification::Uncertain(
+                UncertainKind::OpaqueInput,
+                "psql -f (file execution)".into(),
+            )
+        },
         |sql| classify_sql_command("psql -f", &sql),
     ))
 }
@@ -128,7 +135,7 @@ impl Handler for MysqlHandler {
             .filter(|(name, _)| name.is('e', &["execute"]))
             .map(|(_, sql)| classify_sql_command("mysql", sql))
             .reduce(least_safe)
-            .unwrap_or_else(|| Classification::Ask("mysql (interactive)".into()))
+            .unwrap_or_else(|| opaque_code(ctx, "mysql (interactive)".into()))
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -162,7 +169,7 @@ impl Handler for Sqlite3Handler {
         if let Some(sql) = positionals.get(1) {
             return classify_sql_command("sqlite3", sql);
         }
-        Classification::Ask("sqlite3 (interactive)".into())
+        opaque_code(ctx, "sqlite3 (interactive)".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -186,11 +193,16 @@ fn classify_sql_command(tool: &str, sql: &str) -> Classification {
 /// statement ending in a `--` line comment would otherwise swallow the one
 /// appended after it. Ties keep the first, so the reason names the earliest
 /// offending statement.
+///
+/// An uncertain ask tying with an approval ask keeps its reason but takes the
+/// approval class, the more cautious of the two.
 fn least_safe(a: Classification, b: Classification) -> Classification {
-    match (&a, &b) {
-        (Classification::Allow(_), Classification::Ask(_) | Classification::Deny(_))
-        | (Classification::Ask(_), Classification::Deny(_)) => b,
-        _ => a,
+    use Classification::{Allow, Ask, Deny, Uncertain};
+    match (a, b) {
+        (Allow(_), b @ (Ask(_) | Uncertain(..) | Deny(_)))
+        | (Ask(_) | Uncertain(..), b @ Deny(_)) => b,
+        (Uncertain(_, reason), Ask(_)) => Ask(reason),
+        (a, _) => a,
     }
 }
 
@@ -200,7 +212,10 @@ fn classification_for(tool: &str, read_only: Option<bool>) -> Classification {
             Classification::Allow(AllowReason::handler(format!("{tool} (read-only SQL)")))
         }
         Some(false) => Classification::Ask(format!("{tool} (write SQL)")),
-        None => Classification::Ask(format!("{tool} (ambiguous SQL)")),
+        None => Classification::Uncertain(
+            UncertainKind::OpaqueInput,
+            format!("{tool} (ambiguous SQL)"),
+        ),
     }
 }
 
@@ -209,6 +224,29 @@ fn classification_for(tool: &str, read_only: Option<bool>) -> Classification {
 mod tests {
 
     use super::*;
+
+    // An uncertain `-f` must still outrank an allowed `-c`: `least_safe` once
+    // ranked only `Ask`, so the new variant fell through and approved.
+    #[test]
+    fn least_safe_ranks_uncertain_above_allow() {
+        let allow = || Classification::Allow(AllowReason::handler("psql (read-only SQL)"));
+        let uncertain = || Classification::Uncertain(UncertainKind::OpaqueInput, "f".into());
+        assert!(matches!(
+            least_safe(allow(), uncertain()),
+            Classification::Uncertain(..)
+        ));
+        assert!(matches!(
+            least_safe(uncertain(), allow()),
+            Classification::Uncertain(..)
+        ));
+    }
+
+    #[test]
+    fn least_safe_tie_keeps_first_reason_with_approval_class() {
+        let uncertain = Classification::Uncertain(UncertainKind::OpaqueInput, "first".into());
+        let result = least_safe(uncertain, Classification::Ask("second".into()));
+        assert!(matches!(result, Classification::Ask(reason) if reason == "first"));
+    }
 
     // Inline-SQL command->decision cases (psql -c, psql -l, mysql -e, sqlite3
     // -readonly) are covered by tests/data/catalog/handlers_text_system.toml. The
@@ -248,7 +286,10 @@ mod tests {
             ..HandlerContext::test("psql", &args)
         };
         let result = PSQL_HANDLER.classify(&ctx);
-        assert!(matches!(result, Classification::Ask(_)));
+        assert!(matches!(
+            result,
+            Classification::Uncertain(UncertainKind::OpaqueInput, _)
+        ));
     }
 
     /// Classify a psql run against a real SQL file in a temp working directory.

@@ -2,8 +2,10 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
     has_flag, has_flag_or_prefixed, is_sole_help_flag,
 };
+use crate::handlers::opaque_code;
 use crate::node_safety::is_node_source_safe;
 use crate::verdict::AllowReason;
+use crate::verdict::UncertainKind;
 
 pub(crate) static NODE_HANDLER: NodeHandler = NodeHandler;
 
@@ -76,7 +78,7 @@ impl Handler for NodeHandler {
         }
 
         if has_flag(ctx.args, &["-i", "--interactive"]) || ctx.args.is_empty() {
-            return Classification::Ask(format!("{} (interactive)", ctx.command_name));
+            return opaque_code(ctx, format!("{} (interactive)", ctx.command_name));
         }
 
         // Script file execution — try to read and analyze
@@ -94,7 +96,10 @@ impl Handler for NodeHandler {
                 ))
             };
         }
-        Classification::Ask(format!("{} script execution", ctx.command_name))
+        Classification::Uncertain(
+            UncertainKind::OpaqueInput,
+            format!("{} script execution", ctx.command_name),
+        )
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {

@@ -1,17 +1,17 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rable::{Node, NodeKind};
 
 use super::{
     Analyzer, EXPANSION_ASK, MAX_RESOLUTION_DEPTH, MAX_RESOLVED_LEN, annotate_with_resolution,
-    canonicalize_existing_ancestor,
 };
 use crate::allowlists;
 use crate::ast;
 use crate::handlers::{self, Classification, HandlerContext};
 use crate::resolve;
-use crate::trace::Stage;
-use crate::verdict::{AllowReason, Decision, Verdict};
+use crate::trace::{Stage, Trace};
+use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable, UnknownCommand};
+use crate::verdict::{AllowReason, AskClass, Decision, Verdict};
 
 impl Analyzer {
     pub(super) fn analyze_redirects(
@@ -145,7 +145,7 @@ impl Analyzer {
     fn redirect_verdict(&self, op: ast::RedirectOp, target: &str, cwd: &Path) -> Verdict {
         // Before the read shortcut: `cat < "$(x)"` reads a file *named by* `x`.
         if ast::has_executing_substitution(target) {
-            return Verdict::ask(EXPANSION_ASK);
+            return Verdict::uncertain(Unanalyzable, EXPANSION_ASK);
         }
         if op == ast::RedirectOp::Read {
             return Verdict::allow(AllowReason::InputRedirect);
@@ -237,7 +237,12 @@ impl Analyzer {
         if let Some(body) = content
             && ast::has_shell_expansion_pattern(body)
         {
-            return Verdict::ask("heredoc with expansion");
+            let kind = if ast::has_executing_substitution(body) {
+                Unanalyzable
+            } else {
+                DynamicExpansion
+            };
+            return Verdict::uncertain(kind, "heredoc with expansion");
         }
         Verdict::allow(AllowReason::Heredoc)
     }
@@ -249,7 +254,7 @@ impl Analyzer {
         depth: usize,
     ) -> Verdict {
         let Ok(nodes) = self.parser.parse(inner) else {
-            return Verdict::ask("unparseable inner command");
+            return Verdict::uncertain(Unanalyzable, "unparseable inner command");
         };
         self.analyze_nodes(&nodes, cwd, depth)
     }
@@ -279,7 +284,10 @@ impl Analyzer {
             self.trace(Stage::Expansion, false, || {
                 format!("resolution depth exceeded ({MAX_RESOLUTION_DEPTH})")
             });
-            return Some(Verdict::ask("shell expansion (resolution depth exceeded)"));
+            return Some(Verdict::uncertain(
+                Unanalyzable,
+                "shell expansion (resolution depth exceeded)",
+            ));
         }
         let resolved = {
             let scoped = resolve::ScopedLookup::new(&self.locals, self.var_lookup.as_ref());
@@ -292,7 +300,8 @@ impl Analyzer {
             && !resolved.command_position_dynamic
             && resolved.failure_reason.is_none()
         {
-            return Some(self.dynamic_arg_verdict(words));
+            let v = self.dynamic_arg_verdict(words);
+            return Some(self.unless_asks_anyway(v, words, cwd, depth));
         }
         let Some(args) = resolved.args else {
             let reason = resolved.failure_reason.map_or_else(
@@ -300,7 +309,8 @@ impl Analyzer {
                 |r| format!("shell expansion ({r})"),
             );
             self.trace(Stage::Expansion, false, || reason.clone());
-            return Some(Verdict::ask(reason));
+            let v = expansion_ask(words, reason);
+            return Some(self.unless_asks_anyway(v, words, cwd, depth));
         };
         let resolved_command = resolve::shell_join(&args);
         // Refuse to materialize pathologically large resolved commands.
@@ -308,9 +318,10 @@ impl Analyzer {
             self.trace(Stage::Expansion, false, || {
                 format!("resolved command exceeds {MAX_RESOLVED_LEN}-byte limit")
             });
-            return Some(Verdict::ask(format!(
-                "shell expansion (resolved command exceeds {MAX_RESOLVED_LEN}-byte limit)"
-            )));
+            return Some(Verdict::uncertain(
+                Unanalyzable,
+                format!("shell expansion (resolved command exceeds {MAX_RESOLVED_LEN}-byte limit)"),
+            ));
         }
         self.trace(Stage::Expansion, true, || resolved_command.clone());
         if resolved.command_position_dynamic {
@@ -329,6 +340,48 @@ impl Analyzer {
         Some(annotate_with_resolution(inner, &resolved_command))
     }
 
+    /// Promote a [`DynamicExpansion`] ask to [`AskClass::Approval`] when the
+    /// command asks anyway: re-classified with every expanded word replaced by
+    /// an inert placeholder, it still needs approval (`rm $f`), so the unknown
+    /// value is not what is in doubt. Only the class can change, never the
+    /// decision or reason, and the probe is not traced.
+    fn unless_asks_anyway(
+        &mut self,
+        v: Verdict,
+        words: &[Node],
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
+        if v.ask_class() != Some(AskClass::Uncertain(DynamicExpansion)) {
+            return v;
+        }
+        let Some(name) = ast::command_name_from_words(words) else {
+            return v;
+        };
+        let mut argv = vec![name.to_owned()];
+        argv.extend(
+            words
+                .iter()
+                .skip(1)
+                .zip(ast::command_args_from_words(words))
+                .map(|(word, text)| {
+                    if ast::has_expansions(word) {
+                        "rippy-placeholder".into()
+                    } else {
+                        text
+                    }
+                }),
+        );
+        let saved = std::mem::replace(&mut self.trace, Trace::new(false));
+        let probe = self.analyze_inner_command(&resolve::shell_join(&argv), cwd, depth + 1);
+        self.trace = saved;
+        if probe.decision == Decision::Deny || probe.ask_class() == Some(AskClass::Approval) {
+            Verdict::ask(v.reason).with_optional_resolution(v.resolved_command)
+        } else {
+            v
+        }
+    }
+
     /// Verdict for a command with a dynamic-known argument (`$loopvar`, `$?`).
     ///
     /// SECURITY INVARIANT: this is the *only* place a dynamic argument relaxes
@@ -345,7 +398,7 @@ impl Analyzer {
             self.trace(Stage::Expansion, false, || {
                 "ask: dynamic argument on a command with no name".to_owned()
             });
-            return Verdict::ask("shell expansion ($VAR dynamic)");
+            return Verdict::uncertain(DynamicExpansion, "shell expansion ($VAR dynamic)");
         };
         let name = self.config.resolve_alias(raw_name).to_owned();
         if allowlists::is_dynamic_arg_safe(&name) {
@@ -357,7 +410,7 @@ impl Analyzer {
             self.trace(Stage::Expansion, false, || {
                 format!("ask: {name} is not safe with a set-but-unknown argument")
             });
-            Verdict::ask("shell expansion ($VAR dynamic)")
+            Verdict::uncertain(DynamicExpansion, "shell expansion ($VAR dynamic)")
         }
     }
 
@@ -370,6 +423,7 @@ impl Analyzer {
         match class {
             Classification::Allow(reason) => Verdict::allow(reason),
             Classification::Ask(desc) => Verdict::ask(desc),
+            Classification::Uncertain(kind, desc) => Verdict::uncertain(kind, desc),
             Classification::Deny(desc) => Verdict::deny(desc),
             Classification::Recurse(inner) => {
                 self.trace(Stage::Command, true, || format!("recurse: {inner}"));
@@ -412,15 +466,67 @@ impl Analyzer {
             )
         });
         self.config.default_action.map_or_else(
-            || Verdict::ask(format!("{cmd_name} (unknown command)")),
+            || Verdict::uncertain(UnknownCommand, format!("{cmd_name} (unknown command)")),
             |action| match action {
                 Decision::Allow => Verdict::allow(AllowReason::DefaultAction {
                     cmd: cmd_name.to_owned(),
                     weakening: self.config.weakening_suffix().to_owned(),
                 }),
-                Decision::Ask => Verdict::ask(format!("{cmd_name} (default action)")),
+                Decision::Ask => {
+                    Verdict::uncertain(UnknownCommand, format!("{cmd_name} (default action)"))
+                }
                 Decision::Deny => Verdict::deny(format!("{cmd_name} (default action)")),
             },
         )
     }
+}
+
+/// Resolve symlinks by canonicalizing the deepest ancestor of `path` that
+/// exists on disk, then re-appending the non-existing tail components.
+///
+/// Unlike [`handlers::normalize_path`] (purely logical), this follows symlinks,
+/// so a redirect target routed through a planted symlink resolves to its real
+/// location. The tail is preserved because a write target usually does not
+/// exist yet. Falls back to the input path when nothing can be canonicalized.
+fn canonicalize_existing_ancestor(path: &Path) -> PathBuf {
+    let mut ancestor = path;
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(real) = std::fs::canonicalize(ancestor) {
+            let mut result = real;
+            result.extend(tail.iter().rev());
+            return result;
+        }
+        match (ancestor.file_name(), ancestor.parent()) {
+            (Some(name), Some(parent)) => {
+                tail.push(name.to_os_string());
+                ancestor = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// Class of an ask raised because `words` could not be resolved. Only an
+/// unknown argument *value* is a [`DynamicExpansion`]: a command name hidden in
+/// an expansion is approval-grade (`$cmd args` is an evasion shape), and a
+/// substitution rippy did not vet is [`Unanalyzable`].
+/// See docs/jev.md#two-kinds-of-ask.
+pub(super) fn expansion_ask(words: &[Node], reason: impl Into<String>) -> Verdict {
+    if words.first().is_some_and(ast::has_expansions) {
+        Verdict::ask(reason)
+    } else if words.iter().any(ast::word_executes_command) {
+        Verdict::uncertain(Unanalyzable, reason)
+    } else {
+        Verdict::uncertain(DynamicExpansion, reason)
+    }
+}
+
+/// Whether stdin comes from somewhere other than the terminal: a heredoc, a
+/// here-string, or a `<` redirect. An interpreter reading it runs that input.
+pub(super) fn stdin_redirected(redirects: &[Node]) -> bool {
+    redirects.iter().any(|r| {
+        matches!(r.kind, NodeKind::HereDoc { .. })
+            || matches!(ast::redirect_info(r), Some((ast::RedirectOp::Read, _)))
+    })
 }

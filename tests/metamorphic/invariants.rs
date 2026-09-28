@@ -11,7 +11,7 @@ use std::fmt;
 
 use rippy_cli::allowlists;
 use rippy_cli::analyzer::Analyzer;
-use rippy_cli::verdict::{Decision, Verdict};
+use rippy_cli::verdict::{AskClass, Decision, UncertainKind, Verdict};
 
 use super::grammar::CmdSpec;
 
@@ -264,7 +264,55 @@ pub(crate) fn resolution_monotonic(
     })
 }
 
-/// Run invariants 1-7 against one generated spec.
+/// Commands that ask for approval on their own, for invariant 9.
+pub(crate) const APPROVAL_COMMANDS: &[&str] = &["rm -rf build", "curl x|sh"];
+
+/// An unknown command: an uncertain ask on its own. Invariant 9 appends it so
+/// that an uncertain part is present even when the generated command allows.
+const UNCERTAIN_COMMAND: &str = "rippy-metamorphic-unknown-cli";
+
+/// Invariant 9: joining an approval-grade command to any command, before or
+/// after it, never leaves the whole command merely uncertain. The combined ask
+/// stays approval, or unanalyzable where the whole string defeats analysis.
+/// see docs/fuzzing.md#invariant-9
+pub(crate) fn approval_dominates(
+    analyzer: &mut Analyzer,
+    spec: &CmdSpec,
+    base: &Verdict,
+) -> Result<(), Violation> {
+    let rendered = spec.render();
+    for sep in ["; ", " && ", " || "] {
+        for approval in APPROVAL_COMMANDS {
+            for joined in [
+                format!("{rendered}{sep}{approval}"),
+                format!("{approval}{sep}{rendered}"),
+                format!("{approval}{sep}{rendered}{sep}{UNCERTAIN_COMMAND}"),
+            ] {
+                let verdict = decide(analyzer, &joined);
+                let dominated = matches!(
+                    verdict.ask_class(),
+                    None | Some(
+                        AskClass::Approval | AskClass::Uncertain(UncertainKind::Unanalyzable)
+                    )
+                );
+                if !dominated {
+                    return Err(Violation {
+                        invariant: "approval_dominates",
+                        base: rendered,
+                        base_decision: base.decision,
+                        transformed: joined,
+                        transformed_decision: verdict.decision,
+                        reason: verdict.reason,
+                        expectation: "ask class approval or unanalyzable".to_string(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Run invariants 1-7 and 9 against one generated spec.
 pub(crate) fn check_all(analyzer: &mut Analyzer, spec: &CmdSpec) -> Result<(), Violation> {
     let rendered = spec.render();
     let base = decide(analyzer, &rendered);
@@ -274,5 +322,6 @@ pub(crate) fn check_all(analyzer: &mut Analyzer, spec: &CmdSpec) -> Result<(), V
     expansion_substitution(analyzer, spec, &base)?;
     env_prefix_inject(analyzer, spec, &base)?;
     wrapper_monotonicity(analyzer, spec, &base)?;
-    resolution_monotonic(analyzer, spec, &base)
+    resolution_monotonic(analyzer, spec, &base)?;
+    approval_dominates(analyzer, spec, &base)
 }

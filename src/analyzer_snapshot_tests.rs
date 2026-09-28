@@ -1,7 +1,7 @@
 //! Whole-catalog reason snapshot.
 //!
 //! Every catalog command is analyzed with a fully deterministic analyzer and the
-//! resulting `decision` + `reason` are compared line-for-line against
+//! resulting `decision`, ask class and `reason` are compared line-for-line against
 //! `tests/data/reason_snapshot.txt`. It exists to prove that refactors of the
 //! verdict-reason machinery (e.g. the typed [`crate::verdict::AllowReason`])
 //! leave the user-visible wire strings byte-identical.
@@ -11,13 +11,17 @@
 //! stdlib rules only, an empty variable environment and a fixed literal cwd, so
 //! its decisions for `$VAR` cases may differ from the catalog runner's (which
 //! uses the real process environment). Catalog expectations stay the authority
-//! on decisions; this file only pins reason strings.
+//! on decisions; this file only pins reason strings and makes every change to
+//! an ask's class (see [`crate::verdict::AskClass`]) a reviewable diff. The class
+//! column is `-` for `allow`/`deny`.
 //!
 //! Regenerate with `RIPPY_UPDATE_REASON_SNAPSHOT=1 cargo test reason_snapshot`.
 
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+use crate::verdict::AskClass;
 
 use crate::analyzer::Analyzer;
 use crate::config::Config;
@@ -98,9 +102,10 @@ fn render_snapshot() -> String {
         let verdict = analyzer.analyze(&command).unwrap();
         let _ = writeln!(
             out,
-            "{}\t{}\t{}",
+            "{}\t{}\t{}\t{}",
             command.replace(['\t', '\n'], " "),
             verdict.decision.as_str(),
+            verdict.ask_class().map_or("-", AskClass::as_str),
             verdict.reason.replace(['\t', '\n'], " "),
         );
     }
