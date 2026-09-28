@@ -102,6 +102,9 @@ pub fn review(
         },
         settings.context.as_deref(),
     );
+    if facts::names_project_program(&facts) {
+        return skipped(verdict, "a program resolves inside the project");
+    }
     let state = request::state(
         &sanitized,
         request::uncertainty(kind),

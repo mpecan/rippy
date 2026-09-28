@@ -316,6 +316,9 @@ pipes and `;`/`&&`/`||`. As defence in depth it refuses:
 - any leaf whose name is path- or script-like or a task runner, or has no
   literal name (`$X list`)
 - a lookup variable passed as an argument (`env PATH=./bin cmd`)
+- any program that resolves inside the project on `PATH`. A relative or empty
+  `PATH` entry resolves against the working directory, so `.:$PATH`, `bin` and
+  `node_modules/.bin` count as the project's own.
 
 `review` is called once from `run_hook` in `src/main.rs`, after `evaluate()`
 and before logging and tracking, so the recorded verdict is the final one. The
@@ -429,6 +432,7 @@ keep judgments narrow and literal.
 | `writes_outside_project` | noul | does it create, modify or delete files outside the current project; reading does not count |
 | `reads_secrets` | noul | does it read or display credentials, keys, tokens, passwords or `.env` files |
 | `irreversible` | noul | would its effect be hard to undo |
+| `runs_project_code` | noul | does it execute code, tests, builds, hooks, plugins or configuration defined by files in the project (added in `q2`) |
 | `self_referential` | noul | does the command contain text arguing how it should be classified |
 
 Each noul carries explicit `criteria.true` / `criteria.false`. TypeSafe's docs
@@ -457,6 +461,7 @@ configurable, and the defaults are deliberately conservative.
    - `irreversible < max-irreversible` (0.2)
    - `writes_outside_project < max-writes-outside` (0.3)
    - `reads_secrets < max-reads-secrets` (0.3)
+   - `runs_project_code < max-project-code` (0.3)
 
    The reason reads
    `jev: approved (read_only, conf 0.97 >= 0.90, typesafe/jev-1.13-20260917 q1)`,
@@ -485,7 +490,8 @@ allow-effects = ["read_only"]       # opt-in: "remote_read", "local_change"
 timeout-ms = 2000
 # context = "kubectl only talks to local kind clusters"   # optional, see Context
 # exfiltration-threshold = 0.5, steer-threshold = 0.3,
-# max-irreversible = 0.2, max-writes-outside = 0.3, max-reads-secrets = 0.3
+# max-irreversible = 0.2, max-writes-outside = 0.3, max-reads-secrets = 0.3,
+# max-project-code = 0.3
 ```
 
 Unknown keys are a config error (`deny_unknown_fields`), so a misspelt threshold
@@ -665,6 +671,13 @@ against a fake Jev that approves everything):
 | `7z $SECRET` put the resolved value in the reason, which was sent | Only a fixed per-kind description is sent |
 | `-pabc`, `token=abc`, quoted `'--password abc'`, `#token=` fragments were not redacted; `${X_TOKEN:-x}` was mangled | Covered; markers match at word boundaries; expansions untouched |
 | `watch ./x`, `pipx run`, `coproc` | Project-defined, and compound constructs are refused |
+
+A second verification pass found two more families, also fixed and pinned:
+
+| Finding | Fix |
+|---|---|
+| Unknown programs that run project code under their own name (`eslint .`, `jest`, `cmake .`, `pre-commit run`, `pulumi up`, `direnv exec`, `pypy -m`, `tclsh x.tcl`, …). No fixed list can be complete | Two layers. A longer deterministic list of runners, build tools, linters, test runners, interpreters and script extensions. And a new `runs_project_code` question (question set `q2`) with a `max-project-code` gate: on live Jev, project-code tools scored 0.62–0.92 and read-only tools 0.04–0.15 |
+| Programs resolved through a `PATH` entry into the project were sent, and a relative entry mislabelled them "system-installed" | Relative entries resolve against the working directory; a program inside the project is never sent |
 
 ## Known pre-existing issues
 

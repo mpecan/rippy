@@ -43,6 +43,7 @@ fn reply(effect: &str, exfiltration: f64) -> Fixed {
             "writes_outside_project": noul(0.0),
             "reads_secrets": noul(0.0),
             "irreversible": noul(0.0),
+            "runs_project_code": noul(0.0),
             "self_referential": noul(0.0),
         }
     })))
@@ -246,6 +247,23 @@ const REPORTED_BYPASSES: &[&str] = &[
     "coproc somecli",
     "timeout 5 mysql -e \"SELECT a-b FROM t; DROP TABLE tmp\"",
     "env xargs -0 -n 5",
+    "eslint .",
+    "jest",
+    "cmake .",
+    "pre-commit run",
+    "direnv exec . somecli",
+    "nix-shell --run somecli",
+    "pulumi up",
+    "mix test",
+    "dotnet test",
+    "fab deploy",
+    "gulp",
+    "nodemon",
+    "tclsh deploy.tcl",
+    "pypy -m mymod",
+    "busybox sh x",
+    "osascript -e 'do shell script \"id\"'",
+    "pwsh -Command ls",
 ];
 
 #[test]

@@ -11,6 +11,18 @@ use serde_json::{Map, Value, json};
 
 use super::shape::Shape;
 
+/// The label of a program that resolves inside the project. Such a command is
+/// never sent: its behaviour is the project's own code.
+pub const PROJECT_PROGRAM: &str = "project dependency";
+
+/// Whether any program in `facts` resolves inside the project.
+#[must_use]
+pub fn names_project_program(facts: &Value) -> bool {
+    facts["programs"]
+        .as_object()
+        .is_some_and(|m| m.values().any(|v| v == PROJECT_PROGRAM))
+}
+
 /// Where the paths a command touches live, relative to the project.
 pub struct Places<'a> {
     pub project_root: PathBuf,
@@ -60,19 +72,25 @@ impl Places<'_> {
         normalize(&cwd.join(expanded))
     }
 
-    fn program_label(&self, name: &str) -> &'static str {
-        let found = self
-            .path_var
-            .into_iter()
-            .flat_map(std::env::split_paths)
-            .map(|dir| dir.join(name))
-            .find(|candidate| candidate.is_file());
-        match found {
-            None => "not found on PATH",
-            Some(p) if p.starts_with(&self.project_root) => "project dependency",
-            Some(p) if self.home.as_ref().is_some_and(|h| p.starts_with(h)) => "user-installed",
-            Some(_) => "system-installed",
+    /// Where `name` resolves on `PATH`. A relative entry (including an empty
+    /// one, meaning the working directory) resolves against `cwd`, so a
+    /// program found through it is the project's own.
+    fn program_label(&self, cwd: &Path, name: &str) -> &'static str {
+        for dir in self.path_var.into_iter().flat_map(std::env::split_paths) {
+            let relative = dir.is_relative();
+            let candidate = normalize(&cwd.join(dir).join(name));
+            if !candidate.is_file() {
+                continue;
+            }
+            return if relative || candidate.starts_with(&self.project_root) {
+                PROJECT_PROGRAM
+            } else if self.home.as_ref().is_some_and(|h| candidate.starts_with(h)) {
+                "user-installed"
+            } else {
+                "system-installed"
+            };
         }
+        "not found on PATH"
     }
 }
 
@@ -126,7 +144,7 @@ pub fn collect(
             continue;
         };
         if !name.contains('/') {
-            programs.insert(name.to_owned(), json!(places.program_label(name)));
+            programs.insert(name.to_owned(), json!(places.program_label(cwd, name)));
         }
         for (i, word) in leaf.words.iter().enumerate() {
             for var in expanded_names(word) {

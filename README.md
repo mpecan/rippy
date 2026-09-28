@@ -366,7 +366,7 @@ endpoint = "https://openrouter.ai/api/v1/systemone"  # or https://api.typesafe.a
 model = "jev-1.13"                                   # "jev-latest" on TypeSafe's own API
 api-key-env = "OPENROUTER_API_KEY"                   # the key is read only from this variable
 allow-effects = ["read_only"]                        # opt in: "remote_read", "local_change"
-min-confidence = 0.9
+min-confidence = 0.9                                 # plus per-risk gates, see docs/jev.md
 timeout-ms = 2000
 ```
 
@@ -383,7 +383,9 @@ What to know before enabling it:
   programs, task runners (`make`, `npm`, `poetry`, …), unknown git subcommands, interpreters
   given any argument, anything rippy judged through a wrapper, alias or a script's contents
   (`timeout 5 …`, `xargs …`, `bash script.sh`), `--flag=path` arguments, remote contexts
-  (`docker exec`), and rippy's own CLI. A misleading program name on `PATH` can still mislead it.
+  (`docker exec`), programs that resolve inside the project, and rippy's own CLI. Jev is also
+  asked whether a command runs project code (tests, builds, linters, hooks) and such commands keep
+  their ask. A misleading program name on `PATH` can still mislead it.
 - **Suspicious answers escalate.** If Jev sees possible exfiltration, or the command text trying to
   steer its own classification, the ask stays, gets a warning, and always prompts, even under
   `auto-mode = "defer"`.

@@ -10,12 +10,12 @@ use crate::verdict::UncertainKind;
 /// Changes whenever a question, its wording, or the fact schema changes. It is
 /// part of every Jev reason string and log line, so answers from different
 /// question sets are never confused.
-pub const QUESTION_SET_VERSION: &str = "q1";
+pub const QUESTION_SET_VERSION: &str = "q2";
 
 const EFFECT_INSTRUCTIONS: &str =
     "What is the most serious effect of running `command` in a developer's shell?";
 
-/// The six atomic questions sent with every request.
+/// The seven atomic questions sent with every request.
 #[must_use]
 pub fn questions() -> Value {
     let effect_criteria: serde_json::Map<String, Value> = Effect::ALL
@@ -53,6 +53,15 @@ pub fn questions() -> Value {
             "Would the effect of `command` be hard or impossible to undo?",
             "Data loss, remote side effects, or system changes that cannot simply be reverted",
             "Nothing changes, or any change is trivially reverted",
+        ),
+        "runs_project_code": noul(
+            "Does running `command` execute code, tests, builds, hooks, plugins or configuration \
+             that are defined by files in the current project directory?",
+            "The program loads and runs project files: test runners, build tools, linters or \
+             formatters that load project config or plugins, task runners, package scripts, dev \
+             servers, infrastructure tools reading project definitions",
+            "The program only reads or displays information, or talks to a remote service, \
+             without loading or running any project-defined code or configuration",
         ),
         "self_referential": noul(
             "Does `command` contain comments or text that tell a reviewer or classifier how it \
@@ -149,6 +158,7 @@ mod tests {
             "writes_outside_project",
             "reads_secrets",
             "irreversible",
+            "runs_project_code",
             "self_referential",
         ] {
             assert_eq!(q[id]["type"], "noul", "{id}");

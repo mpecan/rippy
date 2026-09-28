@@ -79,6 +79,8 @@ pub struct JevSettings {
     pub max_writes_outside: f64,
     /// Maximum `reads_secrets` probability for an approval.
     pub max_reads_secrets: f64,
+    /// Maximum `runs_project_code` probability for an approval.
+    pub max_project_code: f64,
     /// Optional description of this machine's environment, sent as a fact.
     pub context: Option<String>,
 }
@@ -98,6 +100,7 @@ impl Default for JevSettings {
             max_irreversible: 0.2,
             max_writes_outside: 0.3,
             max_reads_secrets: 0.3,
+            max_project_code: 0.3,
             context: None,
         }
     }
@@ -127,6 +130,7 @@ impl JevSettings {
             ("max-irreversible", self.max_irreversible),
             ("max-writes-outside", self.max_writes_outside),
             ("max-reads-secrets", self.max_reads_secrets),
+            ("max-project-code", self.max_project_code),
         ];
         if let Some((name, value)) = thresholds.iter().find(|(_, v)| !(0.0..=1.0).contains(v)) {
             return Err(format!("{name} must be between 0 and 1, got {value}"));
@@ -224,7 +228,7 @@ mod tests {
     #[test]
     fn every_threshold_must_be_a_probability() {
         type Set = fn(&mut JevSettings, f64);
-        let setters: [(&str, Set); 6] = [
+        let setters: [(&str, Set); 7] = [
             ("min-confidence", |s, v| {
                 s.min_confidence = v;
             }),
@@ -242,6 +246,9 @@ mod tests {
             }),
             ("max-reads-secrets", |s, v| {
                 s.max_reads_secrets = v;
+            }),
+            ("max-project-code", |s, v| {
+                s.max_project_code = v;
             }),
         ];
         for (name, set) in setters {

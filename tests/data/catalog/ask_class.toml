@@ -403,3 +403,39 @@ ask_class = "approval"
 command = "pipx run somecli"
 decision = "ask"
 ask_class = "project-defined"
+
+# Tools that run project code, tests, builds or config under their own name.
+[[case]]
+command = "eslint ."
+decision = "ask"
+ask_class = "project-defined"
+
+[[case]]
+command = "jest"
+decision = "ask"
+ask_class = "project-defined"
+
+[[case]]
+command = "cmake --build ."
+decision = "ask"
+ask_class = "project-defined"
+
+[[case]]
+command = "pre-commit run"
+decision = "ask"
+ask_class = "project-defined"
+
+[[case]]
+command = "direnv exec . somecli"
+decision = "ask"
+ask_class = "project-defined"
+
+[[case]]
+command = "pulumi up"
+decision = "ask"
+ask_class = "project-defined"
+
+[[case]]
+command = "tclsh deploy.tcl"
+decision = "ask"
+ask_class = "project-defined"

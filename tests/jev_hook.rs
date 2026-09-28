@@ -97,6 +97,7 @@ fn answers(effect: &str, confidence: f64, exfiltration: f64) -> Value {
             "writes_outside_project": { "type": "noul", "noul": 0.04 },
             "reads_secrets": { "type": "noul", "noul": 0.03 },
             "irreversible": { "type": "noul", "noul": 0.02 },
+            "runs_project_code": { "type": "noul", "noul": 0.03 },
             "self_referential": { "type": "noul", "noul": 0.05 }
         },
         "usage": { "input_tokens": 900, "output_tokens": 150 }

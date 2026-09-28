@@ -17,6 +17,7 @@ fn clean() -> Answers {
         writes_outside_project: 0.05,
         reads_secrets: 0.05,
         irreversible: 0.03,
+        runs_project_code: 0.05,
         self_referential: 0.05,
     }
 }
@@ -177,6 +178,7 @@ fn response() -> serde_json::Value {
         "writes_outside_project": { "type": "noul", "noul": 0.05 },
         "reads_secrets": { "type": "noul", "noul": 0.03 },
         "irreversible": { "type": "noul", "noul": 0.02 },
+        "runs_project_code": { "type": "noul", "noul": 0.04 },
         "self_referential": { "type": "noul", "noul": 0.06 }
     })
 }
@@ -281,4 +283,20 @@ fn remote_read_needs_opt_in() {
         ..settings()
     };
     assert!(matches!(decide(&a, &opted_in), Outcome::Approve { .. }));
+}
+
+// Second verification pass: `eslint .`, `jest`, `cmake .` run project code
+// under a harmless name. Live Jev scored them 0.62-0.92, read-only tools <0.16.
+#[test]
+fn project_code_is_kept_at_the_gate() {
+    let a = Answers {
+        runs_project_code: 0.3,
+        ..clean()
+    };
+    assert!(matches!(decide(&a, &settings()), Outcome::Keep { .. }));
+    let a = Answers {
+        runs_project_code: 0.29,
+        ..clean()
+    };
+    assert!(matches!(decide(&a, &settings()), Outcome::Approve { .. }));
 }

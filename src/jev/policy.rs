@@ -28,6 +28,7 @@ pub struct Answers {
     pub writes_outside_project: f64,
     pub reads_secrets: f64,
     pub irreversible: f64,
+    pub runs_project_code: f64,
     pub self_referential: f64,
 }
 
@@ -56,6 +57,7 @@ impl Answers {
             writes_outside_project: noul(answers, "writes_outside_project")?,
             reads_secrets: noul(answers, "reads_secrets")?,
             irreversible: noul(answers, "irreversible")?,
+            runs_project_code: noul(answers, "runs_project_code")?,
             self_referential: noul(answers, "self_referential")?,
         })
     }
@@ -152,6 +154,10 @@ pub fn decide(a: &Answers, s: &JevSettings) -> Outcome {
         (
             a.reads_secrets < s.max_reads_secrets,
             format!("reads secrets {:.2}", a.reads_secrets),
+        ),
+        (
+            a.runs_project_code < s.max_project_code,
+            format!("runs project code {:.2}", a.runs_project_code),
         ),
     ];
     match gates.into_iter().find(|(passed, _)| !passed) {

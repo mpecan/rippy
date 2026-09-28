@@ -59,6 +59,7 @@ fn answers(effect: &str, confidence: f64, nouls: &[(&str, f64)]) -> Value {
         "writes_outside_project",
         "reads_secrets",
         "irreversible",
+        "runs_project_code",
         "self_referential",
     ] {
         let p = nouls
@@ -136,7 +137,7 @@ fn a_confident_clean_answer_approves_with_provenance() {
     assert_eq!(r.verdict.decision, Decision::Allow);
     assert_eq!(
         r.verdict.reason,
-        "jev: approved (read_only, conf 0.97 >= 0.90, typesafe/jev-1.13-20260917 q1)"
+        "jev: approved (read_only, conf 0.97 >= 0.90, typesafe/jev-1.13-20260917 q2)"
     );
     assert!(matches!(
         r.verdict.allow_reason(),
@@ -159,7 +160,7 @@ fn exfiltration_escalates_and_forces_a_prompt() {
     assert!(
         r.verdict
             .reason
-            .starts_with("⚠ jev: possible exfiltration (p=0.93, typesafe/jev-1.13-20260917 q1)")
+            .starts_with("⚠ jev: possible exfiltration (p=0.93, typesafe/jev-1.13-20260917 q2)")
     );
     assert!(r.verdict.reason.ends_with("somecli (unknown command)"));
     assert!(r.force_prompt);
@@ -187,7 +188,7 @@ fn keep_annotates_and_stays_uncertain() {
     assert_eq!(
         r.verdict.reason,
         "somecli (unknown command) (jev: local_change, conf 0.99; \
-         kept: local_change is not an allowed effect; typesafe/jev-1.13-20260917 q1)"
+         kept: local_change is not an allowed effect; typesafe/jev-1.13-20260917 q2)"
     );
     assert!(!r.force_prompt);
 }
@@ -360,7 +361,7 @@ fn an_unsafe_model_id_is_not_echoed() {
     }));
     let r = run(unknown("somecli list"), "somecli list", &enabled(), &fake);
     assert!(
-        r.verdict.reason.ends_with("jev-1.13 q1)"),
+        r.verdict.reason.ends_with("jev-1.13 q2)"),
         "{}",
         r.verdict.reason
     );
@@ -389,4 +390,35 @@ fn no_reason_text_is_ever_sent() {
             .to_string()
             .contains("hunter2envvalue")
     );
+}
+
+#[test]
+fn a_program_resolving_inside_the_project_is_never_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("somecli"), "").unwrap();
+    let fake = Fake::answering(answers("read_only", 0.99, &[]));
+    let var = |name: &str| match name {
+        "RIPPY_TEST_JEV_KEY" => Some("test-key".to_owned()),
+        "PATH" => Some(".:/usr/bin".to_owned()),
+        _ => None,
+    };
+    let env = Env {
+        cwd: dir.path(),
+        home: None,
+        var: &var,
+    };
+    let r = review(
+        unknown("somecli list"),
+        "somecli list",
+        &enabled(),
+        &env,
+        &fake,
+    );
+    assert!(
+        r.log.unwrap()["skipped"]
+            .as_str()
+            .unwrap()
+            .contains("inside the project")
+    );
+    assert_eq!(fake.calls(), 0);
 }
