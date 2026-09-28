@@ -264,6 +264,8 @@ const REPORTED_BYPASSES: &[&str] = &[
     "busybox sh x",
     "osascript -e 'do shell script \"id\"'",
     "pwsh -Command ls",
+    "(( PATH=1 )) ; somecli list",
+    "printf -v PATH 1 ; somecli list",
 ];
 
 #[test]

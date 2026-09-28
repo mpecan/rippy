@@ -76,6 +76,10 @@ const INTERPRETERS: &[&str] = &[
     "awk",
 ];
 
+/// Builtins that assign variables from their arguments (`read PATH`,
+/// `let PATH=1`), so a later command in the same list may resolve differently.
+const SETS_VARIABLES: &[&str] = &["read", "let", "mapfile", "readarray", "getopts"];
+
 /// Why a verdict is not sent, or the kind it is sent as.
 ///
 /// # Errors
@@ -123,6 +127,13 @@ pub fn check(verdict: &Verdict, shape: &Shape<'_>) -> Result<UncertainKind, Stri
         };
         if ask_rules::is_script_like(name) || ask_rules::TASK_RUNNERS.contains(&name) {
             return Err(format!("{name} runs something the project defines"));
+        }
+        if SETS_VARIABLES.contains(&name)
+            || (name == "printf" && leaf.args.iter().any(|a| a == "-v"))
+        {
+            return Err(format!(
+                "{name} can set variables that change what later commands run"
+            ));
         }
         if let Some(arg) = leaf.args.iter().find(|a| is_lookup_env_assignment(a)) {
             return Err(format!("{arg} changes which programs run"));
@@ -224,6 +235,22 @@ mod tests {
         }
         assert!(check_cmd("python3", &v).is_ok());
         assert!(check_cmd("somecli list | head -5 && echo done", &v).is_ok());
+    }
+
+    // Final verification pass: `PATH` reassigned without an assignment word.
+    #[test]
+    fn variable_setting_builtins_and_arithmetic_are_refused() {
+        let v = uncertain(UncertainKind::UnknownCommand);
+        for cmd in [
+            "(( PATH=1 )) ; somecli list",
+            "(( 1 )) && somecli",
+            "printf -v PATH 1 ; somecli list",
+            "read PATH < /dev/null; somecli",
+            "let PATH=1; somecli",
+        ] {
+            assert!(check_cmd(cmd, &v).is_err(), "{cmd}");
+        }
+        assert!(check_cmd("printf '%s' x; somecli list", &v).is_ok());
     }
 
     #[test]

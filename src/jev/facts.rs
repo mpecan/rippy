@@ -41,6 +41,11 @@ impl Places<'_> {
     }
 
     fn label(&self, path: &Path) -> &'static str {
+        // `~user`, `~+`, `~-`: another home or a directory stack entry, never
+        // the project (`resolve` leaves them relative).
+        if path.to_str().is_some_and(|p| p.starts_with('~')) {
+            return "outside project (another user's home or the directory stack)";
+        }
         if path.starts_with(&self.project_root) {
             "inside project"
         } else if self.home.as_ref().is_some_and(|h| path.starts_with(h)) {
@@ -63,6 +68,9 @@ impl Places<'_> {
     }
 
     fn resolve(&self, cwd: &Path, raw: &str) -> PathBuf {
+        if raw.starts_with('~') && raw != "~" && !raw.starts_with("~/") {
+            return PathBuf::from(raw);
+        }
         let expanded = match (raw.strip_prefix('~'), &self.home) {
             (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
                 home.join(rest.trim_start_matches('/'))

@@ -277,6 +277,7 @@ const fn is_compound(kind: &NodeKind) -> bool {
             | NodeKind::Subshell { .. }
             | NodeKind::BraceGroup { .. }
             | NodeKind::ConditionalExpr { .. }
+            | NodeKind::ArithmeticCommand { .. }
             | NodeKind::Coproc { .. }
             | NodeKind::CommandSubstitution { .. }
             | NodeKind::ProcessSubstitution { .. }

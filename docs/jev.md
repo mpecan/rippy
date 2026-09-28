@@ -303,6 +303,9 @@ prototype confirmed the risk: `./scripts/list-users.sh` and
 pipes and `;`/`&&`/`||`. As defence in depth it refuses:
 - subshells, groups, loops, conditionals, functions, `coproc`, and command or
   process substitutions
+- arithmetic commands (`(( … ))`) and variable-setting builtins (`read`, `let`,
+  `mapfile`, `getopts`, `printf -v`), which can reassign `PATH` without an
+  assignment word
 - any stdin redirect (`<`, `<<<`, `0<`, `<&`) and any heredoc, so a file's
   contents, which Jev cannot see, never decide a verdict
 - text on more than one line, or non-ASCII text (rable's word spans drift after
@@ -344,8 +347,9 @@ begins a comment, and is removed up to the end of its line.
 - URL userinfo (split at the last `@`) and credential-named query and fragment
   parameters
 
-Expansions (`$X`, `${X:-y}`) are never redacted or mangled: their values are not
-in the text. `rippy_uncertainty` is a fixed description of the uncertain kind,
+A word that is itself an expansion (`$X`, `${X:-y}`) is never redacted or
+mangled: its value is not in the text. As a value of a credential flag
+(`--token=$X`) it is redacted like any other value. `rippy_uncertainty` is a fixed description of the uncertain kind,
 never rippy's own reason: reasons can carry resolved variable values and handler
 detail (`7z $SECRET` names the resolved argument).
 
@@ -678,6 +682,15 @@ A second verification pass found two more families, also fixed and pinned:
 |---|---|
 | Unknown programs that run project code under their own name (`eslint .`, `jest`, `cmake .`, `pre-commit run`, `pulumi up`, `direnv exec`, `pypy -m`, `tclsh x.tcl`, …). No fixed list can be complete | Two layers. A longer deterministic list of runners, build tools, linters, test runners, interpreters and script extensions. And a new `runs_project_code` question (question set `q2`) with a `max-project-code` gate: on live Jev, project-code tools scored 0.62–0.92 and read-only tools 0.04–0.15 |
 | Programs resolved through a `PATH` entry into the project were sent, and a relative entry mislabelled them "system-installed" | Relative entries resolve against the working directory; a program inside the project is never sent |
+
+A final pass (shell-syntax edge cases, secret probing) found no secret in any
+request body and no sent text that differed from what bash runs. Two items
+were fixed:
+
+| Finding | Fix |
+|---|---|
+| `(( PATH=1 )) ; cmd` and `printf -v PATH 1 ; cmd` reassigned `PATH` without an assignment word | Arithmetic commands and variable-setting builtins are refused |
+| `~root/.ssh/id_rsa` was labelled "inside project" | `~user`, `~+`, `~-` are labelled outside the project |
 
 ## Known pre-existing issues
 

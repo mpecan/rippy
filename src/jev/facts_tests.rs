@@ -162,3 +162,15 @@ fn project_root_is_the_nearest_git_ancestor() {
     std::fs::create_dir_all(&nested).unwrap();
     assert_eq!(Places::project_root(&nested), dir.path());
 }
+
+// Final verification pass: `~root` was treated as a relative path.
+#[test]
+fn other_users_homes_are_never_inside_the_project() {
+    for arg in ["~root/.ssh/id_rsa", "~+/x", "~-/x"] {
+        let facts = facts_for(&format!("somecli {arg}"), &unset);
+        assert_eq!(
+            facts["paths"][arg], "outside project (another user's home or the directory stack)",
+            "{arg}"
+        );
+    }
+}
