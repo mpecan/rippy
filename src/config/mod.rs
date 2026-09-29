@@ -15,7 +15,7 @@ pub use types::{ConfigDirective, Rule, RuleTarget};
 
 use loader::{
     apply_setting, build_weakening_suffix, detect_broad_allow, detect_dangerous_setting,
-    has_trust_setting, load_first_existing, load_project_config_if_trusted,
+    has_trust_setting, load_first_existing, read_trusted_project,
 };
 use matching::{format_rule_reason, matches_structured};
 
@@ -99,15 +99,19 @@ impl Config {
 
         // Trust is decided by the global config alone: a package can be chosen
         // by the project, so it must not be able to trust that project.
+        // see docs/security-invariants.md#package-trust
         let trust_all = has_trust_setting(&global);
-        let project_config = find_project_config(cwd);
-        let trusted_project = project_config
-            .as_deref()
-            .filter(|p| loader::project_config_is_trusted(p, trust_all));
+        let project = match find_project_config(cwd) {
+            Some(path) => read_trusted_project(&path, trust_all)?.map(|content| (path, content)),
+            None => None,
+        };
+        let project_package = project
+            .as_ref()
+            .and_then(|(path, content)| loader::package_setting_in(path, content));
 
         // The package layer loads between stdlib and user config so user rules
         // can override package rules. Only a trusted project may choose it.
-        let package = resolve_package(home, trusted_project);
+        let package = resolve_package(home, project_package);
         if let Some(pkg) = &package {
             directives.extend(crate::packages::package_directives(pkg)?);
         }
@@ -115,8 +119,8 @@ impl Config {
 
         directives.push(ConfigDirective::ProjectBoundary);
 
-        if let Some(project_config) = project_config {
-            load_project_config_if_trusted(&project_config, trust_all, &mut directives)?;
+        if let Some((path, content)) = &project {
+            loader::load_file_from_content(content, path, &mut directives)?;
         }
 
         directives.push(ConfigDirective::ProjectBoundary);
@@ -127,6 +131,7 @@ impl Config {
 
         let mut config = Self::from_directives(directives);
         config.active_package = package;
+        config.trust_project_configs = trust_all;
         Ok(config)
     }
 
@@ -353,7 +358,7 @@ impl Config {
 /// no config file specifies a package.
 fn resolve_package(
     home: Option<PathBuf>,
-    trusted_project: Option<&Path>,
+    project_package: Option<String>,
 ) -> Option<crate::packages::Package> {
     let mut package_name: Option<String> = None;
 
@@ -372,10 +377,8 @@ fn resolve_package(
     }
 
     // A trusted project config overrides global.
-    if let Some(project_config) = trusted_project
-        && let Some(name) = loader::extract_package_setting(project_config)
-    {
-        package_name = Some(name);
+    if project_package.is_some() {
+        package_name = project_package;
     }
 
     let name = package_name?;

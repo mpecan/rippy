@@ -137,61 +137,52 @@ pub(super) fn load_file_from_content(
     Ok(())
 }
 
-/// Check whether already-loaded directives contain `trust-project-configs = on/true`.
+/// Whether `trust-project-configs` is on in `directives`, the last setting
+/// winning.
 pub(super) fn has_trust_setting(directives: &[ConfigDirective]) -> bool {
-    directives.iter().rev().any(|d| {
-        matches!(
-            d,
-            ConfigDirective::Set { key, value }
-            if key == "trust-project-configs"
-                && value != "off"
-                && value != "false"
-        )
-    })
+    directives
+        .iter()
+        .rev()
+        .find_map(|d| match d {
+            ConfigDirective::Set { key, value } if key == "trust-project-configs" => {
+                Some(value != "off" && value != "false")
+            }
+            _ => None,
+        })
+        .unwrap_or(false)
 }
 
-/// Load a project config file only if it is trusted.
+/// A project config's content, read once, if it is trusted.
 ///
 /// If `trust_all` is true (from `trust-project-configs = on` in global config),
-/// the file is loaded unconditionally. Otherwise, the trust database is consulted
-/// and untrusted/modified configs are skipped with a stderr warning.
-/// Whether a project config would be loaded, without loading or warning.
-pub(super) fn project_config_is_trusted(path: &Path, trust_all: bool) -> bool {
-    if trust_all {
-        return true;
-    }
-    std::fs::read_to_string(path).is_ok_and(|content| {
-        matches!(
-            crate::trust::TrustDb::load().check(path, &content),
-            crate::trust::TrustStatus::Trusted
-        )
-    })
-}
-
-pub(super) fn load_project_config_if_trusted(
+/// the file is trusted unconditionally. Otherwise the trust database is
+/// consulted, and an untrusted or modified config is skipped with a stderr
+/// warning. Callers derive everything (the package setting and the directives)
+/// from this one read, so what was trusted is what is used.
+///
+/// # Errors
+///
+/// Returns `RippyError::Config` if the file cannot be read.
+pub(super) fn read_trusted_project(
     path: &Path,
     trust_all: bool,
-    directives: &mut Vec<ConfigDirective>,
-) -> Result<(), RippyError> {
+) -> Result<Option<String>, RippyError> {
     let content = std::fs::read_to_string(path).map_err(|e| RippyError::Config {
         path: path.to_owned(),
         line: 0,
         message: format!("could not read: {e}"),
     })?;
-
     if trust_all {
-        return load_file_from_content(&content, path, directives);
+        return Ok(Some(content));
     }
-
-    let db = crate::trust::TrustDb::load();
-    match db.check(path, &content) {
-        crate::trust::TrustStatus::Trusted => load_file_from_content(&content, path, directives),
+    match crate::trust::TrustDb::load().check(path, &content) {
+        crate::trust::TrustStatus::Trusted => Ok(Some(content)),
         crate::trust::TrustStatus::Untrusted => {
             eprintln!(
                 "[rippy] untrusted project config: {} — run `rippy trust` to review and enable",
                 path.display()
             );
-            Ok(())
+            Ok(None)
         }
         crate::trust::TrustStatus::Modified { .. } => {
             eprintln!(
@@ -199,7 +190,7 @@ pub(super) fn load_project_config_if_trusted(
                  run `rippy trust` to re-approve",
                 path.display()
             );
-            Ok(())
+            Ok(None)
         }
     }
 }
@@ -215,8 +206,13 @@ pub fn home_dir() -> Option<PathBuf> {
 /// (line-based).
 pub(super) fn extract_package_setting(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
+    package_setting_in(path, &content)
+}
+
+/// The `package` setting in a config's `content`; `path` picks the format.
+pub(super) fn package_setting_in(path: &Path, content: &str) -> Option<String> {
     if path.extension().is_some_and(|ext| ext == "toml") {
-        let config: crate::toml_config::TomlConfig = toml::from_str(&content).ok()?;
+        let config: crate::toml_config::TomlConfig = toml::from_str(content).ok()?;
         config.settings?.package
     } else {
         // Line-based format: look for `set package <value>`

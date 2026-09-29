@@ -370,3 +370,40 @@ fn builtin_takes_priority_over_custom_with_same_name() {
         "stderr should warn about shadowing: {stderr}"
     );
 }
+
+fn profile_set_project(project: &Path, home: &Path) -> i32 {
+    Command::new(common::rippy_binary())
+        .args(["profile", "set", "develop", "--project"])
+        .current_dir(project)
+        .env("HOME", home)
+        .output()
+        .unwrap()
+        .status
+        .code()
+        .unwrap_or(-1)
+}
+
+fn trust_db(home: &Path) -> String {
+    std::fs::read_to_string(home.join(".rippy/trusted.json")).unwrap_or_default()
+}
+
+#[test]
+fn profile_set_project_trusts_a_file_it_creates() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    assert_eq!(profile_set_project(project.path(), home.path()), 0);
+    assert!(trust_db(home.path()).contains(".rippy.toml"));
+}
+
+#[test]
+fn profile_set_project_does_not_trust_an_untrusted_file() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    std::fs::write(
+        project.path().join(".rippy.toml"),
+        "[[rules]]\naction = \"allow\"\npattern = \"rm *\"\n",
+    )
+    .unwrap();
+    assert_eq!(profile_set_project(project.path(), home.path()), 0);
+    assert!(!trust_db(home.path()).contains(".rippy.toml"));
+}

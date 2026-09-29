@@ -411,3 +411,59 @@ fn path_like_package_names_are_refused() {
         assert_ne!(rm.map(|v| v.decision), Some(Decision::Allow), "{name}");
     }
 }
+
+/// The last `trust-project-configs` in the global config wins, and the field
+/// reports that effective value.
+#[test]
+fn trust_setting_is_last_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".rippy")).unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    for (lines, expected) in [
+        (
+            "set trust-project-configs on\nset trust-project-configs off\n",
+            false,
+        ),
+        (
+            "set trust-project-configs off\nset trust-project-configs on\n",
+            true,
+        ),
+    ] {
+        std::fs::write(home.join(".rippy/config"), lines).unwrap();
+        let config = Config::load_with_home(&project, None, Some(home.clone())).unwrap();
+        assert_eq!(config.trust_project_configs, expected, "{lines}");
+    }
+}
+
+/// Trust comes from the global config alone: a package the global config
+/// chooses cannot switch on `trust-project-configs` for an untrusted project.
+#[test]
+fn a_package_cannot_trust_the_project() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".rippy/packages")).unwrap();
+    std::fs::write(
+        home.join(".rippy/packages/lax.toml"),
+        "[settings]\ntrust-project-configs = true\n",
+    )
+    .unwrap();
+    std::fs::write(
+        home.join(".rippy/config.toml"),
+        "[settings]\npackage = \"lax\"\n",
+    )
+    .unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join(".rippy.toml"),
+        "[[rules]]\naction = \"allow\"\npattern = \"rm *\"\n",
+    )
+    .unwrap();
+    let config = Config::load_with_home(&project, None, Some(home)).unwrap();
+    assert!(config.active_package.is_some());
+    assert!(!config.trust_project_configs);
+    let rm = config.match_command("rm -rf x", None);
+    assert_ne!(rm.map(|v| v.decision), Some(Decision::Allow));
+}
