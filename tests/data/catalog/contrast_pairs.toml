@@ -25,7 +25,7 @@ dangerous = [
 
 [[contrast]]
 description = "env wrapper inner command"
-template = "env FOO=bar {CMD}"
+template = "env CI=bar {CMD}"
 safe = [
     { inner = "ls" },
     { inner = "echo hello" },

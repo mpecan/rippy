@@ -3,7 +3,7 @@ description = "Safe handler operations — git, docker, cargo, curl"
 
 # Env-var prefix must not hide the real command from config rules (issue #133).
 [[case]]
-command = "INSTA_UPDATE=always cargo test"
+command = "CI=1 cargo test"
 decision = "allow"
 
 [[case]]
@@ -11,11 +11,11 @@ command = "RUST_LOG=debug cargo build"
 decision = "allow"
 
 [[case]]
-command = "A=1 B=2 cargo test"
+command = "CI=1 DEBUG=2 cargo test"
 decision = "allow"
 
 [[case]]
-command = "FOO=bar ls"
+command = "CI=bar ls"
 decision = "allow"
 
 # Env prefix on the first command of a pipeline/list is still stripped (issue
@@ -28,11 +28,11 @@ command = "RUST_LOG=debug cargo test | grep foo"
 decision = "allow"
 
 [[case]]
-command = "INSTA_UPDATE=always cargo test && cargo build"
+command = "CI=1 cargo test && cargo build"
 decision = "allow"
 
 [[case]]
-command = "A=1 cargo build ; cargo test"
+command = "CI=1 cargo build ; cargo test"
 decision = "allow"
 
 # Git safe subcommands
@@ -155,11 +155,11 @@ decision = "allow"
 
 # Env safe
 [[case]]
-command = "env FOO=bar ls"
+command = "env CI=bar ls"
 decision = "allow"
 
 [[case]]
-command = "env A=1 B=2 echo hello"
+command = "env CI=1 DEBUG=2 echo hello"
 decision = "allow"
 
 # Task runner safe operations (Issue #135)
@@ -239,11 +239,11 @@ command = "for f in *.rs; do wc -l $f; done"
 decision = "allow"
 
 [[case]]
-command = "SCRATCH=/tmp/x; ls $SCRATCH"
+command = "TZ=/tmp/x; ls $TZ"
 decision = "allow"
 
 [[case]]
-command = "DIR=/tmp ls $DIR"
+command = "TZ=/tmp ls $TZ"
 decision = "allow"
 
 [[case]]

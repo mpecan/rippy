@@ -315,7 +315,7 @@ fn assignment_prefix_with_cmdsub_in_list_asks() {
 #[test]
 fn literal_assignment_prefix_still_allows() {
     let mut a = make_analyzer();
-    let v = a.analyze("FOO=bar ls").unwrap();
+    let v = a.analyze("CI=bar ls").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }
 
@@ -337,14 +337,14 @@ const FOO_ALLOW_TOML: &str = "[[rules]]\naction = \"allow\"\ncommand = \"foo\"\n
 #[test]
 fn env_prefix_matches_command_rule() {
     let mut a = make_analyzer_with_config(FOO_ALLOW_TOML);
-    let v = a.analyze("VAR=x foo").unwrap();
+    let v = a.analyze("LANG=x foo").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }
 
 #[test]
 fn multi_assignment_prefix_stripped() {
     let mut a = make_analyzer_with_config(FOO_ALLOW_TOML);
-    let v = a.analyze("A=1 B=2 foo").unwrap();
+    let v = a.analyze("CI=1 DEBUG=2 foo").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }
 
@@ -403,7 +403,7 @@ fn for_loop_iteration_words_substitution_asks() {
 #[test]
 fn literal_prior_assignment_binds() {
     let mut a = make_analyzer();
-    let v = a.analyze("SCRATCH=/tmp/x; ls $SCRATCH").unwrap();
+    let v = a.analyze("TZ=/tmp/x; ls $TZ").unwrap();
     assert_eq!(v.decision, Decision::Allow);
     assert_eq!(v.resolved_command.as_deref(), Some("ls /tmp/x"));
 }
@@ -411,7 +411,7 @@ fn literal_prior_assignment_binds() {
 #[test]
 fn env_prefix_same_command_binds() {
     let mut a = make_analyzer();
-    let v = a.analyze("DIR=/tmp ls $DIR").unwrap();
+    let v = a.analyze("TZ=/tmp ls $TZ").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }
 
@@ -543,7 +543,7 @@ fn select_loop_iteration_words_substitution_asks() {
 #[test]
 fn append_assignment_shadows_prior_literal_not_a_stale_value() {
     let mut a = make_analyzer();
-    let v = a.analyze("A=/safe A+=/more cat $A").unwrap();
+    let v = a.analyze("DEBUG=/safe DEBUG+=/more cat $DEBUG").unwrap();
     assert_eq!(v.decision, Decision::Allow);
     assert!(v.resolved_command.is_none());
     assert!(v.reason.contains("dynamic arg"), "reason: {}", v.reason);
@@ -559,6 +559,6 @@ fn append_assignment_handler_still_asks() {
 #[test]
 fn append_assignment_env_prefix_safe_command_allows() {
     let mut a = make_analyzer();
-    let v = a.analyze("A+=/more ls $A").unwrap();
+    let v = a.analyze("DEBUG+=/more ls $DEBUG").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }

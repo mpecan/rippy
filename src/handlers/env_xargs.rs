@@ -33,7 +33,7 @@ impl Handler for EnvHandler {
             .filter_map(|a| a.split_once('=').map(|(n, _)| n))
             .any(ast::is_dangerous_env_name);
         if dangerous_assignment {
-            return Classification::Ask("env (dangerous env-var assignment)".into());
+            return Classification::Ask("env (unrecognized env-var assignment)".into());
         }
 
         let positionals: Vec<&str> = ctx
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn env_with_command_recurses() {
-        let args: Vec<String> = vec!["FOO=bar".into(), "git".into(), "status".into()];
+        let args: Vec<String> = vec!["CI=bar".into(), "git".into(), "status".into()];
         let result = ENV_HANDLER.classify(&HandlerContext::test("env", &args));
         assert!(matches!(result, Classification::Recurse(_)));
     }

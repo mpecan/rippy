@@ -52,11 +52,11 @@ fn env_prefix_dangerous_var_asks_even_when_command_is_allow_ruled() {
     let v = verdict(&mut a, "LD_PRELOAD=/tmp/e.so foo");
     assert_eq!(v.decision, Decision::Ask, "reason: {}", v.reason);
     assert!(
-        v.reason.contains("dangerous env-var assignment"),
+        v.reason.contains("unrecognized env-var assignment"),
         "reason: {}",
         v.reason
     );
-    assert_eq!(decide(&mut a, "VAR=x foo"), Decision::Allow);
+    assert_eq!(decide(&mut a, "LANG=x foo"), Decision::Allow);
 }
 
 #[test]
@@ -74,8 +74,8 @@ fn env_prefix_with_expansion_asks_even_when_command_is_allow_ruled() {
 #[test]
 fn env_prefix_does_not_launder_redirect_past_self_protect() {
     let mut a = ruled_analyzer();
-    assert_eq!(decide(&mut a, "VAR=x foo"), Decision::Allow);
-    assert_eq!(decide(&mut a, "VAR=x foo > .rippy"), Decision::Deny);
+    assert_eq!(decide(&mut a, "LANG=x foo"), Decision::Allow);
+    assert_eq!(decide(&mut a, "LANG=x foo > .rippy"), Decision::Deny);
 }
 
 #[test]

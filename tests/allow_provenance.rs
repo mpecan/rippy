@@ -87,7 +87,7 @@ fn redirect_provenance() {
 fn structural_provenance() {
     assert_eq!(provenance("cat <<'EOF'\nhello\nEOF"), AllowReason::Heredoc);
     assert_eq!(
-        provenance("FOO=bar"),
+        provenance("CI=bar"),
         AllowReason::EmptyCommand,
         "a bare assignment parses to a command node with no command name"
     );

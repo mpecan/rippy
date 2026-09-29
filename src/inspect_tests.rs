@@ -28,7 +28,7 @@ const SPREAD: &[&str] = &[
     "echo hi > /tmp/rippy-inspect-out",
     "cat < /etc/hosts",
     "ls 2>&1",
-    "VAR=x echo hi",
+    "LANG=x echo hi",
     "LD_PRELOAD=/tmp/x ls",
     "FOO=$(id) ls",
     "x=$(ls); echo $x",
@@ -166,7 +166,7 @@ fn trace_env_prefix_matches_config_rule() {
     )
     .unwrap();
 
-    let output = collect_trace_data("VAR=x echo evil", dir.path(), Some(&config_path)).unwrap();
+    let output = collect_trace_data("LANG=x echo evil", dir.path(), Some(&config_path)).unwrap();
     assert_eq!(output.decision, "deny");
     assert_eq!(output.reason, "no evil");
     assert!(
@@ -199,7 +199,8 @@ fn trace_env_prefix_pipeline_records_withheld_allow_rule() {
     )
     .unwrap();
 
-    let output = collect_trace_data("VAR=x echo hi | cat", dir.path(), Some(&config_path)).unwrap();
+    let output =
+        collect_trace_data("LANG=x echo hi | cat", dir.path(), Some(&config_path)).unwrap();
     assert_eq!(output.decision, "allow");
     assert!(
         output
@@ -453,7 +454,7 @@ fn trace_provenance_names_the_approval_route() {
         ("cat <<'EOF'\nhello\nEOF", "heredoc"),
         ("git status", "handler"),
         ("cargo build", "config-rule"),
-        ("FOO=bar", "empty-command"),
+        ("CI=bar", "empty-command"),
         ("case x in y) ;; esac", "empty"),
     ];
     for (command, expected) in cases {
@@ -565,7 +566,7 @@ fn trace_records_the_deciding_gate() {
         (
             "LD_PRELOAD=/tmp/x ls",
             "Env prefix",
-            "ask: LD_PRELOAD is a code-influencing variable",
+            "ask: LD_PRELOAD is not a known-inert variable",
         ),
         (
             "FOO=$(id) ls",

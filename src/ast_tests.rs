@@ -350,20 +350,23 @@ fn strip(command: &str) -> Option<String> {
 
 #[test]
 fn strip_env_prefix_single_assignment() {
+    assert_eq!(strip("CI=always cargo test"), Some("cargo test".to_owned()));
+}
+
+#[test]
+fn strip_env_prefix_multiple_assignments() {
     assert_eq!(
-        strip("INSTA_UPDATE=always cargo test"),
+        strip("CI=1 DEBUG=2 cargo test"),
         Some("cargo test".to_owned())
     );
 }
 
 #[test]
-fn strip_env_prefix_multiple_assignments() {
-    assert_eq!(strip("A=1 B=2 cargo test"), Some("cargo test".to_owned()));
-}
-
-#[test]
 fn strip_env_prefix_quoted_value() {
-    assert_eq!(strip("FOO='a b' cargo test"), Some("cargo test".to_owned()));
+    assert_eq!(
+        strip("LANG='a b' cargo test"),
+        Some("cargo test".to_owned())
+    );
 }
 
 #[test]
@@ -399,11 +402,11 @@ fn strip_env_prefix_list_first_command() {
     // #133: an env prefix on the first command of an `&&`/`;` list is
     // stripped, and the rest of the list is preserved verbatim.
     assert_eq!(
-        strip("INSTA_UPDATE=always cargo test && cargo build"),
+        strip("CI=always cargo test && cargo build"),
         Some("cargo test && cargo build".to_owned())
     );
     assert_eq!(
-        strip("A=1 cargo test; echo done"),
+        strip("CI=1 cargo test; echo done"),
         Some("cargo test; echo done".to_owned())
     );
 }
@@ -412,7 +415,7 @@ fn strip_env_prefix_list_first_command() {
 fn strip_env_prefix_preserves_redirects() {
     // Redirects must survive stripping (no new bypass path).
     assert_eq!(
-        strip("FOO=bar cargo build > out.log"),
+        strip("CI=bar cargo build > out.log"),
         Some("cargo build > out.log".to_owned())
     );
 }
@@ -478,26 +481,93 @@ fn append_assignment_name_matches_append_only() {
 }
 
 #[test]
-fn is_dangerous_env_name_flags_git_config_and_bash_func_families() {
+fn is_dangerous_env_name_flags_known_injection_families() {
     for name in [
         "GIT_CONFIG_COUNT",
-        "GIT_CONFIG_KEY_0",
-        "GIT_CONFIG_VALUE_0",
-        "GIT_CONFIG_GLOBAL",
-        "GIT_CONFIG_SYSTEM",
-        "GIT_CONFIG_PARAMETERS",
         "BASH_FUNC_foo%%",
         "LD_PRELOAD",
         "DYLD_INSERT_LIBRARIES",
         "GIT_SSH_COMMAND",
+        "BASH_ENV",
+        "IFS",
+        "PS4",
     ] {
         assert!(is_dangerous_env_name(name), "{name} should be dangerous");
     }
 }
 
+/// #203 — the predicate is inert-listed, so a name rippy has never heard of
+/// Asks. Enumerating dangerous names did not converge: two rounds of it each
+/// shipped and were then shown to miss a dozen more.
 #[test]
-fn is_dangerous_env_name_allows_ordinary_names() {
-    for name in ["FOO", "PATH", "HOME", "NODE_ENV", "CI", "RUST_LOG"] {
-        assert!(!is_dangerous_env_name(name), "{name} should be safe");
+fn unknown_env_names_are_dangerous() {
+    for name in [
+        "FOO",
+        "MY_VAR",
+        "SCRATCH",
+        // Each of these was a live bypass while the predicate was a denylist.
+        "PATH",
+        "HOME",
+        "XDG_CACHE_HOME",
+        "GIT_DIR",
+        "GIT_EXEC_PATH",
+        "TAR_OPTIONS",
+        "CARGO_HOME",
+        "RUSTC",
+        "RUSTFLAGS",
+        "KUBECONFIG",
+        "MANPAGER",
+        "PERLLIB",
+        "PYTHONHOME",
+        "NODE_PATH",
+        "LESSOPEN",
+        "DOCKER_CONFIG",
+        "PSQLRC",
+        // Lowercase counts too: npm really reads these.
+        "npm_config_script_shell",
+    ] {
+        assert!(is_dangerous_env_name(name), "{name} should be dangerous");
+    }
+}
+
+/// The inert list is an allow surface, so each member is pinned. Adding one
+/// widens what rippy approves without asking.
+#[test]
+fn inert_env_names_are_allowed() {
+    for name in [
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "TERM",
+        "CI",
+        "DEBIAN_FRONTEND",
+        "NODE_ENV",
+        "RUST_LOG",
+        "NO_COLOR",
+        "DEBUG",
+        "CARGO_TERM_COLOR",
+        "GIT_AUTHOR_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_TERMINAL_PROMPT",
+        "GIT_LFS_SKIP_SMUDGE",
+        "GIT_OPTIONAL_LOCKS",
+    ] {
+        assert!(!is_dangerous_env_name(name), "{name} should be inert");
+    }
+}
+
+/// Names that look inert and are not — the traps that make the inert list a
+/// deliberate surface rather than a convenience.
+#[test]
+fn lookalike_env_names_stay_dangerous() {
+    for name in [
+        // Loads locale definitions from a path, unlike LC_*/LANG.
+        "LOCPATH", // Where terminal descriptions load from, unlike TERM.
+        "TERMINFO", "TERMCAP",
+        // Run a program, despite reading like presentation settings.
+        "PAGER", "EDITOR", "VISUAL",
+    ] {
+        assert!(is_dangerous_env_name(name), "{name} should be dangerous");
     }
 }

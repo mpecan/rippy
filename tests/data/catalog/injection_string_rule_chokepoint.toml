@@ -21,7 +21,7 @@ decision = "allow"
 
 # a safe leading env prefix is stripped, so a single command still allows
 [[case]]
-command = "FOO=bar cargo test"
+command = "CI=bar cargo test"
 decision = "allow"
 
 # --- compound of individually allow-ruled leaves: combine to Allow (per-leaf) ---
@@ -85,7 +85,7 @@ command = "env LD_PRELOAD=/tmp/evil.so cargo test"
 decision = "ask"
 
 [[case]]
-command = "env FOO=bar cargo test"
+command = "env CI=bar cargo test"
 decision = "allow"
 
 # a code-influencing env prefix is never allow-listed — not on a SIMPLE_SAFE reader,
