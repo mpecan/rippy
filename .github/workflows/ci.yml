@@ -33,6 +33,20 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      # The opt-in `rippy-jev` distribution (docs/jev.md) is compiled only with
+      # the feature. Checked in this job, after the default build, so it reuses
+      # the runner, cache and every shared dependency instead of a job of its own.
+      - name: Clippy (jev)
+        run: cargo clippy --all-targets --features jev -- -D warnings
+
+      - name: Default build has no network code
+        # `cargo tree -i` succeeds only when the crate is in the graph.
+        run: |
+          if cargo tree -e normal -i ureq >/dev/null 2>&1; then
+            echo "::error::ureq is in the default build's dependency tree"
+            exit 1
+          fi
+
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
 
@@ -76,41 +90,16 @@ jobs:
         # case or without a dangerous neighbor pinning where it stops.
         run: cargo test --test allow_completeness
 
-  jev:
-    # The opt-in `rippy-jev` distribution (docs/jev.md). Its code is compiled
-    # only with the feature, so the jobs above never see it.
-    name: Jev feature
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.93.0"
-          components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: jev
-
-      - name: Default build has no network code
-        # `cargo tree -i` succeeds only when the crate is in the graph.
-        run: |
-          if cargo tree -e normal -i ureq >/dev/null 2>&1; then
-            echo "::error::ureq is in the default build's dependency tree"
-            exit 1
-          fi
-
-      - name: Clippy (jev)
-        run: cargo clippy --all-targets --features jev -- -D warnings
-
-      - name: Test (jev)
+      - name: Run tests (jev)
+        # The whole suite again with the feature: the jev build must behave
+        # exactly like the default one until Jev is enabled. Dependencies are
+        # already built above; only rippy and its test binaries recompile.
         run: cargo test --all-targets --features jev
 
   check:
     name: Check
     if: always()
-    needs: [lint, test, jev]
+    needs: [lint, test]
     runs-on: ubuntu-latest
     steps:
       - name: All jobs passed
@@ -121,10 +110,6 @@ jobs:
           fi
           if [[ "${{ needs.test.result }}" != "success" ]]; then
             echo "Test failed"
-            exit 1
-          fi
-          if [[ "${{ needs.jev.result }}" != "success" ]]; then
-            echo "Jev feature failed"
             exit 1
           fi
           echo "All checks passed"

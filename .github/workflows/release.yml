@@ -47,18 +47,18 @@ jobs:
     # Two mutually exclusive distributions per target: `rippy` (default build,
     # no network code) and `rippy-jev` (`--features jev`, docs/jev.md). Both
     # archives contain a binary named `rippy`, so hook configs never change.
-    name: Build ${{ matrix.flavor }} ${{ matrix.target }}
+    #
+    # One job per target builds both flavors in turn: the second build reuses
+    # the runner setup, cache and every dependency the flavors share, where a
+    # job per flavor paid for all of that twice. The default archive is
+    # uploaded before the jev build starts, so a broken jev build fails the job
+    # visibly but never holds back the default release.
+    name: Build ${{ matrix.target }}
     if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        flavor: [rippy, rippy-jev]
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
         include:
           - target: aarch64-apple-darwin
             runner: macos-14
@@ -68,6 +68,12 @@ jobs:
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
+    env:
+      TARGET: ${{ matrix.target }}
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      # `ring` (rustls, jev build only) compiles C for the target.
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -79,7 +85,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}-${{ matrix.flavor }}
+          key: ${{ matrix.target }}
 
       - name: Install cross-compilation tools
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -87,41 +93,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Build release binary
-        run: >-
-          cargo build --release --target ${{ matrix.target }}
-          ${{ matrix.flavor == 'rippy-jev' && '--features jev' || '' }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          # `ring` (rustls, jev build only) compiles C for the target.
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-
-      - name: Package binary
+      - name: Write the packaging script
         shell: bash
         run: |
-          TAG="${{ env.RELEASE_TAG }}"
-          VERSION="${TAG#rippy-cli-v}"
-          ARCHIVE="${{ matrix.flavor }}-v${VERSION}-${{ matrix.target }}.tar.gz"
-          cp "target/${{ matrix.target }}/release/rippy" rippy
+          cat > "$RUNNER_TEMP/ship.sh" <<'SH'
+          # ship.sh FLAVOR: package the binary just built and upload it.
+          set -euo pipefail
+          FLAVOR="$1"
+          ARCHIVE="${FLAVOR}-v${RELEASE_TAG#rippy-cli-v}-${TARGET}.tar.gz"
+          cp "target/${TARGET}/release/rippy" rippy
           tar -czf "${ARCHIVE}" rippy
-          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
           openssl dgst -sha256 "${ARCHIVE}" | awk '{print $2}' > "${ARCHIVE}.sha256"
+          gh release upload "${RELEASE_TAG}" "${ARCHIVE}" "${ARCHIVE}.sha256" --clobber
+          SH
 
-      - name: Upload to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and upload rippy
+        shell: bash
         run: |
-          gh release upload "${{ env.RELEASE_TAG }}" \
-            "${{ env.ARCHIVE }}" \
-            "${{ env.ARCHIVE }}.sha256" \
-            --clobber
+          cargo build --release --target "$TARGET"
+          bash "$RUNNER_TEMP/ship.sh" rippy
+
+      - name: Build and upload rippy-jev
+        shell: bash
+        run: |
+          cargo build --release --target "$TARGET" --features jev
+          bash "$RUNNER_TEMP/ship.sh" rippy-jev
 
   update-homebrew:
     name: Update Homebrew tap
     needs: build-binaries
-    # Runs even if a leg failed (fail-fast is off): each formula is written only
-    # when all of its archives exist, so a broken rippy-jev leg never holds back
-    # the default formula.
+    # Runs even if a build failed (fail-fast is off): each formula is written
+    # only when all of its archives exist, so a broken rippy-jev build never
+    # holds back the default formula.
     if: ${{ !cancelled() && startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v') }}
     runs-on: ubuntu-latest
     steps:
