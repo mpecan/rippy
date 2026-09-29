@@ -399,6 +399,20 @@ fn assignment_name<'a>(assignment: &Node, source: &'a str) -> Option<&'a str> {
     Some(name.strip_suffix('+').unwrap_or(name))
 }
 
+/// Names of the parameters a word expands (`$NS`, `${OUT}`, `${X:-y}`).
+pub(crate) fn expanded_names(word: &Node) -> Vec<String> {
+    let NodeKind::Word { parts, .. } = &word.kind else {
+        return Vec::new();
+    };
+    parts
+        .iter()
+        .filter_map(|p| match &p.kind {
+            NodeKind::ParamExpansion { param, .. } => Some(param.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 #[path = "ast/env_names.rs"]
 mod env_names;
 

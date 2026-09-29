@@ -113,3 +113,38 @@ fn leaves_include_nested_commands() {
     );
     assert_eq!(names("if just check; then ls; fi"), ["just", "ls"]);
 }
+
+// Jev reads strictly (`Rules::STRICT`): what history keeps readable is redacted
+// before it leaves the machine. see docs/security-invariants.md#history-redaction
+#[test]
+fn jev_redacts_what_history_keeps() {
+    for (command, sent) in [
+        ("mkdir -p x", "mkdir -p <redacted>"),
+        ("sort -u names.txt", "sort -u <redacted>"),
+        ("ls -phunter2", "ls -p<redacted>"),
+        (
+            "git show 5d783b6447e850ec14e5ccd810a6ab55bb2f76c0",
+            "git show <redacted>",
+        ),
+        (
+            "echo 550e8400-e29b-41d4-a716-446655440000",
+            "echo <redacted>",
+        ),
+    ] {
+        assert_eq!(sanitized(command), sent, "{command}");
+        assert_ne!(crate::redact::secrets(command), sent, "{command}");
+    }
+}
+
+// A provider shape no word rule sees (a Discord token has dots, so it is not an
+// opaque token) is still caught by the shape layer.
+#[test]
+fn jev_redacts_provider_shapes() {
+    assert_eq!(
+        sanitized(concat!(
+            "echo MTIzNDU2Nzg5MDEy",
+            "MzQ1Njc4.GhIjKl.abcdefghijklmnopqrstuvwxyz0123"
+        )),
+        "echo <redacted>"
+    );
+}

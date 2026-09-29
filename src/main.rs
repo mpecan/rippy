@@ -364,6 +364,16 @@ fn run() -> Result<ExitCode, RippyError> {
 }
 
 fn main() -> ExitCode {
+    // A panic message can quote the command or a secret it holds (a redactor
+    // slicing its input), and stderr may reach the AI tool: name only where.
+    // see docs/security-invariants.md#history-redaction
+    std::panic::set_hook(Box::new(|info| {
+        let at = info
+            .location()
+            .map(|l| format!(" at {}:{}", l.file(), l.line()))
+            .unwrap_or_default();
+        eprintln!("[rippy] internal error{at}");
+    }));
     match run() {
         Ok(code) => code,
         Err(e) => {

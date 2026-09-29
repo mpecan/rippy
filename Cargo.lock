@@ -682,6 +682,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "leakguard"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6167bebdc18e253cba9f4e672dfbb5948b6ae6a2e4a2d5c3dd4fac70e32aaed7"
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1076,6 +1082,7 @@ version = "0.2.2"
 dependencies = [
  "clap",
  "dirs",
+ "leakguard",
  "proptest",
  "rable",
  "rkyv",

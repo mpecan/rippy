@@ -283,7 +283,9 @@ The legacy **flat `.rippy` / `.dippy` format** (one rule per line, inherited fro
 | `after` | Post-execution feedback message |
 | `allow-mcp` / `ask-mcp` / `deny-mcp` | MCP tool rules |
 
-Plus `[settings]` (`default`, `log`, `log-full`, `package`, `auto-mode`) and `[[aliases]]` (`source` / `target`). Any rule can also carry a `when = { … }` clause to gate it on runtime context (git branch, cwd, env var, file existence, or an external command) — see the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full grammar.
+Plus `[settings]` (`default`, `log`, `log-full`, `tracking`, `package`, `auto-mode`) and `[[aliases]]` (`source` / `target`). Any rule can also carry a `when = { … }` clause to gate it on runtime context (git branch, cwd, env var, file existence, or an external command) — see the [Conditional rules section](https://rippy.pecan.si/configuration/rules/#conditional-rules) for the full grammar.
+
+**Secrets stay out of the history.** rippy expands `$VAR` to judge a command, and shows what it judged as `(resolved: …)`. Everything it shows or keeps (that reason and any reason quoting the resolved command, `-v` and `rippy inspect`, the `log` file and the `tracking` database) has secret-looking values replaced by `<redacted>`: the value of any variable whose name marks a secret (`GITHUB_TOKEN`, `PGPASSWORD`, `MYSQL_PWD`, …), whatever it looks like, plus credential flags, secret-named assignments and JSON keys, auth headers, URL credentials and provider key formats. Commands are still judged on their real values. Redaction covers common shapes, not every secret; see [docs/security-invariants.md](docs/security-invariants.md#history-redaction).
 
 ### Safe scopes (cross-repo research)
 

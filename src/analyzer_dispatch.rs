@@ -9,7 +9,7 @@ use crate::allowlists;
 use crate::ask_rules;
 use crate::ast;
 use crate::handlers::{self, Classification, HandlerContext};
-use crate::resolve;
+use crate::resolve::{self, VarLookup};
 use crate::trace::{Stage, Trace};
 use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable};
 use crate::verdict::{AllowReason, AskClass, Decision, Verdict};
@@ -248,6 +248,24 @@ impl Analyzer {
         Verdict::allow(AllowReason::Heredoc)
     }
 
+    /// A resolved command as the reason, trace and `resolved_command` show it,
+    /// after recording the values it expanded so nothing shown later for this
+    /// command repeats a secret one. see docs/security-invariants.md#history-redaction
+    fn shown_resolution(&mut self, words: &[Node], resolved: &str) -> String {
+        let values: Vec<(String, String)> = {
+            let scoped = resolve::ScopedLookup::new(&self.locals, self.var_lookup.as_ref());
+            words
+                .iter()
+                .flat_map(ast::expanded_names)
+                .filter_map(|name| scoped.lookup(&name).map(|value| (name, value)))
+                .collect()
+        };
+        for (name, value) in &values {
+            self.revealed.record(name, value);
+        }
+        self.revealed.show(resolved.to_owned())
+    }
+
     pub(super) fn analyze_inner_command(
         &mut self,
         inner: &str,
@@ -324,21 +342,22 @@ impl Analyzer {
                 format!("shell expansion (resolved command exceeds {MAX_RESOLVED_LEN}-byte limit)"),
             ));
         }
-        self.trace(Stage::Expansion, true, || resolved_command.clone());
+        // Judged as resolved, shown redacted.
+        let shown = self.shown_resolution(words, &resolved_command);
+        self.trace(Stage::Expansion, true, || shown.clone());
         if resolved.command_position_dynamic {
             self.trace(Stage::Expansion, false, || {
                 "command name comes from an expansion".to_owned()
             });
             return Some(
-                Verdict::ask(format!("dynamic command (resolved: {resolved_command})"))
-                    .with_resolution(resolved_command),
+                Verdict::ask(format!("dynamic command (resolved: {shown})")).with_resolution(shown),
             );
         }
         // Track nesting around the recursive analyze_inner_command call.
         self.resolution_depth += 1;
         let inner = self.analyze_inner_command(&resolved_command, cwd, depth + 1);
         self.resolution_depth -= 1;
-        Some(annotate_with_resolution(inner, &resolved_command))
+        Some(annotate_with_resolution(inner, &shown))
     }
 
     /// Raise a [`DynamicExpansion`] ask to the class the command has whatever

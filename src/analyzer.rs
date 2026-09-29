@@ -12,6 +12,7 @@ use crate::environment::Environment;
 use crate::error::RippyError;
 use crate::handlers::is_sole_help_flag;
 use crate::parser::BashParser;
+use crate::redact;
 use crate::resolve::{LocalBinding, VarLookup};
 use crate::trace::{Stage, Trace, TraceEvent};
 use crate::verdict::UncertainKind::{DynamicExpansion, Unanalyzable};
@@ -72,6 +73,9 @@ pub struct Analyzer {
     /// Decision-trace recorder. Echoes to stderr when `verbose`, and collects
     /// events when `rippy inspect` has called [`Analyzer::record_trace`].
     trace: Trace,
+    /// Secret values resolved while judging the current command, kept out of
+    /// its reason and trace. see docs/security-invariants.md#history-redaction
+    revealed: redact::Revealed,
 }
 
 impl Analyzer {
@@ -100,6 +104,7 @@ impl Analyzer {
             node_budget: MAX_NODES,
             locals: Vec::new(),
             trace: Trace::new(env.verbose),
+            revealed: redact::Revealed::default(),
         })
     }
 
@@ -161,7 +166,9 @@ impl Analyzer {
     }
 
     fn trace(&mut self, stage: Stage, matched: bool, detail: impl FnOnce() -> String) {
-        self.trace.record(stage, matched, detail);
+        let revealed = &self.revealed;
+        self.trace
+            .record(stage, matched, || revealed.show(detail()));
     }
 
     /// Analyze a shell command string and return a safety verdict.
@@ -175,6 +182,16 @@ impl Analyzer {
     /// The `Result` signature is retained for call-site stability.
     pub fn analyze(&mut self, command: &str) -> Result<Verdict, RippyError> {
         self.trace.reset();
+        self.revealed.clear();
+        let mut verdict = self.judge(command);
+        // A reason can quote the resolved command (`redirect to …`), which
+        // the analysis saw unredacted.
+        verdict.reason = self.revealed.show(std::mem::take(&mut verdict.reason));
+        verdict.resolved_command = verdict.resolved_command.map(|r| self.revealed.show(r));
+        Ok(verdict)
+    }
+
+    fn judge(&mut self, command: &str) -> Verdict {
         // Strip a leading `NAME=VALUE` env prefix so string-matching layers see
         // the real command. see docs/security-invariants.md#env-prefix-strip
         let parsed = self.parser.parse(command);
@@ -198,10 +215,10 @@ impl Analyzer {
             .is_some_and(|nodes| ast::is_single_plain_command(nodes));
 
         if let Some(verdict) = self.cc_string_rule(match_str, plain) {
-            return Ok(verdict);
+            return verdict;
         }
         if let Some(verdict) = self.config_string_rule(match_str, plain) {
-            return Ok(verdict);
+            return verdict;
         }
 
         // Fail closed: the string-match layers above already had priority, so
@@ -209,14 +226,14 @@ impl Analyzer {
         // exit non-blocking and let the command run un-gated (#150).
         let nodes = match parsed {
             Ok(nodes) => nodes,
-            Err(err) => return Ok(self.no_tree_ask(&err)),
+            Err(err) => return self.no_tree_ask(&err),
         };
         self.trace(Stage::Parse, true, || {
             format!("{} top-level node(s)", nodes.len())
         });
         let cwd = self.working_directory.clone();
         self.node_budget = MAX_NODES;
-        Ok(self.analyze_nodes(&nodes, &cwd, 0))
+        self.analyze_nodes(&nodes, &cwd, 0)
     }
 
     /// The Ask for a command that never became a tree. Input refused for its

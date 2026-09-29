@@ -8,7 +8,6 @@ pub mod cmd;
 pub mod eligibility;
 pub mod facts;
 pub mod policy;
-mod redact;
 pub mod request;
 pub mod shape;
 pub mod transport;

@@ -1,6 +1,7 @@
-//! The secret-looking parts of one word of a command, for redaction before it
-//! is sent. Best effort by nature: it covers the common shapes, and
-//! docs/jev.md#threat-model says so.
+//! The secret-looking parts of one word of a command: credential flags and
+//! their values, secret-named assignments, auth headers, provider token
+//! prefixes, JWTs and URL credentials. Best effort by nature: it covers the
+//! common shapes. See docs/security-invariants.md#history-redaction.
 
 use std::ops::Range;
 
@@ -22,6 +23,7 @@ const SECRET_FLAG_PARTS: &[&str] = &[
 ];
 
 /// Short flags whose value is commonly a credential (`-u user:pass`, `-p pw`).
+#[cfg(any(test, feature = "jev"))]
 const SECRET_SHORT_FLAGS: &[&str] = &["-u", "-p", "-P"];
 
 /// Provider token prefixes.
@@ -75,6 +77,12 @@ const SECRET_NAME_PARTS: &[&str] = &[
 const SECRET_PARAMS: &[&str] = &[
     "token",
     "access_token",
+    "refresh_token",
+    "id_token",
+    "private_token",
+    "client_secret",
+    "secret_key",
+    "access_key",
     "api_key",
     "apikey",
     "key",
@@ -87,21 +95,63 @@ const SECRET_PARAMS: &[&str] = &[
     "code",
 ];
 
+/// How a word is read.
+#[derive(Clone, Copy)]
+pub(crate) struct Rules {
+    /// Short flags whose *next word* is a credential (`curl -u`, `sshpass -p`).
+    pub spaced_short: &'static [&'static str],
+    /// Short flags with the credential *glued on* (`mysql -phunter2`).
+    pub attached_short: &'static [&'static str],
+    /// Long flags that are credentials only for this program (`curl --user`).
+    pub long: &'static [&'static str],
+    /// Rules for a history a person reads, not text leaving the machine: an
+    /// assignment is secret only by its name, a long flag only by its last
+    /// part (`--password`, not `--author` or `--password-file`), canonical ids
+    /// stay visible, and an opaque word must look like a key, not a path.
+    pub history: bool,
+}
+
+#[cfg(any(test, feature = "jev"))]
+impl Rules {
+    /// For text leaving the machine (Jev): every doubtful shape is redacted.
+    pub(crate) const STRICT: Self = Self {
+        spaced_short: SECRET_SHORT_FLAGS,
+        attached_short: SECRET_SHORT_FLAGS,
+        long: &[],
+        history: false,
+    };
+}
+
 /// Whether `word` is a flag whose next word is a credential.
-pub(super) fn is_secret_flag(word: &str) -> bool {
+///
+/// A single-dash long flag (`-password`, `keytool -storepass`) counts by a
+/// strong name only, so `-key server.key` or `find -user` stay visible. In
+/// history a `--` flag counts by name like a variable (`--passphrase`, not
+/// `--author` or `--password-file`), or as the program's own credential flag.
+pub(crate) fn secret_flag(word: &str, rules: Rules) -> bool {
     if !word.starts_with('-') || word.contains('=') {
         return false;
     }
-    if SECRET_SHORT_FLAGS.contains(&word) {
+    if rules.spaced_short.contains(&word) {
         return true;
     }
     let lower = word.to_ascii_lowercase();
-    word.starts_with("--") && SECRET_FLAG_PARTS.iter().any(|k| lower.contains(k))
+    if !word.starts_with("--") {
+        return word.len() > 2 && super::is_strong_secret_name(&lower[1..]);
+    }
+    if rules.history {
+        return super::is_secret_name(lower.trim_start_matches('-')) || rules.long.contains(&word);
+    }
+    SECRET_FLAG_PARTS.iter().any(|k| lower.contains(k))
 }
 
 /// Byte ranges of `word` to redact. `after_secret_flag` means the previous
 /// word was a flag like `--token`, so this word is its value.
-pub(super) fn secret_ranges(word: &str, after_secret_flag: bool) -> Vec<Range<usize>> {
+pub(crate) fn secret_ranges(
+    word: &str,
+    after_secret_flag: bool,
+    rules: Rules,
+) -> Vec<Range<usize>> {
     let whole = 0..word.len();
     if after_secret_flag && !word.starts_with('-') {
         return vec![whole];
@@ -113,20 +163,32 @@ pub(super) fn secret_ranges(word: &str, after_secret_flag: bool) -> Vec<Range<us
     }
     let lead = word.len() - word.trim_start_matches(['"', '\'']).len();
     let bare = word.trim_matches(['"', '\'']);
-    if is_token(bare) || is_jwt(bare) || bare.rsplit('/').next().is_some_and(is_token) {
+    let token = |w: &str| is_token(w, rules.history);
+    let path_tail = !rules.history && bare.rsplit('/').next().is_some_and(token);
+    if token(bare) || is_jwt(bare) || path_tail {
         return vec![whole];
     }
-    let start = attached_short_value(bare)
-        .or_else(|| spaced_flag_value(bare))
-        .or_else(|| value_start(bare))
-        .or_else(|| credential_marker_end(bare));
+    let start = attached_short_value(bare, rules)
+        .or_else(|| spaced_flag_value(bare, rules))
+        .or_else(|| value_start(bare, rules))
+        .or_else(|| credential_marker_end(bare))
+        .or_else(|| {
+            // openssl's `-passin pass:VALUE`.
+            (bare.len() > 5 && bare.starts_with("pass:")).then_some(5)
+        });
     if let Some(start) = start.map(|s| lead + s) {
         // A value that opens its own quoting runs to the end of the word.
-        let end = if word[start..].starts_with(['\'', '"', '$']) {
+        let mut end = if word[start..].starts_with(['\'', '"', '$']) {
             word.len()
         } else {
             unquoted_end(word)
         };
+        // A form body (`password=x&user=bob`): the next field is not the value.
+        if rules.history
+            && let Some(amp) = word[start..end].find('&')
+        {
+            end = start + amp;
+        }
         let value = start..end;
         return vec![value];
     }
@@ -136,23 +198,27 @@ pub(super) fn secret_ranges(word: &str, after_secret_flag: bool) -> Vec<Range<us
 }
 
 /// `-pVALUE`, `-uVALUE` → where `VALUE` starts.
-fn attached_short_value(word: &str) -> Option<usize> {
-    SECRET_SHORT_FLAGS
+fn attached_short_value(word: &str, rules: Rules) -> Option<usize> {
+    rules
+        .attached_short
         .iter()
         .find(|f| word.len() > f.len() && word.starts_with(**f) && !word.starts_with("--"))
         .map(|f| f.len())
 }
 
 /// A whole flag and value quoted as one word (`'--password abc'`).
-fn spaced_flag_value(word: &str) -> Option<usize> {
+fn spaced_flag_value(word: &str, rules: Rules) -> Option<usize> {
     let (flag, rest) = word.split_once(' ')?;
-    (is_secret_flag(flag) && !rest.trim().is_empty()).then(|| flag.len() + 1)
+    (secret_flag(flag, rules) && !rest.trim().is_empty()).then(|| flag.len() + 1)
 }
 
 /// `--token=VALUE`, `API_TOKEN=VALUE` or `api_key=VALUE` → where `VALUE`
 /// starts. Other lowercase `name=value` operands (`dd of=…`) are left alone:
 /// their value tells a reviewer what the command touches.
-fn value_start(word: &str) -> Option<usize> {
+fn value_start(word: &str, rules: Rules) -> Option<usize> {
+    if rules.history {
+        return history_value_start(word, rules);
+    }
     let eq = word.find('=')?;
     let name = &word[..eq];
     if !name
@@ -167,8 +233,32 @@ fn value_start(word: &str) -> Option<usize> {
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
     let lower = name.to_ascii_lowercase();
     let secret_name = SECRET_NAME_PARTS.iter().any(|p| lower.contains(p));
-    let secret = env_style || secret_name || is_secret_flag(name);
+    let secret = env_style || secret_name || secret_flag(name, rules);
     (secret && eq + 1 < word.len()).then_some(eq + 1)
+}
+
+/// History's reading of `name=value`: the value is secret only when the name
+/// before *some* `=` is (`--from-literal=password=v`, `//host/:_authToken=v`),
+/// never when the value is an expansion (`TOKEN=$X` shows no secret), and a
+/// URL is left to the URL rules.
+fn history_value_start(word: &str, rules: Rules) -> Option<usize> {
+    if word.contains("://") {
+        return None;
+    }
+    word.match_indices('=').find_map(|(eq, _)| {
+        let before = &word[..eq];
+        let name_start = before
+            .char_indices()
+            .rev()
+            .find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-')))
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        let name = &before[name_start..];
+        let value = &word[eq + 1..];
+        let secret = super::is_secret_name(name) || secret_flag(name, rules);
+        let expansion = value.starts_with('$') && !value.starts_with("$'");
+        let literal = !value.is_empty() && !expansion;
+        (secret && literal).then_some(eq + 1)
+    })
 }
 
 /// The end of a credential marker (`Bearer `, `Authorization:`) that starts at
@@ -190,9 +280,19 @@ fn unquoted_end(word: &str) -> usize {
     word.trim_end_matches(['"', '\'']).len()
 }
 
-fn is_token(word: &str) -> bool {
+/// An opaque credential-like word. For a history it must also look like a key
+/// rather than a name (mixed case, or pure hex), and not be a canonical id.
+fn is_token(word: &str, history: bool) -> bool {
     if word.len() >= 16 && TOKEN_PREFIXES.iter().any(|p| word.starts_with(p)) {
         return true;
+    }
+    if history {
+        let mixed_case = word.bytes().any(|b| b.is_ascii_uppercase())
+            && word.bytes().any(|b| b.is_ascii_lowercase());
+        let hex = word.bytes().all(|b| b.is_ascii_hexdigit());
+        if is_identifier(word) || !(mixed_case || hex) {
+            return false;
+        }
     }
     let opaque = word
         .chars()
@@ -204,6 +304,15 @@ fn is_token(word: &str) -> bool {
         && mixed
         && !word.starts_with(['/', '.', '-'])
         && !word.contains("//")
+}
+
+/// A UUID (`8-4-4-4-12` hex) or a SHA-1/SHA-256 hex digest (commit hashes).
+fn is_identifier(word: &str) -> bool {
+    let hex = |s: &str| s.bytes().all(|b| b.is_ascii_hexdigit());
+    let uuid = word.len() == 36
+        && word.split('-').map(str::len).eq([8, 4, 4, 4, 12])
+        && hex(&word.replace('-', ""));
+    uuid || (matches!(word.len(), 40 | 64) && hex(word))
 }
 
 /// A JSON Web Token: three base64url segments, the first a JSON header.
@@ -260,7 +369,7 @@ mod tests {
 
     fn redact(word: &str, after_flag: bool) -> String {
         let mut out = word.to_owned();
-        let mut ranges = secret_ranges(word, after_flag);
+        let mut ranges = secret_ranges(word, after_flag, Rules::STRICT);
         ranges.sort_by_key(|r| std::cmp::Reverse(r.start));
         for r in ranges {
             out.replace_range(r, "<r>");
@@ -273,8 +382,12 @@ mod tests {
         assert_eq!(redact("--token=hunter2", false), "--token=<r>");
         assert_eq!(redact("--db-password=x", false), "--db-password=<r>");
         assert_eq!(redact("hunter2/x", true), "<r>");
-        assert!(is_secret_flag("-u") && is_secret_flag("-p") && is_secret_flag("--api-key"));
-        assert!(!is_secret_flag("-v") && !is_secret_flag("--format"));
+        assert!(
+            secret_flag("-u", Rules::STRICT)
+                && secret_flag("-p", Rules::STRICT)
+                && secret_flag("--api-key", Rules::STRICT)
+        );
+        assert!(!secret_flag("-v", Rules::STRICT) && !secret_flag("--format", Rules::STRICT));
     }
 
     #[test]
@@ -324,7 +437,7 @@ mod tests {
         assert_eq!(redact("-pabc123", false), "-p<r>");
         assert_eq!(redact("-upassword123", false), "-u<r>");
         assert_eq!(redact("--pw", false), "--pw");
-        assert!(is_secret_flag("--pw"));
+        assert!(secret_flag("--pw", Rules::STRICT));
         assert_eq!(redact("token=abc123", false), "token=<r>");
         assert_eq!(redact("api_key=abc123", false), "api_key=<r>");
         assert_eq!(redact("'password=abc123'", false), "'password=<r>'");
