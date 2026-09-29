@@ -10,6 +10,10 @@ use std::path::Path;
 const PROTECTED_BASENAMES: &[&str] = &[".rippy", ".rippy.toml", ".dippy"];
 
 /// Subdirectory paths that are always protected (matched against suffix).
+/// Directories whose contents are rippy config: a custom package carries rules
+/// and settings, and the active one is chosen by config.
+const PROTECTED_DIRS: &[&str] = &[".rippy/packages"];
+
 const PROTECTED_SUFFIXES: &[&str] = &[
     ".rippy/config",
     ".rippy/config.toml",
@@ -41,6 +45,12 @@ pub fn is_protected_path(path: &str) -> bool {
 
     // Check if the path ends with a protected suffix.
     let path_str = path.to_string_lossy();
+    if PROTECTED_DIRS
+        .iter()
+        .any(|dir| path_str.ends_with(dir) || path_str.contains(&format!("{dir}/")))
+    {
+        return true;
+    }
     PROTECTED_SUFFIXES
         .iter()
         .any(|suffix| path_str.ends_with(suffix))
@@ -49,6 +59,14 @@ pub fn is_protected_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_packages_are_protected() {
+        assert!(is_protected_path("/home/u/.rippy/packages/evil.toml"));
+        assert!(is_protected_path("~/.rippy/packages/x.toml"));
+        assert!(is_protected_path("/home/u/.rippy/packages"));
+        assert!(!is_protected_path("/home/u/project/packages/x.toml"));
+    }
 
     #[test]
     fn protects_rippy_config() {

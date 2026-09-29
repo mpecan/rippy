@@ -77,12 +77,28 @@ pub(crate) fn load_custom_package(
     home: &Path,
     name: &str,
 ) -> Result<Option<Arc<CustomPackage>>, RippyError> {
+    // A name is a file stem inside the packages directory, never a path:
+    // `package = "/abs/evil"` or `"../x"` must not load an arbitrary file.
+    if !is_valid_package_name(name) {
+        return Err(RippyError::Config {
+            path: custom_packages_dir(home),
+            line: 0,
+            message: format!("invalid package name {name:?}: use letters, digits, '-' and '_'"),
+        });
+    }
     let path = custom_packages_dir(home).join(format!("{name}.toml"));
     if !path.is_file() {
         return Ok(None);
     }
     let pkg = load_custom_package_from_path(&path, name)?;
     Ok(Some(Arc::new(pkg)))
+}
+
+fn is_valid_package_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 fn load_custom_package_from_path(path: &Path, name: &str) -> Result<CustomPackage, RippyError> {

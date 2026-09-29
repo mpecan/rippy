@@ -85,29 +85,37 @@ impl Config {
         // Stdlib first (lowest priority — user config overrides via last-match-wins).
         let mut directives = crate::stdlib::stdlib_directives()?;
 
-        // Pre-scan config files for the package setting. Project config
-        // overrides global (last-match-wins). The package layer loads between
-        // stdlib and user config so user rules can override package rules.
-        let package = resolve_package(home.as_ref(), cwd);
-        if let Some(pkg) = &package {
-            directives.extend(crate::packages::package_directives(pkg)?);
-        }
-
-        if let Some(home) = home {
+        let mut global = Vec::new();
+        if let Some(home) = &home {
             load_first_existing(
                 &[
                     home.join(".rippy/config.toml"),
                     home.join(".rippy/config"),
                     home.join(".dippy/config"),
                 ],
-                &mut directives,
+                &mut global,
             )?;
         }
 
+        // Trust is decided by the global config alone: a package can be chosen
+        // by the project, so it must not be able to trust that project.
+        let trust_all = has_trust_setting(&global);
+        let project_config = find_project_config(cwd);
+        let trusted_project = project_config
+            .as_deref()
+            .filter(|p| loader::project_config_is_trusted(p, trust_all));
+
+        // The package layer loads between stdlib and user config so user rules
+        // can override package rules. Only a trusted project may choose it.
+        let package = resolve_package(home, trusted_project);
+        if let Some(pkg) = &package {
+            directives.extend(crate::packages::package_directives(pkg)?);
+        }
+        directives.extend(global);
+
         directives.push(ConfigDirective::ProjectBoundary);
 
-        if let Some(project_config) = find_project_config(cwd) {
-            let trust_all = has_trust_setting(&directives);
+        if let Some(project_config) = project_config {
             load_project_config_if_trusted(&project_config, trust_all, &mut directives)?;
         }
 
@@ -343,11 +351,14 @@ impl Config {
 ///
 /// Project config overrides global (last-match-wins). Returns `None` if
 /// no config file specifies a package.
-fn resolve_package(home: Option<&PathBuf>, cwd: &Path) -> Option<crate::packages::Package> {
+fn resolve_package(
+    home: Option<PathBuf>,
+    trusted_project: Option<&Path>,
+) -> Option<crate::packages::Package> {
     let mut package_name: Option<String> = None;
 
     // Check global config candidates.
-    if let Some(home) = home {
+    if let Some(home) = &home {
         for path in &[
             home.join(".rippy/config.toml"),
             home.join(".rippy/config"),
@@ -360,15 +371,19 @@ fn resolve_package(home: Option<&PathBuf>, cwd: &Path) -> Option<crate::packages
         }
     }
 
-    // Check project config (overrides global).
-    if let Some(project_config) = find_project_config(cwd)
-        && let Some(name) = loader::extract_package_setting(&project_config)
+    // A trusted project config overrides global.
+    if let Some(project_config) = trusted_project
+        && let Some(name) = loader::extract_package_setting(project_config)
     {
         package_name = Some(name);
     }
 
     let name = package_name?;
-    match crate::packages::Package::resolve(&name, home.map(PathBuf::as_path)) {
+    let resolved = home.map_or_else(
+        || crate::packages::Package::resolve(&name, None),
+        |home| crate::packages::Package::resolve(&name, Some(&home)),
+    );
+    match resolved {
         Ok(pkg) => Some(pkg),
         Err(e) => {
             eprintln!("[rippy] {e}");

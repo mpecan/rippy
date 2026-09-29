@@ -155,6 +155,19 @@ pub(super) fn has_trust_setting(directives: &[ConfigDirective]) -> bool {
 /// If `trust_all` is true (from `trust-project-configs = on` in global config),
 /// the file is loaded unconditionally. Otherwise, the trust database is consulted
 /// and untrusted/modified configs are skipped with a stderr warning.
+/// Whether a project config would be loaded, without loading or warning.
+pub(super) fn project_config_is_trusted(path: &Path, trust_all: bool) -> bool {
+    if trust_all {
+        return true;
+    }
+    std::fs::read_to_string(path).is_ok_and(|content| {
+        matches!(
+            crate::trust::TrustDb::load().check(path, &content),
+            crate::trust::TrustStatus::Trusted
+        )
+    })
+}
+
 pub(super) fn load_project_config_if_trusted(
     path: &Path,
     trust_all: bool,
