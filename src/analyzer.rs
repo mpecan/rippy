@@ -481,7 +481,10 @@ impl Analyzer {
     fn analyze_command(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
         // Unreachable; fail closed so a dispatch change cannot approve blindly.
         let NodeKind::Command { assignments, .. } = &node.kind else {
-            return Verdict::uncertain(Unanalyzable, "internal: non-command node in analyze_command");
+            return Verdict::uncertain(
+                Unanalyzable,
+                "internal: non-command node in analyze_command",
+            );
         };
         if ast::assignment_has_expansion(assignments) {
             self.trace(Stage::EnvPrefix, true, || {

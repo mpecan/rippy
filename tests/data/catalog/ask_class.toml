@@ -439,3 +439,16 @@ ask_class = "project-defined"
 command = "tclsh deploy.tcl"
 decision = "ask"
 ask_class = "project-defined"
+
+# An unvetted env prefix makes the ask an approval even when the command's own
+# reason stands: a reviewer judging `somecli --list` alone never sees FOO.
+[[case]]
+command = "FOO=1 somecli --list"
+decision = "ask"
+reason_contains = "somecli"
+ask_class = "approval"
+
+[[case]]
+command = "CI=1 somecli --list"
+decision = "ask"
+ask_class = "unknown-command"
