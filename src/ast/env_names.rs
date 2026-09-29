@@ -127,3 +127,18 @@ pub(crate) fn dangerous_assignment_name(assignments: &[Node]) -> Option<String> 
             .filter(|n| is_dangerous_env_name(n))
     })
 }
+
+/// Whether any assignment, whatever its value (`PATH=./x:$PATH` included),
+/// sets a name rippy cannot vouch for. Such a prefix makes any ask an approval:
+/// a review of the command alone never sees it.
+pub(crate) fn sets_unvetted_name(assignments: &[Node]) -> bool {
+    assignments.iter().any(|a| {
+        let rable::NodeKind::Word { value, .. } = &a.kind else {
+            return false;
+        };
+        value
+            .split_once('=')
+            .map(|(n, _)| n.trim_end_matches('+'))
+            .is_some_and(|n| !n.is_empty() && is_dangerous_env_name(n))
+    })
+}

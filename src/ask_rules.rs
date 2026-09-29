@@ -7,9 +7,6 @@
 
 use std::path::Path;
 
-use rable::Node;
-
-use crate::ast;
 use crate::verdict::{AskClass, UncertainKind};
 
 /// The class floor for anything judged indirectly: through a wrapper, a
@@ -33,7 +30,7 @@ const SELF_TOOLS: &[&str] = &[
 /// Builtins that change how later commands resolve or run.
 const SHELL_STATE: &[&str] = &[
     ".", "source", "eval", "exec", "export", "declare", "typeset", "readonly", "local", "hash",
-    "enable", "trap", "complete", "alias", "unalias", "set", "shopt", "ulimit", "umask",
+    "enable", "trap", "complete", "alias", "unalias", "set", "shopt", "ulimit", "umask", "unset",
 ];
 
 /// Programs whose targets, tests, plugins or configuration are defined by
@@ -222,7 +219,10 @@ const CODE_RUNNERS: &[&str] = &[
 ];
 
 /// Variables that change which program a name resolves to, or what a shell
-/// runs on start-up.
+/// runs on start-up. The analyzer needs no list (#210 makes every name
+/// outside the inert list an approval prefix); Jev eligibility still refuses
+/// `env PATH=…`-style arguments by name.
+#[cfg(feature = "jev")]
 pub(crate) const LOOKUP_ENV: &[&str] = &[
     "PATH",
     "CDPATH",
@@ -330,27 +330,6 @@ fn is_executable(path: &Path) -> bool {
 /// Whether `name` runs code or programs taken from its arguments.
 pub(crate) fn runs_code(name: &str) -> bool {
     CODE_RUNNERS.contains(&name) || is_script_like(name)
-}
-
-/// Whether a command's `NAME=value` prefix changes how names resolve.
-pub(crate) fn sets_lookup_env(assignments: &[Node]) -> bool {
-    assignments.iter().any(|a| {
-        ast::literal_assignment(a)
-            .map(|(n, _)| n)
-            .or_else(|| ast::append_assignment_name(a))
-            .or_else(|| assignment_name(a))
-            .is_some_and(|n| LOOKUP_ENV.contains(&n.as_str()))
-    })
-}
-
-/// The name of an assignment whose value is not literal (`PATH=./x:$PATH`).
-fn assignment_name(assignment: &Node) -> Option<String> {
-    let rable::NodeKind::Word { value, .. } = &assignment.kind else {
-        return None;
-    };
-    value
-        .split_once('=')
-        .map(|(n, _)| n.trim_end_matches('+').to_owned())
 }
 
 #[cfg(test)]

@@ -135,9 +135,26 @@ decision = "ask"
 ask_class = "unanalyzable"
 
 [[case]]
-command = "x=$(rm -rf /); echo $x"
+command = "CI=$(rm -rf /); echo $CI"
 decision = "ask"
 ask_class = "unanalyzable"
+
+# ...unless the name is not known-inert: an assignment, bare or as a prefix,
+# reaches later commands' environment, so it needs approval.
+[[case]]
+command = "x=$(rm -rf /); echo $x"
+decision = "ask"
+ask_class = "approval"
+
+[[case]]
+command = "LD_PRELOAD=$X; somecli list"
+decision = "ask"
+ask_class = "approval"
+
+[[case]]
+command = "LD_PRELOAD=$X somecli list"
+decision = "ask"
+ask_class = "approval"
 
 [[case]]
 command = "f() { ls; }"
@@ -450,5 +467,28 @@ ask_class = "approval"
 
 [[case]]
 command = "CI=1 somecli --list"
+decision = "ask"
+ask_class = "unknown-command"
+
+# The same holds when the value is not literal.
+[[case]]
+command = "FOO=$X somecli --list"
+decision = "ask"
+ask_class = "approval"
+
+[[case]]
+command = "CI=$X somecli --list"
+decision = "ask"
+ask_class = "dynamic-expansion"
+
+# `unset` changes how later names resolve: with PATH unset, bash runs
+# ./somecli from the working directory.
+[[case]]
+command = "unset PATH; somecli list"
+decision = "ask"
+ask_class = "approval"
+
+[[case]]
+command = "echo hi; somecli list"
 decision = "ask"
 ask_class = "unknown-command"

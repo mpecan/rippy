@@ -157,7 +157,8 @@ among all its asking parts: Approval, then Unanalyzable, then the other
 uncertain kinds (`AskClass::max`).
 - `Verdict::combine` and `Verdict::most_restrictive` apply this rule.
 - `database.rs`'s `least_safe` applies it to classifications.
-- An env prefix that is not on the inert list (#210) is an Approval part:
+- An env prefix that is not on the inert list (#210), literal or not, is an
+  Approval part:
   `FOO=1 somecli --list` keeps the reason `somecli (unknown command)`, but
   asks as Approval, since a review of `somecli --list` alone would never see
   `FOO`.
@@ -216,9 +217,10 @@ in `src/ask_rules.rs`, `expansion_ask`/`unless_asks_anyway`
     denied, Approval. So `rm $f` and `sort --output=$X` are Approval, and
     `git $X` is `ProjectDefined`. The probe changes only the class, is not
     traced, and restores the node budget it spent.
-- **Lookup variables.** A `PATH=`, `CDPATH=`, `BASH_ENV=`, `PYTHONPATH=`, …
-  prefix raises the command to Approval, because it changes which program a
-  name runs.
+- **Env prefixes.** Any assignment to a name outside the inert list (#210),
+  whatever its value, raises the command to Approval (see
+  [Combining](#combining)). `PATH=`, `BASH_ENV=`, `PYTHONPATH=` change which
+  program runs; the rest are unknown to rippy, so a reviewer must see them.
 - **Interpreters.** A bare REPL is `OpaqueInput`. Code fed on stdin (a pipe, a
   heredoc, a here-string, a `<` redirect, `python3 -`) is Approval. A named
   script rippy could not read, `awk -f`, `psql -f`, `gh api --input` and dynamic
@@ -228,7 +230,7 @@ in `src/ask_rules.rs`, `expansion_ask`/`unless_asks_anyway`
   be an alias. Other handler catch-alls (kubectl, docker, npm, gh, aws, …) mix
   known-dangerous and unknown subcommands and stay Approval.
 - Security-sensitive asks stay Approval even where they are technically an
-  allowlist miss: `git -c` keys, dangerous environment names, `env -S`,
+  allowlist miss: `git -c` keys, env names outside the inert list, `env -S`,
   unknown `cd` flags. MCP tools stay Approval; they are not shell commands.
 - `default-action = "ask"` covers commands rippy does not know, so those asks
   are classed like any unknown command. User `[[rules]]` with `action = "ask"`
@@ -699,20 +701,20 @@ were fixed:
 ## Known pre-existing issues
 
 The reviews also found issues in the default build that predate this work.
-They are fixed outside this change, so the Jev build never depended on them:
-where an issue made the default build *allow* a command, Jev was never
-involved, and where it made the analyzer judge the wrong text, the ask was
-`indirect` or refused.
+They are fixed outside this change (#210 is merged; #211 is a separate pull
+request), and the Jev build never depended on them: where an issue made the
+default build *allow* a command, Jev was never involved, and where it made the
+analyzer judge the wrong text, the ask was `indirect` or refused.
 
 - **`PATH=./bin ls` was allowed.** Fixed by #210: an env-var name is dangerous
   unless it is on an inert list, and an unvetted prefix makes any ask an
   approval, so Jev never sees it.
 - **Re-joined arguments were unquoted**, `env` dropped a wrapped program's
-  flags, and `env -S` dropped the words after its payload. Fixed by #211.
+  flags, and `env -S` dropped the words after its payload. Fixed in #211.
 - **Package names were not validated**, an untrusted project could choose the
-  package, and `~/.rippy/packages/` was not self-protected. Fixed by #211.
+  package, and `~/.rippy/packages/` was not self-protected. Fixed in #211.
 - **Attached and clustered options were not parsed** in `curl`, `git log
-  --output` and the read-only tools (`rg --pre=sh x`). Fixed by #211.
+  --output` and the read-only tools (`rg --pre=sh x`). Fixed in #211.
 - **`dd … of=FILE`** now asks: `dd` is an unknown command.
 
 ## Prototype results

@@ -5,7 +5,7 @@
 //! mints it, inside its own recursion. The checks on the parsed text below are
 //! defence in depth, for anything that slips past that. See docs/jev.md#placement.
 
-use super::shape::Shape;
+use super::shape::{Leaf, Shape};
 use crate::ask_rules;
 use crate::verdict::{AskClass, UncertainKind, Verdict};
 
@@ -78,7 +78,12 @@ const INTERPRETERS: &[&str] = &[
 
 /// Builtins that assign variables from their arguments (`read PATH`,
 /// `let PATH=1`), so a later command in the same list may resolve differently.
-const SETS_VARIABLES: &[&str] = &["read", "let", "mapfile", "readarray", "getopts"];
+const SETS_VARIABLES: &[&str] = &["read", "let", "mapfile", "readarray", "getopts", "unset"];
+
+/// Builtins that move the working directory. The facts resolve paths against
+/// the directory the hook ran in, so a later command's paths would be labelled
+/// against the wrong one.
+const CHANGES_DIRECTORY: &[&str] = &["cd", "pushd", "popd"];
 
 /// Why a verdict is not sent, or the kind it is sent as.
 ///
@@ -121,33 +126,43 @@ pub fn check(verdict: &Verdict, shape: &Shape<'_>) -> Result<UncertainKind, Stri
     if shape.leaves.iter().any(|l| l.has_assignments) {
         return Err("assignment values are redacted, so the command cannot be shown".to_owned());
     }
+    let in_list = shape.leaves.len() > 1;
     for leaf in shape.leaves.iter().filter(|l| !l.words.is_empty()) {
-        let Some(name) = leaf.name.as_deref().filter(|n| !n.contains('$')) else {
-            return Err("a command has no literal name".to_owned());
-        };
-        if ask_rules::is_script_like(name) || ask_rules::TASK_RUNNERS.contains(&name) {
-            return Err(format!("{name} runs something the project defines"));
-        }
-        if SETS_VARIABLES.contains(&name)
-            || (name == "printf" && leaf.args.iter().any(|a| a == "-v"))
-        {
-            return Err(format!(
-                "{name} can set variables that change what later commands run"
-            ));
-        }
-        if let Some(arg) = leaf.args.iter().find(|a| is_lookup_env_assignment(a)) {
-            return Err(format!("{arg} changes which programs run"));
-        }
-        if INTERPRETERS.contains(&name) && !leaf.args.is_empty() {
-            return Err(format!("{name} with arguments runs code Jev cannot see"));
-        }
-        if let Some(arg) = leaf.args.iter().find(|a| points_at_file(a)) {
-            return Err(format!(
-                "{arg} points {name} at a file the project may define"
-            ));
-        }
+        check_leaf(leaf, in_list)?;
     }
     Ok(kind)
+}
+
+/// Why one command of an eligible shape keeps the whole ask from being sent.
+fn check_leaf(leaf: &Leaf<'_>, in_list: bool) -> Result<(), String> {
+    let Some(name) = leaf.name.as_deref().filter(|n| !n.contains('$')) else {
+        return Err("a command has no literal name".to_owned());
+    };
+    if ask_rules::is_script_like(name) || ask_rules::TASK_RUNNERS.contains(&name) {
+        return Err(format!("{name} runs something the project defines"));
+    }
+    if CHANGES_DIRECTORY.contains(&name) && in_list {
+        return Err(format!(
+            "{name} moves the working directory, so later paths cannot be labelled"
+        ));
+    }
+    if SETS_VARIABLES.contains(&name) || (name == "printf" && leaf.args.iter().any(|a| a == "-v")) {
+        return Err(format!(
+            "{name} can set variables that change what later commands run"
+        ));
+    }
+    if let Some(arg) = leaf.args.iter().find(|a| is_lookup_env_assignment(a)) {
+        return Err(format!("{arg} changes which programs run"));
+    }
+    if INTERPRETERS.contains(&name) && !leaf.args.is_empty() {
+        return Err(format!("{name} with arguments runs code Jev cannot see"));
+    }
+    if let Some(arg) = leaf.args.iter().find(|a| points_at_file(a)) {
+        return Err(format!(
+            "{arg} points {name} at a file the project may define"
+        ));
+    }
+    Ok(())
 }
 
 /// `--kubeconfig=./x`, `--git-dir=../repo`: a flag or operand whose value is a
@@ -247,10 +262,28 @@ mod tests {
             "printf -v PATH 1 ; somecli list",
             "read PATH < /dev/null; somecli",
             "let PATH=1; somecli",
+            // With PATH unset, bash looks names up in the working directory.
+            "unset PATH; somecli list",
+            "unset -v PATH; somecli list",
         ] {
             assert!(check_cmd(cmd, &v).is_err(), "{cmd}");
         }
         assert!(check_cmd("printf '%s' x; somecli list", &v).is_ok());
+    }
+
+    // Review of the rebase: the facts label paths against the hook's working
+    // directory, so a list that moves it would be labelled wrongly.
+    #[test]
+    fn a_list_that_changes_directory_is_refused() {
+        let v = uncertain(UncertainKind::UnknownCommand);
+        for cmd in [
+            "cd /tmp; somecli list",
+            "pushd /tmp; somecli list",
+            "popd && somecli ./x",
+        ] {
+            assert!(check_cmd(cmd, &v).is_err(), "{cmd}");
+        }
+        assert!(check_cmd("somecli list", &v).is_ok());
     }
 
     #[test]

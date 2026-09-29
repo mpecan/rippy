@@ -467,95 +467,6 @@ impl Analyzer {
         }
     }
 
-    /// Analyze a simple `Command` node.
-    ///
-    /// Applies the assignment-expansion guard (`x=$(cmd)` → Ask), then binds any
-    /// literal `VAR=val` prefix for the duration of this one command so
-    /// `VAR=val cmd $VAR` resolves within it, and unwinds the binding afterward.
-    ///
-    /// An env prefix rippy cannot vouch for Asks, but only after the command
-    /// itself is analyzed: the command may warrant Deny, and when it already
-    /// Asks its own reason is the more useful one. Tracing the prefix last also
-    /// keeps the deciding step last, which is what `rippy inspect` prints.
-    /// see docs/security-invariants.md#dangerous-env-name
-    fn analyze_command(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
-        // Unreachable; fail closed so a dispatch change cannot approve blindly.
-        let NodeKind::Command { assignments, .. } = &node.kind else {
-            return Verdict::uncertain(
-                Unanalyzable,
-                "internal: non-command node in analyze_command",
-            );
-        };
-        if ast::assignment_has_expansion(assignments) {
-            self.trace(Stage::EnvPrefix, true, || {
-                "ask: assignment value contains a shell expansion".to_owned()
-            });
-            let kind = if assignments.iter().any(ast::word_executes_command) {
-                Unanalyzable
-            } else {
-                DynamicExpansion
-            };
-            let v = Verdict::uncertain(kind, "assignment with expansion");
-            return if ask_rules::sets_lookup_env(assignments) {
-                v.into_approval()
-            } else {
-                v
-            };
-        }
-        let Some(name) = ast::dangerous_assignment_name(assignments) else {
-            return self.analyze_command_body(node, cwd, depth);
-        };
-        let prefix = Verdict::ask(format!("unrecognized env-var assignment ({name})"));
-        let verdict = self.analyze_command_body(node, cwd, depth);
-        if verdict.decision >= Decision::Ask {
-            // The body's reason stands, but an unvetted prefix makes the ask an
-            // approval: a reviewer judging the command alone never sees it.
-            return Verdict::most_restrictive(verdict, prefix);
-        }
-        self.trace(Stage::EnvPrefix, true, || {
-            format!("ask: {name} is not a known-inert variable")
-        });
-        prefix
-    }
-
-    /// The command's own verdict, ignoring any env prefix.
-    fn analyze_command_body(&mut self, node: &Node, cwd: &Path, depth: usize) -> Verdict {
-        let NodeKind::Command {
-            words,
-            redirects,
-            assignments,
-        } = &node.kind
-        else {
-            return Verdict::uncertain(
-                Unanalyzable,
-                "internal: non-command node in analyze_command_body",
-            );
-        };
-        // Per-leaf string-rule match (expansions resolved downstream first).
-        // see docs/security-invariants.md#string-rule-chokepoint
-        if !ast::has_expansions_in_slices(words, &[])
-            && let Some(name) = ast::command_name_from_words(words)
-        {
-            let args = ast::command_args_from_words(words);
-            if let Some(v) = self.leaf_string_rule(name, &args, redirects, cwd) {
-                return v;
-            }
-        }
-        let checkpoint = self.locals.len();
-        self.push_literal_bindings(assignments);
-        let piped = self.piped || dispatch::stdin_redirected(redirects);
-        let prev_piped = std::mem::replace(&mut self.piped, piped);
-        let mut v = self.analyze_command_node(words, redirects, cwd, depth);
-        self.piped = prev_piped;
-        if ask_rules::sets_lookup_env(assignments) {
-            v = v.into_approval();
-        } else if self.is_aliased(words) {
-            v = v.with_class_at_least(ask_rules::INDIRECT);
-        }
-        self.locals.truncate(checkpoint);
-        v
-    }
-
     fn analyze_command_node(
         &mut self,
         words: &[Node],
@@ -628,6 +539,9 @@ impl Analyzer {
         Some(cmd_name)
     }
 }
+
+#[path = "analyzer_command.rs"]
+mod command;
 
 #[path = "analyzer_control_flow.rs"]
 mod control_flow;
