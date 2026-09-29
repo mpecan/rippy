@@ -297,3 +297,44 @@ decision = "ask"
 [[case]]
 command = "PAGER=sh ls"
 decision = "ask"
+
+# A lookup path decides which program a name runs: `PATH=./bin ls` runs the
+# repository's ./bin/ls under a safe name.
+[[case]]
+command = "PATH=./bin ls"
+decision = "ask"
+
+[[case]]
+command = "env PATH=./bin ls"
+decision = "ask"
+
+[[case]]
+command = "PATH=./bin; ls"
+decision = "ask"
+
+[[case]]
+command = "bash -c \"PATH=./bin ls\""
+decision = "ask"
+
+[[case]]
+command = "CDPATH=. cd x"
+decision = "ask"
+
+[[case]]
+command = "NODE_PATH=./lib node -e 1"
+decision = "ask"
+
+# A config-lookup variable points a program at repository config: git reads
+# $HOME/.gitconfig, whose core.pager or aliases run code.
+[[case]]
+command = "HOME=. git log"
+decision = "ask"
+
+[[case]]
+command = "XDG_CONFIG_HOME=. git status"
+decision = "ask"
+
+
+[[case]]
+command = "TERM=xterm ls"
+decision = "allow"
