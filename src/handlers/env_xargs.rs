@@ -1,5 +1,6 @@
 use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag};
 use crate::ast;
+use crate::resolve;
 use crate::verdict::AllowReason;
 
 // env
@@ -36,19 +37,11 @@ impl Handler for EnvHandler {
             return Classification::Ask("env (unrecognized env-var assignment)".into());
         }
 
-        let positionals: Vec<&str> = ctx
-            .args
-            .iter()
-            .filter(|a| !a.starts_with('-') && !a.contains('='))
-            .map(String::as_str)
-            .collect();
-
-        if positionals.is_empty() {
+        let inner = env_inner_command(ctx.args);
+        if inner.is_empty() {
             return Classification::Allow(AllowReason::handler("env (print environment)"));
         }
-
-        // Delegate inner command
-        Classification::Recurse(positionals.join(" "))
+        Classification::Recurse(resolve::shell_join(inner))
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -92,6 +85,33 @@ fn split_string_payload(args: &[String]) -> Option<String> {
     None
 }
 
+/// The command `env` runs: everything after its own options (`-i`, `-u NAME`,
+/// `-C DIR`, …) and `NAME=VALUE` assignments, verbatim. The inner command keeps
+/// its own flags and operands: dropping every `-x`/`a=b` word once turned
+/// `env find . -delete` into `find .`.
+fn env_inner_command(args: &[String]) -> &[String] {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        if arg == "--" {
+            i += 1;
+            break;
+        }
+        if arg.starts_with('-') {
+            i += if matches!(arg.as_str(), "-u" | "-C" | "-P") {
+                2
+            } else {
+                1
+            };
+            continue;
+        }
+        if !arg.contains('=') {
+            break;
+        }
+        i += 1;
+    }
+    args.get(i..).unwrap_or(&[])
+}
+
 // xargs
 
 pub(crate) static XARGS_HANDLER: XargsHandler = XargsHandler;
@@ -126,11 +146,10 @@ impl Handler for XargsHandler {
             return Classification::Ask("xargs (interactive)".into());
         }
         let inner_start = find_xargs_inner_command(ctx.args);
-        let inner: Vec<&str> = ctx.args[inner_start..].iter().map(String::as_str).collect();
-        if inner.is_empty() {
+        if ctx.args[inner_start..].is_empty() {
             return Classification::Ask("xargs (no command)".into());
         }
-        Classification::Recurse(inner.join(" "))
+        Classification::Recurse(resolve::shell_join(&ctx.args[inner_start..]))
     }
 
     /// Empty by design: `xargs` only re-analyzes its inner command, or asks.
@@ -161,6 +180,21 @@ fn find_xargs_inner_command(args: &[String]) -> usize {
 mod tests {
 
     use super::*;
+
+    fn strings(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn env_inner_command_keeps_the_inner_flags() {
+        let args = strings(&["-i", "FOO=1", "-u", "X", "find", ".", "-delete"]);
+        assert_eq!(env_inner_command(&args), strings(&["find", ".", "-delete"]));
+        let args = strings(&["dd", "if=/dev/zero", "of=/dev/sda"]);
+        assert_eq!(env_inner_command(&args), args);
+        let args = strings(&["--", "ls", "-la"]);
+        assert_eq!(env_inner_command(&args), strings(&["ls", "-la"]));
+        assert!(env_inner_command(&strings(&["FOO=1", "-i"])).is_empty());
+    }
 
     #[test]
     fn xargs_simple_inner_command() {

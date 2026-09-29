@@ -911,6 +911,15 @@ nice -10 ls	allow	ls is safe
 nice --adjustment=5 ls	allow	ls is safe
 nice -n 10 ls > /etc/passwd	ask	redirect to /etc/passwd
 nice -n	ask	-n (unknown command)
+env git -c core.pager=id log	ask	git -c core.pager=id is not on the safe config allowlist
+env find . -delete	ask	find -delete
+env sed -i s/a/b/ f	ask	sed -i (in-place edit)
+env xargs -0 -n 5	ask	xargs (no command)
+env -u X ls -la	allow	ls is safe
+env FOO=1 ls -la	allow	ls is safe
+timeout 5 mysql -e "SELECT a-b FROM t; DROP TABLE tmp"	ask	mysql (write SQL)
+timeout 5 mysql -e "SELECT a FROM t"	allow	mysql (read-only SQL)
+find . -exec sh -c "rm -rf x" \;	ask	matched rule: command=rm
 echo $((5-3))	allow	echo is safe (resolved: echo 2)
 echo $((2**3))	allow	echo is safe (resolved: echo 8)
 echo $((1<<3))	allow	echo is safe (resolved: echo 8)

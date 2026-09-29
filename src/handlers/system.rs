@@ -16,15 +16,15 @@ impl Handler for FdHandler {
         // -x/--exec and -X/--exec-batch delegate inner commands
         for (i, arg) in ctx.args.iter().enumerate() {
             if matches!(arg.as_str(), "-x" | "--exec" | "-X" | "--exec-batch") {
-                let inner: Vec<&str> = ctx.args[i + 1..]
+                let inner: Vec<String> = ctx.args[i + 1..]
                     .iter()
                     .take_while(|a| a.as_str() != ";")
-                    .map(String::as_str)
+                    .cloned()
                     .collect();
                 if inner.is_empty() {
                     return Classification::Ask("fd exec (no command)".into());
                 }
-                return Classification::Recurse(inner.join(" "));
+                return Classification::Recurse(crate::resolve::shell_join(&inner));
             }
         }
         Classification::Allow(AllowReason::handler("fd (search only)"))

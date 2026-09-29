@@ -170,3 +170,48 @@ decision = "ask"
 [[case]]
 command = "nice -n"
 decision = "ask"
+
+# The env handler once dropped every `-x`/`a=b` word from the inner command, so
+# these were judged as `git log`, `find .`, `sed` and allowed.
+[[case]]
+command = "env git -c core.pager=id log"
+decision = "ask"
+reason_contains = "safe config allowlist"
+
+[[case]]
+command = "env find . -delete"
+decision = "ask"
+reason_contains = "find -delete"
+
+[[case]]
+command = "env sed -i s/a/b/ f"
+decision = "ask"
+reason_contains = "in-place"
+
+[[case]]
+command = "env xargs -0 -n 5"
+decision = "ask"
+reason_contains = "xargs (no command)"
+
+[[case]]
+command = "env -u X ls -la"
+decision = "allow"
+
+[[case]]
+command = "env FOO=1 ls -la"
+decision = "allow"
+
+# Re-joined arguments are quoted: a quoted argument is one word, not a list.
+[[case]]
+command = "timeout 5 mysql -e \"SELECT a-b FROM t; DROP TABLE tmp\""
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = "timeout 5 mysql -e \"SELECT a FROM t\""
+decision = "allow"
+
+[[case]]
+command = 'find . -exec sh -c "rm -rf x" \;'
+decision = "ask"
+reason_contains = "rm"
