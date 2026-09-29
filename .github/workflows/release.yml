@@ -44,6 +44,15 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   build-binaries:
+    # Two mutually exclusive distributions per target: `rippy` (default build,
+    # no network code) and `rippy-jev` (`--features jev`, docs/jev.md). Both
+    # archives contain a binary named `rippy`, so hook configs never change.
+    #
+    # One job per target builds both flavors in turn: the second build reuses
+    # the runner setup, cache and every dependency the flavors share, where a
+    # job per flavor paid for all of that twice. The default archive is
+    # uploaded before the jev build starts, so a broken jev build fails the job
+    # visibly but never holds back the default release.
     name: Build ${{ matrix.target }}
     if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v')
     runs-on: ${{ matrix.runner }}
@@ -59,6 +68,12 @@ jobs:
             runner: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
+    env:
+      TARGET: ${{ matrix.target }}
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      # `ring` (rustls, jev build only) compiles C for the target.
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -78,35 +93,39 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-
-      - name: Package binary
+      - name: Write the packaging script
         shell: bash
         run: |
-          TAG="${{ env.RELEASE_TAG }}"
-          VERSION="${TAG#rippy-cli-v}"
-          ARCHIVE="rippy-v${VERSION}-${{ matrix.target }}.tar.gz"
-          cp "target/${{ matrix.target }}/release/rippy" rippy
+          cat > "$RUNNER_TEMP/ship.sh" <<'SH'
+          # ship.sh FLAVOR: package the binary just built and upload it.
+          set -euo pipefail
+          FLAVOR="$1"
+          ARCHIVE="${FLAVOR}-v${RELEASE_TAG#rippy-cli-v}-${TARGET}.tar.gz"
+          cp "target/${TARGET}/release/rippy" rippy
           tar -czf "${ARCHIVE}" rippy
-          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
           openssl dgst -sha256 "${ARCHIVE}" | awk '{print $2}' > "${ARCHIVE}.sha256"
+          gh release upload "${RELEASE_TAG}" "${ARCHIVE}" "${ARCHIVE}.sha256" --clobber
+          SH
 
-      - name: Upload to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and upload rippy
+        shell: bash
         run: |
-          gh release upload "${{ env.RELEASE_TAG }}" \
-            "${{ env.ARCHIVE }}" \
-            "${{ env.ARCHIVE }}.sha256" \
-            --clobber
+          cargo build --release --target "$TARGET"
+          bash "$RUNNER_TEMP/ship.sh" rippy
+
+      - name: Build and upload rippy-jev
+        shell: bash
+        run: |
+          cargo build --release --target "$TARGET" --features jev
+          bash "$RUNNER_TEMP/ship.sh" rippy-jev
 
   update-homebrew:
     name: Update Homebrew tap
     needs: build-binaries
-    if: startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v')
+    # Runs even if a build failed (fail-fast is off): each formula is written
+    # only when all of its archives exist, so a broken rippy-jev build never
+    # holds back the default formula.
+    if: ${{ !cancelled() && startsWith(inputs.tag || github.event.release.tag_name, 'rippy-cli-v') }}
     runs-on: ubuntu-latest
     steps:
       - name: Compute version
@@ -120,15 +139,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          for TARGET in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu; do
-            gh release download "${{ env.RELEASE_TAG }}" \
-              --repo "${{ github.repository }}" \
-              --pattern "rippy-v${VERSION}-${TARGET}.tar.gz.sha256" \
-              --output "${TARGET}.sha256"
+          mkdir -p sums
+          for FLAVOR in rippy rippy-jev; do
+            for TARGET in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu; do
+              gh release download "${{ env.RELEASE_TAG }}" \
+                --repo "${{ github.repository }}" \
+                --pattern "${FLAVOR}-v${VERSION}-${TARGET}.tar.gz.sha256" \
+                --output "sums/${FLAVOR}-${TARGET}.sha256" \
+                || echo "::warning::no ${FLAVOR} archive for ${TARGET}"
+            done
           done
-          echo "SHA256_AARCH64=$(cat aarch64-apple-darwin.sha256)" >> "$GITHUB_ENV"
-          echo "SHA256_X86_64_DARWIN=$(cat x86_64-apple-darwin.sha256)" >> "$GITHUB_ENV"
-          echo "SHA256_LINUX=$(cat x86_64-unknown-linux-gnu.sha256)" >> "$GITHUB_ENV"
 
       - name: Generate GitHub App token
         id: app-token
@@ -145,54 +165,73 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           path: homebrew-tools
 
-      - name: Update formula
+      - name: Update formulas
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           python3 - <<'PYEOF'
           import os, textwrap
           v = os.environ['VERSION']
-          sha_arm = os.environ['SHA256_AARCH64']
-          sha_intel = os.environ['SHA256_X86_64_DARWIN']
-          sha_linux = os.environ['SHA256_LINUX']
           base = "https://github.com/mpecan/rippy/releases/download"
-          formula = textwrap.dedent(f"""\
-            class Rippy < Formula
-              desc "Shell command safety hook for AI coding tools (Claude Code, Cursor, Gemini CLI)"
-              homepage "https://github.com/mpecan/rippy"
-              version "{v}"
-              license "MIT"
-
-              on_macos do
-                on_arm do
-                  url "{base}/rippy-cli-v{v}/rippy-v{v}-aarch64-apple-darwin.tar.gz"
-                  sha256 "{sha_arm}"
-                end
-                on_intel do
-                  url "{base}/rippy-cli-v{v}/rippy-v{v}-x86_64-apple-darwin.tar.gz"
-                  sha256 "{sha_intel}"
-                end
-              end
-
-              on_linux do
-                on_intel do
-                  url "{base}/rippy-cli-v{v}/rippy-v{v}-x86_64-unknown-linux-gnu.tar.gz"
-                  sha256 "{sha_linux}"
-                end
-              end
-
-              def install
-                bin.install "rippy"
-              end
-
-              test do
-                assert_match "rippy", shell_output("#{{bin}}/rippy --version")
-              end
-            end
-          """)
+          flavors = {
+              "rippy": ("Rippy", "rippy-jev",
+                        "Shell command safety hook for AI coding tools (Claude Code, Cursor, Gemini CLI)"),
+              "rippy-jev": ("RippyJev", "rippy",
+                            "rippy with optional Jev review of uncertain commands (network access)"),
+          }
+          def sha(flavor, target):
+              with open(f"sums/{flavor}-{target}.sha256") as f:
+                  return f.read().strip()
           os.makedirs("homebrew-tools/Formula", exist_ok=True)
-          with open("homebrew-tools/Formula/rippy.rb", "w") as f:
-              f.write(formula)
+          targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
+          written = []
+          for flavor, (cls, other, desc) in flavors.items():
+              if not all(os.path.exists(f"sums/{flavor}-{t}.sha256") for t in targets):
+                  print(f"::warning::skipping {flavor}.rb: not every archive was built")
+                  continue
+              written.append(f"Formula/{flavor}.rb")
+              def url(target):
+                  return f"{base}/rippy-cli-v{v}/{flavor}-v{v}-{target}.tar.gz"
+              formula = textwrap.dedent(f"""\
+                class {cls} < Formula
+                  desc "{desc}"
+                  homepage "https://github.com/mpecan/rippy"
+                  version "{v}"
+                  license "MIT"
+
+                  conflicts_with "{other}", because: "both install a `rippy` binary"
+
+                  on_macos do
+                    on_arm do
+                      url "{url('aarch64-apple-darwin')}"
+                      sha256 "{sha(flavor, 'aarch64-apple-darwin')}"
+                    end
+                    on_intel do
+                      url "{url('x86_64-apple-darwin')}"
+                      sha256 "{sha(flavor, 'x86_64-apple-darwin')}"
+                    end
+                  end
+
+                  on_linux do
+                    on_intel do
+                      url "{url('x86_64-unknown-linux-gnu')}"
+                      sha256 "{sha(flavor, 'x86_64-unknown-linux-gnu')}"
+                    end
+                  end
+
+                  def install
+                    bin.install "rippy"
+                  end
+
+                  test do
+                    assert_match "rippy", shell_output("#{{bin}}/rippy --version")
+                  end
+                end
+              """)
+              with open(f"homebrew-tools/Formula/{flavor}.rb", "w") as f:
+                  f.write(formula)
+          if not written:
+              raise SystemExit("no formula could be written")
           PYEOF
 
       - name: Commit and push
@@ -200,6 +239,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/rippy.rb
+          git add Formula/*.rb
           git diff --cached --quiet || git commit -m "rippy ${{ steps.version.outputs.version }}"
           git push

@@ -18,6 +18,10 @@ exclude = ["fuzz"]
 # Exposes `fuzz_support`, the shim `fuzz/fuzz_targets/metamorphic.rs` needs to
 # reach crate-internal expansion resolution. Off by default.
 fuzzing = []
+# The opt-in `rippy-jev` distribution: consults the Jev decision model about
+# asks rippy raises because it cannot decide (docs/jev.md). Pulls in the only
+# network code rippy has; the default build never compiles it.
+jev = ["dep:ureq"]
 
 [[bin]]
 name = "rippy"
@@ -35,6 +39,7 @@ tokf-hook-types = "0.2.39"
 toml = "0.8"
 rkyv = "0.8.15"
 sha2 = "0.10"
+ureq = { version = "3", features = ["json"], optional = true }
 
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }

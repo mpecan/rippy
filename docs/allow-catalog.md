@@ -1139,4 +1139,5 @@ These depend on your machine and are **not** part of rippy's shipped surface. Ru
 - Claude Code `permissions.allow` entries.
 - `default-action = "allow"`, which approves anything no rule or handler matched.
 - `PostToolUse` after-rules, which report rather than gate.
+- Jev approvals of uncertain asks, only in the opt-in `rippy-jev` build with `[jev]` enabled in the global config (see `docs/jev.md`).
 

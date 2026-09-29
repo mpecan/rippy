@@ -2,6 +2,7 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, get_flag_value, is_sole_help_flag, surface,
 };
 use crate::verdict::AllowReason;
+use crate::verdict::UncertainKind;
 
 pub(crate) static GH_HANDLER: GhHandler = GhHandler;
 
@@ -151,7 +152,10 @@ fn classify_api(ctx: &HandlerContext) -> Classification {
                 Classification::Allow(AllowReason::handler("gh api --input (query)"))
             };
         }
-        return Classification::Ask("gh api (--input, cannot verify contents)".into());
+        return Classification::Uncertain(
+            UncertainKind::ProjectDefined,
+            "gh api (--input, cannot verify contents)".into(),
+        );
     }
 
     Classification::Allow(AllowReason::handler("gh api (GET)"))

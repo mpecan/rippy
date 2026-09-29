@@ -25,6 +25,7 @@ pub(crate) struct TomlConfig {
     pub cd: Option<TomlCd>,
     pub scopes: Option<TomlScopes>,
     pub git: Option<TomlGit>,
+    pub jev: Option<crate::jev_settings::JevSettings>,
     #[serde(default)]
     pub rules: Vec<TomlRule>,
     #[serde(default)]
@@ -183,6 +184,10 @@ fn toml_to_directives(config: &TomlConfig) -> Result<Vec<ConfigDirective>, Strin
         for dir in &cd.allowed_dirs {
             directives.push(ConfigDirective::SafeScope(std::path::PathBuf::from(dir)));
         }
+    }
+
+    if let Some(jev) = &config.jev {
+        directives.push(ConfigDirective::Jev(Box::new(jev.clone())));
     }
 
     // Expand git style rules BEFORE user rules so users can override.

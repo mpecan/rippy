@@ -2,6 +2,7 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_values,
     is_sole_help_flag,
 };
+use crate::handlers::{opaque_code, script_code};
 use crate::perl_safety::is_perl_source_safe;
 use crate::verdict::AllowReason;
 
@@ -33,7 +34,7 @@ impl Handler for PerlHandler {
 
         // No args = reads from stdin
         if ctx.args.is_empty() {
-            return Classification::Ask("perl (reads stdin)".into());
+            return opaque_code(ctx, "perl (reads stdin)".into());
         }
 
         // Script file execution — try to read and analyze
@@ -45,7 +46,7 @@ impl Handler for PerlHandler {
                 Classification::Ask(format!("perl {script} (potentially dangerous)"))
             };
         }
-        Classification::Ask("perl script execution".into())
+        script_code(ctx, script, "perl script execution".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {

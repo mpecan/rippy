@@ -32,7 +32,9 @@ use std::sync::LazyLock;
 
 pub(crate) use surface::{AllowEntry, all_handler_surfaces};
 
-use crate::verdict::AllowReason;
+#[cfg(doc)]
+use crate::verdict::AskClass;
+use crate::verdict::{AllowReason, UncertainKind};
 
 /// Context passed to handlers for classification.
 pub(crate) struct HandlerContext<'a> {
@@ -40,10 +42,9 @@ pub(crate) struct HandlerContext<'a> {
     pub args: &'a [String],
     pub working_directory: &'a Path,
     pub remote: bool,
-    /// Whether this command receives piped stdin. Populated from the analyzer's
-    /// pipeline state; reserved for handlers that need to gate on piped input
-    /// (none read it yet).
-    #[expect(dead_code, reason = "reserved: piped-input-aware handlers may read it")]
+    /// Whether stdin comes from a pipe, heredoc, here-string or `<` redirect
+    /// rather than the terminal; [`opaque_code`] reads it to tell a REPL from
+    /// code fed to an interpreter.
     pub receives_piped_input: bool,
     /// User-declared safe scopes: extra directories that path-based handlers
     /// (`cd`, `mkdir`, `git -C`) may enter/create in without prompting (from config).
@@ -110,8 +111,13 @@ pub(crate) enum Classification {
     /// Auto-approve, carrying typed provenance (always
     /// [`AllowReason::Handler`] when minted by a handler).
     Allow(AllowReason),
-    /// Needs user confirmation with description.
+    /// Needs user confirmation with description: rippy knows what the command
+    /// does and a human must approve it ([`AskClass::Approval`]).
     Ask(String),
+    /// Needs user confirmation because the handler cannot tell whether the
+    /// command is safe ([`AskClass::Uncertain`]). Use it only where that is
+    /// true by construction; see docs/jev.md#two-kinds-of-ask.
+    Uncertain(UncertainKind, String),
     /// Block with description. Wired to `Verdict::deny` in `apply_classification`;
     /// reserved for handlers that need to hard-block (none construct it yet).
     #[expect(
@@ -199,9 +205,12 @@ impl Handler for SubcommandHandler {
         } else if self.ask.contains(&sub) {
             Classification::Ask(desc)
         } else if sub.is_empty() {
-            Classification::Ask(format!("{} (no subcommand)", self.desc_prefix))
+            Classification::Uncertain(
+                UncertainKind::UnknownSubcommand,
+                format!("{} (no subcommand)", self.desc_prefix),
+            )
         } else {
-            Classification::Ask(desc)
+            Classification::Uncertain(UncertainKind::UnknownSubcommand, desc)
         }
     }
 
@@ -331,6 +340,28 @@ pub(crate) fn placeholder_injects(inner: &[String], placeholders: &[&str]) -> bo
             .iter()
             .any(|a| holds(a) && !placeholders.contains(&a.as_str()))
         || (CODE_READERS.contains(&name) && inner.iter().skip(1).any(holds))
+}
+
+/// An interpreter running a script rippy could not read. A named script is
+/// [`UncertainKind::ProjectDefined`]: its text is a file, not the command.
+/// With no script, or `-`, it reads stdin, as [`opaque_code`] decides.
+pub(crate) fn script_code(ctx: &HandlerContext, script: &str, desc: String) -> Classification {
+    if script.is_empty() || script == "-" {
+        opaque_code(ctx, desc)
+    } else {
+        Classification::Uncertain(UncertainKind::ProjectDefined, desc)
+    }
+}
+
+/// A program about to run code rippy cannot see. An interactive REPL is
+/// [`UncertainKind::OpaqueInput`]; piped stdin is code another command chose to
+/// feed it (`curl … | sh`), which a human must approve.
+pub(crate) const fn opaque_code(ctx: &HandlerContext, desc: String) -> Classification {
+    if ctx.receives_piped_input {
+        Classification::Ask(desc)
+    } else {
+        Classification::Uncertain(UncertainKind::OpaqueInput, desc)
+    }
 }
 
 /// Helper: true only when a help/version flag is the command's SOLE argument.

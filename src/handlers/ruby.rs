@@ -2,6 +2,7 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
     is_sole_help_flag,
 };
+use crate::handlers::{opaque_code, script_code};
 use crate::ruby_safety::is_ruby_source_safe;
 use crate::verdict::AllowReason;
 
@@ -23,7 +24,7 @@ impl Handler for RubyHandler {
         }
 
         if ctx.command_name == "irb" {
-            return Classification::Ask("irb (interactive)".into());
+            return opaque_code(ctx, "irb (interactive)".into());
         }
 
         // -e inline code: analyze source for dangerous patterns.
@@ -36,7 +37,7 @@ impl Handler for RubyHandler {
         }
 
         if ctx.args.is_empty() {
-            return Classification::Ask("ruby (interactive)".into());
+            return opaque_code(ctx, "ruby (interactive)".into());
         }
 
         let script = first_positional(ctx.args).unwrap_or("");
@@ -47,7 +48,7 @@ impl Handler for RubyHandler {
                 Classification::Ask(format!("ruby {script} (potentially dangerous)"))
             };
         }
-        Classification::Ask("ruby script execution".into())
+        script_code(ctx, script, "ruby script execution".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {

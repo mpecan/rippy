@@ -3,6 +3,7 @@ use super::{
     has_flag_or_prefixed, has_glued_short_flag,
 };
 use crate::verdict::AllowReason;
+use crate::verdict::UncertainKind;
 
 // sed
 
@@ -140,7 +141,12 @@ impl Handler for AwkHandler {
         if has_awk_flag(ctx.args, "-f", &["-f", "--file"]) {
             let program = awk_script_path(ctx.args).and_then(|path| ctx.read_file(&path));
             return program.map_or_else(
-                || Classification::Ask(format!("{} -f (script file)", ctx.command_name)),
+                || {
+                    Classification::Uncertain(
+                        UncertainKind::ProjectDefined,
+                        format!("{} -f (script file)", ctx.command_name),
+                    )
+                },
                 |program| check_awk_source(&program, ctx.command_name),
             );
         }
@@ -473,6 +479,9 @@ mod tests {
             ..HandlerContext::test("awk", &args)
         };
         let result = AWK_HANDLER.classify(&ctx);
-        assert!(matches!(result, Classification::Ask(_)));
+        assert!(matches!(
+            result,
+            Classification::Uncertain(UncertainKind::ProjectDefined, _)
+        ));
     }
 }

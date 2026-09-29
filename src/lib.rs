@@ -3,6 +3,7 @@
 pub mod allow_catalog;
 pub mod allowlists;
 pub mod analyzer;
+pub(crate) mod ask_rules;
 pub mod ast;
 pub(crate) mod cc_permissions;
 pub mod cli;
@@ -18,6 +19,9 @@ pub mod fuzz_support;
 pub(crate) mod git_styles;
 pub(crate) mod handlers;
 pub mod inspect;
+#[cfg(feature = "jev")]
+pub mod jev;
+pub mod jev_settings;
 pub mod list;
 pub mod logging;
 pub mod migrate;

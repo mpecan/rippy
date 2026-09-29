@@ -11,7 +11,7 @@ use rippy_cli::error::RippyError;
 use rippy_cli::mode::{HookType, Mode, PermissionMode};
 use rippy_cli::payload::{FileOp, Payload};
 use rippy_cli::setup;
-use rippy_cli::verdict::{AllowReason, AutoMode, ClaudeContext, Decision, Verdict};
+use rippy_cli::verdict::{AllowReason, AutoMode, ClaudeContext, Decision, UncertainKind, Verdict};
 
 /// Evaluate a payload. Returns `None` for passthrough (file tools with no matching rule).
 fn evaluate(
@@ -69,7 +69,10 @@ fn evaluate_pre_tool(
         return Ok(Some(analyzer.analyze(command)?));
     }
 
-    Ok(Some(Verdict::ask("no command found in payload")))
+    Ok(Some(Verdict::uncertain(
+        UncertainKind::Unanalyzable,
+        "no command found in payload",
+    )))
 }
 
 fn evaluate_post_tool(payload: &Payload, config: &Config) -> Verdict {
@@ -118,15 +121,29 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     }
 
     let tracking_db = config.tracking_db.clone();
-    let maybe_verdict = evaluate(&payload, config, args, cwd)?;
+    // A remote target's facts cannot be computed here (docs/jev.md#placement).
+    let jev_settings = if args.remote {
+        None
+    } else {
+        config.jev.clone()
+    };
+    let maybe_verdict = evaluate(&payload, config, args, cwd.clone())?;
 
     let Some(verdict) = maybe_verdict else {
         // Passthrough: no opinion. Output empty JSON, exit 0.
         println!("{{}}");
         return Ok(ExitCode::SUCCESS);
     };
+    let (verdict, auto_mode, jev_log) =
+        review_with_jev(verdict, &payload, jev_settings.as_ref(), &cwd, auto_mode);
 
-    log_verdict(log_file.as_ref(), log_full, &payload, &verdict);
+    log_verdict(
+        log_file.as_ref(),
+        log_full,
+        &payload,
+        &verdict,
+        jev_log.as_ref(),
+    );
     track_verdict(tracking_db.as_deref(), &payload, &verdict);
 
     let ctx = ClaudeContext {
@@ -138,6 +155,56 @@ fn run_hook(args: &HookArgs) -> Result<ExitCode, RippyError> {
     println!("{json}");
 
     Ok(hook_exit_code(payload.mode, verdict.decision, ctx))
+}
+
+/// Let Jev review an uncertain ask (docs/jev.md). A review Jev flags forces
+/// `ask` even where `auto-mode = defer` would hand the decision to the agent.
+#[cfg(feature = "jev")]
+fn review_with_jev(
+    verdict: Verdict,
+    payload: &Payload,
+    settings: Option<&rippy_cli::jev_settings::JevSettings>,
+    cwd: &std::path::Path,
+    auto_mode: AutoMode,
+) -> (Verdict, AutoMode, Option<serde_json::Value>) {
+    let (Some(settings), Some(command), HookType::PreToolUse) =
+        (settings, payload.command.as_deref(), payload.hook_type)
+    else {
+        return (verdict, auto_mode, None);
+    };
+    let var = |name: &str| std::env::var(name).ok();
+    let env = rippy_cli::jev::Env {
+        cwd,
+        home: dirs::home_dir(),
+        var: &var,
+    };
+    let transport = rippy_cli::jev::transport::HttpTransport;
+    let review = rippy_cli::jev::review(verdict, command, settings, &env, &transport);
+    let auto_mode = if review.force_prompt {
+        AutoMode::Ask
+    } else {
+        auto_mode
+    };
+    (review.verdict, auto_mode, review.log)
+}
+
+/// The default build has no Jev support; say so rather than silently ignoring
+/// an enabled `[jev]` section.
+#[cfg(not(feature = "jev"))]
+fn review_with_jev(
+    verdict: Verdict,
+    _payload: &Payload,
+    settings: Option<&rippy_cli::jev_settings::JevSettings>,
+    _cwd: &std::path::Path,
+    auto_mode: AutoMode,
+) -> (Verdict, AutoMode, Option<serde_json::Value>) {
+    if settings.is_some_and(|s| s.enabled) {
+        eprintln!(
+            "[rippy] warning: [jev] is enabled but this rippy build has no Jev support; \
+             install the rippy-jev distribution to use it"
+        );
+    }
+    (verdict, auto_mode, None)
 }
 
 /// Map a verdict to a process exit code. For Claude, exit 2 blocks the tool call
@@ -187,7 +254,13 @@ fn evaluate_file_access(payload: &Payload, config: &Config, verbose: bool) -> Op
     verdict
 }
 
-fn log_verdict(log_file: Option<&PathBuf>, log_full: bool, payload: &Payload, verdict: &Verdict) {
+fn log_verdict(
+    log_file: Option<&PathBuf>,
+    log_full: bool,
+    payload: &Payload,
+    verdict: &Verdict,
+    jev: Option<&serde_json::Value>,
+) {
     if let Some(path) = log_file {
         rippy_cli::logging::write_log_entry(&rippy_cli::logging::LogEntry {
             log_file: path,
@@ -196,6 +269,7 @@ fn log_verdict(log_file: Option<&PathBuf>, log_full: bool, payload: &Payload, ve
             verdict,
             mode: payload.mode,
             raw_payload: if log_full { Some(&payload.raw) } else { None },
+            jev,
         });
     }
 }
@@ -247,7 +321,10 @@ const FAIL_CLOSED_CONTEXT: ClaudeContext = ClaudeContext {
 };
 
 fn forced_ask_verdict(detail: &str) -> Verdict {
-    Verdict::ask(format!("rippy could not evaluate this input: {detail}"))
+    Verdict::uncertain(
+        UncertainKind::Unanalyzable,
+        format!("rippy could not evaluate this input: {detail}"),
+    )
 }
 
 fn forced_ask(args: &HookArgs, detail: &str) -> ExitCode {
@@ -280,6 +357,8 @@ fn run() -> Result<ExitCode, RippyError> {
         Some(Command::List(ref a)) => rippy_cli::list::run(a),
         Some(Command::Profile(ref a)) => rippy_cli::profile_cmd::run(a),
         Some(Command::Scope(ref a)) => rippy_cli::scope_cmd::run(a),
+        #[cfg(feature = "jev")]
+        Some(Command::Jev(ref a)) => rippy_cli::jev::cmd::run(a),
         None => Ok(fail_closed(&cli.hook_args, || run_hook(&cli.hook_args))),
     }
 }

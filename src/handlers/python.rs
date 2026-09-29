@@ -2,6 +2,7 @@ use super::{
     AllowEntry, Classification, Handler, HandlerContext, first_positional, get_flag_value,
     has_flag, is_sole_help_flag, surface,
 };
+use crate::handlers::{opaque_code, script_code};
 use crate::python_safety::is_python_source_safe;
 use crate::verdict::AllowReason;
 
@@ -58,12 +59,12 @@ impl Handler for PythonHandler {
 
         // -i interactive
         if has_flag(ctx.args, &["-i"]) {
-            return Classification::Ask("python -i (interactive)".into());
+            return opaque_code(ctx, "python -i (interactive)".into());
         }
 
         // No args = interactive
         if ctx.args.is_empty() {
-            return Classification::Ask("python (interactive)".into());
+            return opaque_code(ctx, "python (interactive)".into());
         }
 
         // Script execution — try to read and analyze the file
@@ -77,7 +78,7 @@ impl Handler for PythonHandler {
                 Classification::Ask(format!("python {script} (potentially dangerous)"))
             };
         }
-        Classification::Ask("python script execution".into())
+        script_code(ctx, script, "python script execution".into())
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -147,6 +148,9 @@ mod tests {
             ..HandlerContext::test("python", &args)
         };
         let result = PYTHON_HANDLER.classify(&ctx);
-        assert!(matches!(result, Classification::Ask(_)));
+        assert!(matches!(
+            result,
+            Classification::Uncertain(crate::verdict::UncertainKind::ProjectDefined, _)
+        ));
     }
 }

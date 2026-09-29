@@ -33,6 +33,20 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      # The opt-in `rippy-jev` distribution (docs/jev.md) is compiled only with
+      # the feature. Checked in this job, after the default build, so it reuses
+      # the runner, cache and every shared dependency instead of a job of its own.
+      - name: Clippy (jev)
+        run: cargo clippy --all-targets --features jev -- -D warnings
+
+      - name: Default build has no network code
+        # `cargo tree -i` succeeds only when the crate is in the graph.
+        run: |
+          if cargo tree -e normal -i ureq >/dev/null 2>&1; then
+            echo "::error::ureq is in the default build's dependency tree"
+            exit 1
+          fi
+
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
 
@@ -75,6 +89,12 @@ jobs:
         # is the check that fails when a PR adds an approval without a catalog
         # case or without a dangerous neighbor pinning where it stops.
         run: cargo test --test allow_completeness
+
+      - name: Run tests (jev)
+        # The whole suite again with the feature: the jev build must behave
+        # exactly like the default one until Jev is enabled. Dependencies are
+        # already built above; only rippy and its test binaries recompile.
+        run: cargo test --all-targets --features jev
 
   check:
     name: Check

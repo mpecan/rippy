@@ -1,3 +1,4 @@
+use crate::verdict::UncertainKind;
 use std::path::Path;
 
 use super::{AllowEntry, Classification, Handler, HandlerContext, is_within_scope, normalize_path};
@@ -40,7 +41,10 @@ impl Handler for MkdirHandler {
 
             // Can't statically resolve
             if arg.contains('$') || arg.contains('`') {
-                return Classification::Ask("mkdir with variable expansion".into());
+                return Classification::Uncertain(
+                    UncertainKind::DynamicExpansion,
+                    "mkdir with variable expansion".into(),
+                );
             }
 
             if arg.starts_with('~') {
@@ -88,6 +92,13 @@ mod tests {
 
     fn is_ask(c: &Classification) -> bool {
         matches!(c, Classification::Ask(_))
+    }
+
+    fn is_dynamic_uncertain(c: &Classification) -> bool {
+        matches!(
+            c,
+            Classification::Uncertain(UncertainKind::DynamicExpansion, _)
+        )
     }
 
     #[test]
@@ -146,10 +157,12 @@ mod tests {
     fn mkdir_variable_expansion_asks() {
         let cwd = PathBuf::from("/project");
         let args = ["$HOME/new_dir".to_string()];
-        assert!(is_ask(&MKDIR_HANDLER.classify(&HandlerContext {
-            working_directory: &cwd,
-            ..HandlerContext::test("mkdir", &args)
-        })));
+        assert!(is_dynamic_uncertain(&MKDIR_HANDLER.classify(
+            &HandlerContext {
+                working_directory: &cwd,
+                ..HandlerContext::test("mkdir", &args)
+            }
+        )));
     }
 
     #[test]

@@ -64,6 +64,9 @@ pub enum AllowReason {
     DefaultAction { cmd: String, weakening: String },
     /// A `PostToolUse` after-rule produced a message.
     AfterRule(String),
+    /// The opt-in Jev build approved an uncertain ask. `summary` is the effect
+    /// and confidence the approval was decided on (docs/jev.md#policy).
+    Model { model: String, summary: String },
 }
 
 /// The `docs/allow-catalog.md` section an [`AllowReason`] is documented under.
@@ -153,9 +156,10 @@ impl AllowReason {
             | Self::SafeDirWrite(_) => AllowCategory::Redirect,
             Self::Handler(_) => AllowCategory::Handler,
             Self::ConfigRule { .. } => AllowCategory::Rule,
-            Self::CcPermission(_) | Self::DefaultAction { .. } | Self::AfterRule(_) => {
-                AllowCategory::UserControlled
-            }
+            Self::CcPermission(_)
+            | Self::DefaultAction { .. }
+            | Self::AfterRule(_)
+            | Self::Model { .. } => AllowCategory::UserControlled,
         }
     }
 
@@ -183,6 +187,7 @@ impl AllowReason {
             Self::CcPermission(_) => "cc-permission",
             Self::DefaultAction { .. } => "default-action",
             Self::AfterRule(_) => "after-rule",
+            Self::Model { .. } => "jev",
         }
     }
 }
@@ -208,6 +213,7 @@ impl fmt::Display for AllowReason {
             Self::DefaultAction { cmd, weakening } => {
                 write!(f, "{cmd} (default action){weakening}")
             }
+            Self::Model { model, summary } => write!(f, "jev: approved ({summary}, {model})"),
         }
     }
 }
@@ -317,6 +323,14 @@ mod tests {
                 "ran linter",
                 AllowCategory::UserControlled,
             ),
+            (
+                AllowReason::Model {
+                    model: "typesafe/jev-1.13".into(),
+                    summary: "read_only, conf 0.97 >= 0.90".into(),
+                },
+                "jev: approved (read_only, conf 0.97 >= 0.90, typesafe/jev-1.13)",
+                AllowCategory::UserControlled,
+            ),
         ]
     }
 
@@ -370,6 +384,10 @@ mod tests {
                 weakening: String::new(),
             },
             AllowReason::AfterRule("ran linter".into()),
+            AllowReason::Model {
+                model: String::new(),
+                summary: String::new(),
+            },
         ];
         let mut names: Vec<&str> = variants.iter().map(AllowReason::variant_name).collect();
         assert!(names.iter().all(|n| !n.is_empty()));

@@ -51,6 +51,22 @@ Download prebuilt binaries from [Releases](https://github.com/mpecan/rippy/relea
 - macOS (Apple Silicon, Intel)
 - Linux (x86_64, aarch64)
 
+### Optional: `rippy-jev` (model-assisted review)
+
+A separate, opt-in distribution that can ask the [Jev](https://openrouter.ai/docs/guides/community/jev)
+decision model about commands rippy asks about **only because it is unsure**, never about commands
+it knows need your approval. It installs the same `rippy` binary, so install one distribution or
+the other. The default distribution contains no network code at all.
+
+```bash
+brew install mpecan/tools/rippy-jev          # conflicts with the rippy formula
+cargo install rippy-cli --features jev
+cargo binstall rippy-cli --pkg-url '{ repo }/releases/download/rippy-cli-v{ version }/rippy-jev-v{ version }-{ target }.tar.gz'
+```
+
+`rippy --version` ends in `+jev` on this build. It does nothing until enabled; see
+[Jev review of uncertain asks](#jev-review-of-uncertain-asks-rippy-jev-only).
+
 ## Quick Start
 
 ### Claude Code
@@ -334,6 +350,53 @@ auto-mode = "defer"   # default: yield uncertain verdicts to auto modes
 
 > **Safety note:** because `ask` yields to auto modes, anything you truly want stopped in an auto mode must be a **`deny`** rule, not `ask`. Classify genuinely dangerous patterns as `deny`.
 
+### Jev review of uncertain asks (`rippy-jev` only)
+
+rippy asks for two reasons: because a human must approve the command (`git push --force`, `rm`,
+your own `ask` rules), or because rippy cannot tell whether it is safe (an unknown command, an
+unresolvable `$VAR`). The `rippy-jev` build can send the **second kind only** to Jev, which may
+approve it or leave it as an ask. It never blocks anything, and it never touches an `allow`, a
+`deny`, or an approval ask.
+
+```toml
+# ~/.rippy/config.toml — ignored (with a warning) in a project .rippy.toml
+[jev]
+enabled = true
+endpoint = "https://openrouter.ai/api/v1/systemone"  # or https://api.typesafe.ai/v1/systemone
+model = "jev-1.13"                                   # "jev-latest" on TypeSafe's own API
+api-key-env = "OPENROUTER_API_KEY"                   # the key is read only from this variable
+allow-effects = ["read_only"]                        # opt in: "remote_read", "local_change"
+min-confidence = 0.9                                 # plus per-risk gates, see docs/jev.md
+timeout-ms = 2000
+```
+
+What to know before enabling it:
+
+- **Commands leave your machine.** Eligible commands are sent to the endpoint with comments
+  removed and secrets replaced by `<redacted>`: assignment and `NAME=value` values, credential
+  flags, `Bearer`/`Authorization` values, token shapes and JWTs, and URL credentials and query
+  secrets. Variable values are never sent. Redaction covers common shapes; it is not a
+  guarantee. Only plain commands are sent: never ones with a group, loop, substitution,
+  heredoc, stdin redirect, `NAME=value` prefix, multiple lines or non-ASCII text.
+- **It trades some safety for fewer prompts.** Jev judges a command by its text, so rippy never
+  sends one whose behaviour is defined elsewhere: `./scripts/*` and other path- or script-named
+  programs, task runners (`make`, `npm`, `poetry`, …), unknown git subcommands, interpreters
+  given any argument, anything rippy judged through a wrapper, alias or a script's contents
+  (`timeout 5 …`, `xargs …`, `bash script.sh`), `--flag=path` arguments, remote contexts
+  (`docker exec`), programs that resolve inside the project, and rippy's own CLI. Jev is also
+  asked whether a command runs project code (tests, builds, linters, hooks) and such commands keep
+  their ask. A misleading program name on `PATH` can still mislead it.
+- **Suspicious answers escalate.** If Jev sees possible exfiltration, or the command text trying to
+  steer its own classification, the ask stays, gets a warning, and always prompts, even under
+  `auto-mode = "defer"`.
+- **Failures change nothing.** A timeout, HTTP error, missing key or odd answer leaves the ask as
+  it was, with `(jev unavailable: …)` in the reason.
+- **Every decision is visible.** Approvals read `jev: approved (read_only, conf 0.97 >= 0.90, …)`,
+  and the JSON log records the state sent and Jev's raw answers. Use `rippy jev '<command>'` to
+  check commands against your thresholds before relying on them.
+
+The design, threat model and prototype measurements are in [docs/jev.md](docs/jev.md).
+
 ### Pattern matching
 
 - Default: **prefix matching** — `git` matches `git status`, `git push`, etc.
@@ -351,6 +414,7 @@ auto-mode = "defer"   # default: yield uncertain verdicts to auto modes
 | `rippy profile set <name>` | Activate a safety package |
 | `rippy inspect [command]` | Show configured rules or trace a command decision |
 | `rippy debug <command>` | Trace the full decision path for a command |
+| `rippy jev <command>` | Show what Jev is sent and answers for a command (`rippy-jev` build only) |
 | `rippy list safe` | List all auto-approved safe commands |
 | `rippy list handlers` | List commands with dedicated handlers |
 | `rippy list rules` | Show effective rules from all config sources |

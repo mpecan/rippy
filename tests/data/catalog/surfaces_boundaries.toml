@@ -286,7 +286,7 @@ decision = "ask"
 command = 'nodejs script.js'
 decision = "ask"
 
-# bounds `env <assignments> <command>` -- observed reason: env (dangerous env-var assignment)
+# bounds `env <assignments> <command>` -- observed reason: env (unrecognized env-var assignment)
 [[case]]
 command = 'env LD_PRELOAD=./evil.so ls'
 decision = "ask"

@@ -1,6 +1,6 @@
 //! Metamorphic "never fail open" proptests (issue #168).
 //!
-//! Invariants 1-7 from the issue, each over a *generated* command grammar
+//! Invariants 1-7 from the issue and invariant 9, each over a *generated* command grammar
 //! rather than a fixed cross-product of curated strings. Invariant 8 (the
 //! resolver `Literal` invariant) lives in-crate at `src/resolve_proptests.rs`
 //! because `resolve::WordResolution` is crate-private.
@@ -141,6 +141,11 @@ invariant_test!(
     resolution_never_less_restrictive,
     128,
     invariants::resolution_monotonic
+);
+invariant_test!(
+    approval_dominates_uncertain,
+    64,
+    invariants::approval_dominates
 );
 
 proptest! {

@@ -1,3 +1,4 @@
+use crate::verdict::UncertainKind;
 use std::path::Path;
 
 use super::{AllowEntry, Classification, Handler, HandlerContext, is_within_scope, normalize_path};
@@ -63,7 +64,10 @@ impl Handler for CdHandler {
 
         // Can't statically resolve the destination
         if target.contains('$') || target.contains('`') {
-            return Classification::Ask(format!("{} with variable expansion", ctx.command_name));
+            return Classification::Uncertain(
+                UncertainKind::DynamicExpansion,
+                format!("{} with variable expansion", ctx.command_name),
+            );
         }
 
         if target.starts_with('~') {
@@ -112,6 +116,13 @@ mod tests {
 
     fn is_ask(c: &Classification) -> bool {
         matches!(c, Classification::Ask(_))
+    }
+
+    fn is_dynamic_uncertain(c: &Classification) -> bool {
+        matches!(
+            c,
+            Classification::Uncertain(UncertainKind::DynamicExpansion, _)
+        )
     }
 
     // cd with no args
@@ -173,7 +184,7 @@ mod tests {
             working_directory: &cwd,
             ..HandlerContext::test("cd", &args)
         };
-        assert!(is_ask(&CD_HANDLER.classify(&ctx)));
+        assert!(is_dynamic_uncertain(&CD_HANDLER.classify(&ctx)));
     }
 
     #[test]
@@ -184,7 +195,7 @@ mod tests {
             working_directory: &cwd,
             ..HandlerContext::test("cd", &args)
         };
-        assert!(is_ask(&CD_HANDLER.classify(&ctx)));
+        assert!(is_dynamic_uncertain(&CD_HANDLER.classify(&ctx)));
     }
 
     #[test]
@@ -195,7 +206,7 @@ mod tests {
             working_directory: &cwd,
             ..HandlerContext::test("cd", &args)
         };
-        assert!(is_ask(&CD_HANDLER.classify(&ctx)));
+        assert!(is_dynamic_uncertain(&CD_HANDLER.classify(&ctx)));
     }
 
     // relative paths within project

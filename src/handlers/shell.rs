@@ -1,4 +1,5 @@
 use super::{AllowEntry, Classification, Handler, HandlerContext};
+use crate::handlers::script_code;
 
 pub(crate) static SHELL_HANDLER: ShellHandler = ShellHandler;
 
@@ -35,7 +36,12 @@ impl Handler for ShellHandler {
             return Classification::Recurse(contents);
         }
 
-        Classification::Ask(format!("{} (interactive)", ctx.command_name))
+        let script = ctx
+            .args
+            .iter()
+            .find(|a| !a.starts_with('-'))
+            .map_or("", String::as_str);
+        script_code(ctx, script, format!("{} (interactive)", ctx.command_name))
     }
 
     /// Empty by design: this handler only re-analyzes a `-c` body or a script's
@@ -50,6 +56,7 @@ impl Handler for ShellHandler {
 mod tests {
 
     use super::*;
+    use crate::verdict::UncertainKind;
 
     #[test]
     fn bash_c_simple_recurses() {
@@ -69,7 +76,11 @@ mod tests {
     fn bash_interactive_asks() {
         let args: Vec<String> = vec![];
         let result = SHELL_HANDLER.classify(&HandlerContext::test("bash", &args));
-        assert!(matches!(result, Classification::Ask(reason) if reason.contains("interactive")));
+        let reason = match &result {
+            Classification::Uncertain(UncertainKind::OpaqueInput, r) => r.as_str(),
+            _ => "",
+        };
+        assert!(reason.contains("interactive"), "{result:?}");
     }
 
     #[test]
@@ -101,6 +112,9 @@ mod tests {
             ..HandlerContext::test("bash", &args)
         };
         let result = SHELL_HANDLER.classify(&ctx);
-        assert!(matches!(result, Classification::Ask(_)));
+        assert!(matches!(
+            result,
+            Classification::Uncertain(UncertainKind::ProjectDefined, _)
+        ));
     }
 }
