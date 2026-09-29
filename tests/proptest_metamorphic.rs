@@ -285,3 +285,19 @@ fn byte_decoder_generator_is_mostly_allowed() {
         .collect();
     assert_mostly_allowed("grammar::from_bytes", &rendered);
 }
+
+/// The grammar's env prefixes must be inert, or every prefixed spec starts
+/// from an Ask and the invariants above check nothing for it.
+#[test]
+fn grammar_env_prefixes_are_inert() {
+    for (name, value) in INERT_ENV {
+        let command = format!("{name}={value} ls");
+        let verdict = isolated_analyzer().analyze(&command).unwrap();
+        assert_eq!(
+            verdict.decision,
+            Decision::Allow,
+            "{command}: {}",
+            verdict.reason
+        );
+    }
+}

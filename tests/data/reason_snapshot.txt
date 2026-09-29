@@ -1085,6 +1085,10 @@ env LD_PRELOAD=x ls	ask	unrecognized env-var assignment (LD_PRELOAD)
 env CI='a b' LANG=C ls -la	allow	ls is safe
 env -S "X=1 rm -rf /"	ask	matched rule: command=rm
 env CI=1 -i ls	ask	-i (unknown command)
+env '#=1' rm -rf /	ask	env (unusual env-var name in #=1)
+env 'a b=1' ls	ask	env (unusual env-var name in a b=1)
+env '#=1' tee ~/.rippy/config.toml	deny	rippy configuration files are protected from modification. To disable self-protection, manually add `set self-protect off` to your config.
+env CI=1 ls	allow	ls is safe
 echo $((5-3))	allow	echo is safe (resolved: echo 2)
 echo $((2**3))	allow	echo is safe (resolved: echo 8)
 echo $((1<<3))	allow	echo is safe (resolved: echo 8)

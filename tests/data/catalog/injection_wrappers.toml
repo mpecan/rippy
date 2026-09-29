@@ -454,3 +454,23 @@ reason_contains = "rm"
 [[case]]
 command = "env CI=1 -i ls"
 decision = "ask"
+
+# env sets any `NAME=VALUE` before the command, but only a shell name can be
+# re-joined as a prefix: `#=1` bare would re-parse as a comment and hide `rm`.
+[[case]]
+command = "env '#=1' rm -rf /"
+decision = "ask"
+reason_contains = "unusual env-var name"
+
+[[case]]
+command = "env 'a b=1' ls"
+decision = "ask"
+reason_contains = "unusual env-var name"
+
+[[case]]
+command = "env '#=1' tee ~/.rippy/config.toml"
+decision = "deny"
+
+[[case]]
+command = "env CI=1 ls"
+decision = "allow"

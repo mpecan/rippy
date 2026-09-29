@@ -33,8 +33,14 @@ pub(crate) const FLAGS: &[&str] = &["-l", "-a", "-n", "-v", "-h", "--color", "--
 
 /// Environment prefixes that are inert by name, used to reach the assignment
 /// path without tripping the dangerous-name guard the transforms rely on.
-pub(crate) const INERT_ENV: &[(&str, &str)] =
-    &[("FOO", "bar"), ("LANG", "C"), ("MYVAR", "1"), ("TZ", "UTC")];
+/// Every name must be on the inert list (#210): an unknown one makes the
+/// spec Ask before any transform runs, silently weakening the invariants.
+pub(crate) const INERT_ENV: &[(&str, &str)] = &[
+    ("CI", "1"),
+    ("LANG", "C"),
+    ("RUST_LOG", "debug"),
+    ("TZ", "UTC"),
+];
 
 pub(crate) const TOKEN_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789._-";
 

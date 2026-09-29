@@ -51,7 +51,18 @@ impl Handler for EnvHandler {
             return Classification::Allow(AllowReason::handler("env (print environment)"));
         }
         let prefix = assignment_prefix(call.assigned);
-        Classification::Recurse(format!("{prefix}{}", resolve::shell_join(call.inner)))
+        let inner = format!("{prefix}{}", resolve::shell_join(call.inner));
+        // A name the shell cannot spell (`#=1`, `a b=1`) cannot ride along as
+        // a prefix, and bare it re-parses as a comment or a command.
+        match call.assigned.iter().find(|a| !is_shell_name(a)) {
+            Some(odd) => Classification::RecurseAtLeast(
+                inner,
+                Box::new(Classification::Ask(format!(
+                    "env (unusual env-var name in {odd})"
+                ))),
+            ),
+            None => Classification::Recurse(inner),
+        }
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
@@ -186,6 +197,7 @@ fn long_option<'a>(arg: &'a str, next: Option<&'a String>, call: &mut EnvCall<'a
 fn assignment_prefix(assigned: &[String]) -> String {
     assigned
         .iter()
+        .filter(|a| is_shell_name(a))
         .filter_map(|a| a.split_once('='))
         .fold(String::new(), |mut out, (n, v)| {
             out.push_str(n);
@@ -194,6 +206,13 @@ fn assignment_prefix(assigned: &[String]) -> String {
             out.push(' ');
             out
         })
+}
+
+/// Whether `NAME=VALUE`'s name is one the shell reads as an assignment.
+fn is_shell_name(assignment: &str) -> bool {
+    let name = assignment.split_once('=').map_or("", |(n, _)| n);
+    name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// `current` extended by the assignment at `at`: assignments are contiguous,
