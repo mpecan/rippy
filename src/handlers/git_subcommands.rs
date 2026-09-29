@@ -73,6 +73,9 @@ pub(super) fn classify_remote(args: &[String]) -> Classification {
 
 pub(super) fn classify_stash(args: &[String]) -> Classification {
     let sub = sub_of(args);
+    if sub == "show" {
+        return super::git::classify_log_family(args, "git stash show");
+    }
     if STASH_SAFE.contains(&sub) {
         Classification::Allow(AllowReason::handler(format!("git stash {sub}")))
     } else if sub.is_empty() {

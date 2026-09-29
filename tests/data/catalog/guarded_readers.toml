@@ -1,0 +1,210 @@
+[meta]
+description = "Read-only tools whose options run a program or write a file: the safe spelling is allowed, every exec or output spelling asks"
+
+[[case]]
+command = 'rg --pre sh foo'
+decision = "ask"
+
+[[case]]
+command = 'rg --pr=sh foo'
+decision = "ask"
+
+[[case]]
+command = 'rg foo'
+decision = "allow"
+
+[[case]]
+command = 'rg -e foo .'
+decision = "allow"
+
+[[case]]
+command = 'ag --pager less foo'
+decision = "ask"
+
+[[case]]
+command = 'ag foo'
+decision = "allow"
+
+[[case]]
+command = 'man -P cat ls'
+decision = "ask"
+
+[[case]]
+command = 'man -aP cat ls'
+decision = "ask"
+
+[[case]]
+command = 'man -Hfirefox ls'
+decision = "ask"
+
+[[case]]
+command = 'man --config-file=/x ls'
+decision = "ask"
+
+[[case]]
+command = 'bat --pager less x'
+decision = "ask"
+
+[[case]]
+command = 'bat cache --build'
+decision = "ask"
+
+[[case]]
+command = 'bat x'
+decision = "allow"
+
+[[case]]
+command = '''fzf --preview 'cat {}''''
+decision = "ask"
+
+[[case]]
+command = 'fzf --history=h'
+decision = "ask"
+
+[[case]]
+command = 'tree -R'
+decision = "ask"
+
+[[case]]
+command = 'tree -o out.txt'
+decision = "ask"
+
+[[case]]
+command = 'tree -oout.txt'
+decision = "ask"
+
+[[case]]
+command = 'tree'
+decision = "allow"
+
+[[case]]
+command = 'tree -o -'
+decision = "allow"
+
+[[case]]
+command = '''less +'!rm x' f'''
+decision = "ask"
+
+[[case]]
+command = '''less '+|cat' f'''
+decision = "ask"
+
+[[case]]
+command = 'less -k keys f'
+decision = "ask"
+
+[[case]]
+command = 'less --lesskey-file=k f'
+decision = "ask"
+
+[[case]]
+command = 'less -o log f'
+decision = "ask"
+
+[[case]]
+command = 'less --log-f=log f'
+decision = "ask"
+
+[[case]]
+command = 'less f'
+decision = "allow"
+
+[[case]]
+command = 'more f'
+decision = "allow"
+
+[[case]]
+command = '''more +'!id' f'''
+decision = "ask"
+
+[[case]]
+command = 'xxd a b'
+decision = "ask"
+
+[[case]]
+command = 'xxd a'
+decision = "allow"
+
+[[case]]
+command = 'uniq a b'
+decision = "ask"
+
+[[case]]
+command = 'uniq a'
+decision = "allow"
+
+[[case]]
+command = 'uniq a -'
+decision = "allow"
+
+[[case]]
+command = 'shuf -o x a'
+decision = "ask"
+
+[[case]]
+command = 'shuf a'
+decision = "allow"
+
+[[case]]
+command = 'iconv -f utf8 -t latin1 a'
+decision = "allow"
+
+[[case]]
+command = 'iconv -o out a'
+decision = "ask"
+
+[[case]]
+command = 'info -o out ls'
+decision = "ask"
+
+[[case]]
+command = 'info ls'
+decision = "allow"
+
+[[case]]
+command = 'base64 a'
+decision = "allow"
+
+[[case]]
+command = 'base64 -o out a'
+decision = "ask"
+
+[[case]]
+command = 'cloc .'
+decision = "allow"
+
+[[case]]
+command = '''cloc --extract-with='sh x' .'''
+decision = "ask"
+
+[[case]]
+command = 'cloc --out=r .'
+decision = "ask"
+
+[[case]]
+command = 'scc .'
+decision = "allow"
+
+[[case]]
+command = 'scc --sql=x .'
+decision = "ask"
+
+[[case]]
+command = 'arch -x86_64 ls'
+decision = "ask"
+
+[[case]]
+command = 'ldd'
+decision = "allow"
+
+[[case]]
+command = 'ldd /bin/ls'
+decision = "ask"
+
+[[case]]
+command = 'tree -R -H . -L 1'
+decision = "ask"
+
+[[case]]
+command = 'less --lesskey-src=./evil f'
+decision = "ask"

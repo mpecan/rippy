@@ -177,3 +177,59 @@ decision = "allow"
 [[case]]
 command = "git --config-env user.name=X status"
 decision = "allow"
+
+[[case]]
+command = 'git log --output=x'
+decision = "ask"
+
+[[case]]
+command = 'git log --output=/dev/null --output=x'
+decision = "ask"
+
+[[case]]
+command = 'git show --output=x HEAD'
+decision = "ask"
+
+[[case]]
+command = 'git reflog --output=x'
+decision = "ask"
+
+[[case]]
+command = 'git stash show --output=x'
+decision = "ask"
+
+[[case]]
+command = 'git diff-tree HEAD'
+decision = "allow"
+
+[[case]]
+command = 'git diff-tree --output=x HEAD'
+decision = "ask"
+
+[[case]]
+command = 'git diff-index HEAD'
+decision = "allow"
+
+[[case]]
+command = 'git diff-files --output=x'
+decision = "ask"
+
+[[case]]
+command = 'git whatchanged --output=x'
+decision = "ask"
+
+[[case]]
+command = 'git log --ext-diff'
+decision = "ask"
+
+[[case]]
+command = 'git log --textconv'
+decision = "allow"
+
+[[case]]
+command = 'git whatchanged --ext-diff'
+decision = "ask"
+
+[[case]]
+command = 'git whatchanged --output=/home/u/.bashrc'
+decision = "ask"

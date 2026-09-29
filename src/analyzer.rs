@@ -550,7 +550,7 @@ impl Analyzer {
             let verdict = if inner_args.is_empty() {
                 Verdict::allow(AllowReason::Wrapper(cmd_name.clone()))
             } else {
-                self.analyze_inner_command(&inner_args.join(" "), cwd, depth)
+                self.analyze_inner_command(&crate::resolve::shell_join(inner_args), cwd, depth)
             };
             return self.with_redirects(verdict, redirects, cwd);
         }

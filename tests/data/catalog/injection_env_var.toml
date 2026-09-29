@@ -297,3 +297,108 @@ decision = "ask"
 [[case]]
 command = "PAGER=sh ls"
 decision = "ask"
+
+# A lookup path decides which program a name runs: `PATH=./bin ls` runs the
+# repository's ./bin/ls under a safe name.
+[[case]]
+command = "PATH=./bin ls"
+decision = "ask"
+
+[[case]]
+command = "env PATH=./bin ls"
+decision = "ask"
+
+[[case]]
+command = "PATH=./bin; ls"
+decision = "ask"
+
+[[case]]
+command = "bash -c \"PATH=./bin ls\""
+decision = "ask"
+
+[[case]]
+command = "CDPATH=. cd x"
+decision = "ask"
+
+[[case]]
+command = "NODE_PATH=./lib node -e 1"
+decision = "ask"
+
+# A config-lookup variable points a program at repository config: git reads
+# $HOME/.gitconfig, whose core.pager or aliases run code.
+[[case]]
+command = "HOME=. git log"
+decision = "ask"
+
+[[case]]
+command = "XDG_CONFIG_HOME=. git status"
+decision = "ask"
+
+
+[[case]]
+command = "TERM=xterm ls"
+decision = "allow"
+
+[[case]]
+command = 'PATH=/tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'CDPATH=/tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'HOME=/tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'GIT_DIR=/x git status'
+decision = "ask"
+
+[[case]]
+command = 'GIT_EXEC_PATH=/x git status'
+decision = "ask"
+
+[[case]]
+command = '''LESSOPEN='|sh x' less f'''
+decision = "ask"
+
+[[case]]
+command = 'MANPAGER=sh man ls'
+decision = "ask"
+
+[[case]]
+command = 'BAT_PAGER=sh bat x'
+decision = "ask"
+
+[[case]]
+command = 'RIPGREP_CONFIG_PATH=/x rg foo'
+decision = "ask"
+
+[[case]]
+command = 'FZF_DEFAULT_COMMAND=id fzf'
+decision = "ask"
+
+[[case]]
+command = 'CURL_HOME=/x curl https://x'
+decision = "ask"
+
+[[case]]
+command = 'LD_PRELOAD=/x ls'
+decision = "ask"
+
+[[case]]
+command = 'ZDOTDIR=. zsh -c true'
+decision = "ask"
+
+[[case]]
+command = 'GEM_HOME=./g gem list'
+decision = "ask"
+
+[[case]]
+command = 'PROMPT_COMMAND=id ls'
+decision = "ask"
+
+[[case]]
+command = 'RUBYLIB=./lib ruby -e 1'
+decision = "ask"

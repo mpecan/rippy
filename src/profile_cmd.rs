@@ -263,10 +263,18 @@ fn set_profile(name: &str, project: bool) -> Result<ExitCode, RippyError> {
     let _ = Package::resolve(name, home.as_deref())?;
 
     let path = resolve_config_path(project)?;
+    // Snapshot trust before writing: a file the user creates here is theirs, and
+    // an existing one keeps trust only if it had it.
+    let guard = project.then(|| {
+        if path.exists() {
+            crate::trust::TrustGuard::before_write(&path)
+        } else {
+            crate::trust::TrustGuard::for_new_file(&path)
+        }
+    });
     write_package_setting(&path, name)?;
-
-    if project {
-        crate::trust::TrustGuard::before_write(&path).commit();
+    if let Some(guard) = guard {
+        guard.commit();
     }
     eprintln!("[rippy] Package set to \"{name}\" in {}", path.display());
 

@@ -53,7 +53,7 @@ pub(crate) fn discover_custom_packages(home: &Path) -> Vec<Arc<CustomPackage>> {
         if !is_toml_file(&path) {
             continue;
         }
-        let Some(name) = package_name_from_path(&path) else {
+        let Some(name) = package_name_from_path(&path).filter(|n| is_valid_package_name(n)) else {
             continue;
         };
         match load_custom_package_from_path(&path, &name) {
@@ -77,12 +77,33 @@ pub(crate) fn load_custom_package(
     home: &Path,
     name: &str,
 ) -> Result<Option<Arc<CustomPackage>>, RippyError> {
+    // A name is a file stem inside the packages directory, never a path:
+    // `package = "/abs/evil"` or `"../x"` must not load an arbitrary file.
+    if !is_valid_package_name(name) {
+        return Err(RippyError::Config {
+            path: custom_packages_dir(home),
+            line: 0,
+            message: format!(
+                "invalid package name {name:?}: start with a letter or digit, then use \
+                 letters, digits, '-', '_' and '.'"
+            ),
+        });
+    }
     let path = custom_packages_dir(home).join(format!("{name}.toml"));
     if !path.is_file() {
         return Ok(None);
     }
     let pkg = load_custom_package_from_path(&path, name)?;
     Ok(Some(Arc::new(pkg)))
+}
+
+/// A package name is one file-name stem: it starts with a letter or digit and
+/// holds only letters, digits, `-`, `_` and `.`, so it can never name a path.
+fn is_valid_package_name(name: &str) -> bool {
+    name.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 fn load_custom_package_from_path(path: &Path, name: &str) -> Result<CustomPackage, RippyError> {
@@ -152,6 +173,29 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn package_names_are_file_stems_only() {
+        for ok in ["team", "team.v2", "my_pkg-1", "2fast"] {
+            assert!(is_valid_package_name(ok), "{ok}");
+        }
+        for bad in ["", ".", "..", ".hidden", "-x", "a/b", "../x", "a\\b", "a b"] {
+            assert!(!is_valid_package_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn discovery_skips_invalid_names() {
+        let dir = tempdir().unwrap();
+        let pkgs = custom_packages_dir(dir.path());
+        write_file(&pkgs.join("team.v2.toml"), "[meta]\nname = \"team.v2\"\n");
+        write_file(&pkgs.join(".hidden.toml"), "[meta]\nname = \"hidden\"\n");
+        let names: Vec<String> = discover_custom_packages(dir.path())
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+        assert_eq!(names, ["team.v2"]);
     }
 
     #[test]

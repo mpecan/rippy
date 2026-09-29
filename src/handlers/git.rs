@@ -311,6 +311,15 @@ fn classify_diff(args: &[String], desc: &str) -> Classification {
     classify_output_path(args, &["--output"], &["-o", "--output"], desc)
 }
 
+/// The log and diff-plumbing commands accept the diff options: `--ext-diff`
+/// runs an external diff driver and `--output` writes a file, as for `git diff`.
+pub(super) fn classify_log_family(args: &[String], desc: &str) -> Classification {
+    if has_flag(args, &["--ext-diff"]) {
+        return Classification::Ask(format!("{desc} --ext-diff (enables external diff driver)"));
+    }
+    classify_output_path(args, &["--output"], &["--output"], desc)
+}
+
 fn classify_archive(args: &[String], desc: &str) -> Classification {
     classify_output_path(args, &["--output"], &["-o", "--output"], desc)
 }
@@ -333,31 +342,31 @@ fn classify_output_path(
     space_flags: &[&str],
     desc: &str,
 ) -> Classification {
-    if let Some(path) = flag_path_value(args, eq_flags, space_flags) {
-        return Classification::WithRedirects(AllowReason::handler(desc), vec![path]);
+    let paths = flag_path_values(args, eq_flags, space_flags);
+    if paths.is_empty() {
+        return Classification::Allow(AllowReason::handler(desc));
     }
-    Classification::Allow(AllowReason::handler(desc))
+    Classification::WithRedirects(AllowReason::handler(desc), paths)
 }
 
-fn flag_path_value(args: &[String], eq_flags: &[&str], space_flags: &[&str]) -> Option<String> {
-    for arg in args {
-        for flag in eq_flags {
-            if let Some(value) = arg
-                .strip_prefix(flag)
-                .and_then(|rest| rest.strip_prefix('='))
-            {
-                return Some(value.to_owned());
-            }
-        }
-    }
+/// Every value of the given output flags. Git opens each one (the last wins),
+/// so checking only the first let `--output=/tmp/a --output=~/.bashrc` pass.
+fn flag_path_values(args: &[String], eq_flags: &[&str], space_flags: &[&str]) -> Vec<String> {
+    let mut paths = Vec::new();
     let mut i = 0;
-    while i < args.len() {
-        if space_flags.contains(&args[i].as_str()) {
-            return args.get(i + 1).cloned();
-        }
+    while let Some(arg) = args.get(i) {
         i += 1;
+        if space_flags.contains(&arg.as_str()) {
+            paths.extend(args.get(i).cloned());
+            i += 1;
+        } else if let Some(value) = eq_flags
+            .iter()
+            .find_map(|f| arg.strip_prefix(f).and_then(|rest| rest.strip_prefix('=')))
+        {
+            paths.push(value.to_owned());
+        }
     }
-    None
+    paths
 }
 
 /// True if `arg` is a single-dash short-flag cluster (e.g. `-nOid`, `-xid`) that
@@ -450,12 +459,22 @@ type SubClassifier = fn(&[String], &str) -> Classification;
 ///
 /// One table drives both `classify_safe_subcommand` and the catalog guard text,
 /// so a new conditional subcommand cannot be documented as unconditional.
+const LOG_FAMILY: &str = "no --ext-diff; every --output target runs the redirect pipeline";
+
 const GUARDED_SAFE_SUBCOMMANDS: &[(&str, &str, SubClassifier)] = &[
     (
         "diff",
         "no --ext-diff; an --output target runs the redirect pipeline",
         classify_diff,
     ),
+    ("log", LOG_FAMILY, classify_log_family),
+    ("show", LOG_FAMILY, classify_log_family),
+    ("whatchanged", LOG_FAMILY, classify_log_family),
+    ("reflog", LOG_FAMILY, classify_log_family),
+    ("diff-tree", LOG_FAMILY, classify_log_family),
+    ("diff-index", LOG_FAMILY, classify_log_family),
+    ("diff-files", LOG_FAMILY, classify_log_family),
+    ("shortlog", LOG_FAMILY, classify_log_family),
     (
         "archive",
         "an -o/--output target runs the redirect pipeline",

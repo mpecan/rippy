@@ -416,7 +416,10 @@ Project-level `.rippy` config files (in cloned repos) could weaken protections i
 - **Untrusted by default** — project configs in new repos are ignored until you run `rippy trust`
 - **Repo-level trust** — once you trust a repo, config changes via `git pull` are auto-trusted
 - **Hash verification** — if the config is modified outside of git (or in an untrusted repo), trust is revoked
-- **Self-protection** — AI tools cannot modify rippy's config files or trust database
+- **Packages follow trust** — an untrusted project config cannot choose the active package, and
+  a package name is always a file in `~/.rippy/packages/`, never a path
+- **Self-protection** — AI tools cannot modify rippy's config files, custom packages or trust
+  database
 - **Global override** — `trust-project-configs = true` in `~/.rippy/config.toml` opts into auto-trust for all project configs
 
 See the `rippy trust` command for details.

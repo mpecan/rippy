@@ -9,12 +9,8 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "cat",
         "head",
         "tail",
-        "less",
-        "more",
-        "bat",
         "hexdump",
         "strings",
-        "xxd",
         "od",
         // Compressed file viewing
         "zcat",
@@ -25,13 +21,11 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "nm",
         "objdump",
         "readelf",
-        "ldd",
         "otool",
         "size",
         "file",
         // Directory listing
         "ls",
-        "tree",
         "exa",
         "eza",
         "lsd",
@@ -42,13 +36,13 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "df",
         // Text processing (read-only)
         "grep",
-        "rg",
-        "ag",
+        // rg, ag, man, bat, fzf, tree, less and the other tools in
+        // handlers/guarded_readers.rs have a handler: an option or operand
+        // runs a program or writes a file
         "diff",
         "cut",
         "tr",
         // sort has a dedicated handler (handles -o output flag)
-        "uniq",
         "paste",
         "join",
         "comm",
@@ -60,9 +54,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "unexpand",
         "rev",
         "tac",
-        "shuf",
         // Encoding/hashing
-        "base64",
         "base32",
         "md5sum",
         "sha1sum",
@@ -109,8 +101,6 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "host",
         "getent",
         // Help/docs
-        "man",
-        "info",
         "whatis",
         "apropos",
         "tldr",
@@ -141,18 +131,12 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // Version/capabilities
         "nproc",
         "getconf",
-        "arch",
         "lsb_release",
         // Modern CLI tools
         "jq",
         // yq has a dedicated handler (handles -i inplace)
-        "fzf",
         "tokei",
-        "cloc",
-        "scc",
-        "hyperfine",
         // Encoding
-        "iconv",
         // dos2unix/unix2dos have a dedicated handler (rewrite the named file in place by default)
         // Disk/fs info
         "mount",
@@ -168,17 +152,16 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 /// set-but-unknown (attacker-influenceable) value such as a loop variable or a
 /// glob match:
 ///
-/// - pagers that can spawn a subshell (`!cmd`, `v`) or run an input
-///   preprocessor (`LESSOPEN`): `less`, `more`, `man`, `info`
-/// - interactive finders that execute a preview/bind command from an argument:
-///   `fzf`
 /// - commands that change system/terminal state from their argument: `mount`,
 ///   `stty`
+///
+/// Pagers and finders (`less`, `more`, `man`, `info`, `fzf`) are no longer
+/// allowlisted at all: `handlers/guarded_readers.rs` classifies them.
 ///
 /// They remain safe with *literal* arguments (still resolved and re-analyzed via
 /// the normal path), but the dynamic-argument relaxation excludes them.
 static DYNAMIC_ARG_UNSAFE: LazyLock<HashSet<&'static str>> =
-    LazyLock::new(|| HashSet::from(["less", "more", "man", "info", "fzf", "mount", "stty"]));
+    LazyLock::new(|| HashSet::from(["mount", "stty"]));
 
 /// Commands that wrap other commands — analyze the inner command instead.
 static WRAPPER_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
@@ -335,6 +318,15 @@ pub fn all_wrappers() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Architecture review: DYNAMIC_ARG_UNSAFE named commands no longer on
+    // SIMPLE_SAFE, which the generated allow catalog then misreported.
+    #[test]
+    fn dynamic_arg_unsafe_names_only_allowlisted_commands() {
+        for cmd in DYNAMIC_ARG_UNSAFE.iter() {
+            assert!(SIMPLE_SAFE.contains(cmd), "{cmd} is not in SIMPLE_SAFE");
+        }
+    }
 
     #[test]
     fn known_safe_commands() {

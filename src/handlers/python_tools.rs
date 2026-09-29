@@ -37,15 +37,15 @@ impl Handler for UvHandler {
 
         if sub == "run" {
             // Delegate inner command
-            let inner: Vec<&str> = ctx.args[1..]
+            let inner: Vec<String> = ctx.args[1..]
                 .iter()
                 .skip_while(|a| a.starts_with('-'))
-                .map(String::as_str)
+                .cloned()
                 .collect();
             if inner.is_empty() {
                 return Classification::Ask("uv run (no command)".into());
             }
-            return Classification::Recurse(inner.join(" "));
+            return Classification::Recurse(crate::resolve::shell_join(&inner));
         }
 
         for (parent, safe) in UV_NESTED_SAFE {

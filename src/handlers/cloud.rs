@@ -142,11 +142,7 @@ fn classify_kubectl_auth(ctx: &HandlerContext) -> Classification {
 fn classify_kubectl_exec(ctx: &HandlerContext) -> Classification {
     // Extract inner command after --
     if let Some(sep) = ctx.args.iter().position(|a| a == "--") {
-        let inner = ctx.args[sep + 1..]
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(" ");
+        let inner = crate::resolve::shell_join(&ctx.args[sep + 1..]);
         if !inner.is_empty() {
             return Classification::RecurseRemote(inner);
         }

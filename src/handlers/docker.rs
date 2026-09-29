@@ -130,11 +130,7 @@ fn classify_exec(ctx: &HandlerContext) -> Classification {
             continue;
         }
         // Everything after container name is the inner command
-        let inner = args[i..]
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(" ");
+        let inner = crate::resolve::shell_join(&args[i..]);
         return Classification::RecurseRemote(inner);
     }
     Classification::Ask("docker exec".into())

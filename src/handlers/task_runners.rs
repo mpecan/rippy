@@ -165,15 +165,15 @@ impl Handler for TokfHandler {
         }
 
         if TOKF_WRAPPERS.contains(&sub) {
-            let inner: Vec<&str> = ctx.args[1..]
+            let inner: Vec<String> = ctx.args[1..]
                 .iter()
                 .skip_while(|a| a.starts_with('-'))
-                .map(String::as_str)
+                .cloned()
                 .collect();
             if inner.is_empty() {
                 return Classification::Ask(format!("tokf {sub} (no command)"));
             }
-            return Classification::Recurse(inner.join(" "));
+            return Classification::Recurse(crate::resolve::shell_join(&inner));
         }
 
         Classification::Ask(format!("tokf {sub}"))
