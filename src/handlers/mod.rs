@@ -10,6 +10,7 @@ mod getopt;
 mod gh;
 mod git;
 mod git_subcommands;
+mod guarded_readers;
 mod helm;
 mod mkdir;
 mod node;
@@ -263,6 +264,7 @@ fn build_registry() -> HashMap<&'static str, &'static dyn Handler> {
         &database::PSQL_HANDLER,
         &database::MYSQL_HANDLER,
         &database::SQLITE3_HANDLER,
+        &guarded_readers::GUARDED_READER_HANDLER,
         &text_tools::SED_HANDLER,
         &text_tools::AWK_HANDLER,
         &env_xargs::ENV_HANDLER,

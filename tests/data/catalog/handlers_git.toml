@@ -330,3 +330,33 @@ reason_contains = "remote URL"
 [[case]]
 command = "git fetch origin master:master"
 decision = "allow"
+
+# log, show and whatchanged take the diff options: --ext-diff runs an external
+# driver and --output writes a file.
+[[case]]
+command = "git log --ext-diff -p"
+decision = "ask"
+reason_contains = "--ext-diff"
+
+[[case]]
+command = "git show --ext-diff"
+decision = "ask"
+reason_contains = "--ext-diff"
+
+[[case]]
+command = "git log --output=/home/u/.bashrc"
+decision = "ask"
+reason_contains = "redirect to /home/u/.bashrc"
+
+[[case]]
+command = "git show --output /home/u/x HEAD"
+decision = "ask"
+reason_contains = "redirect to /home/u/x"
+
+[[case]]
+command = "git log --oneline -5"
+decision = "allow"
+
+[[case]]
+command = "git show HEAD"
+decision = "allow"

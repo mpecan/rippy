@@ -311,6 +311,15 @@ fn classify_diff(args: &[String], desc: &str) -> Classification {
     classify_output_path(args, &["--output"], &["-o", "--output"], desc)
 }
 
+/// `log`, `show` and `whatchanged` accept the diff options: `--ext-diff` runs
+/// an external diff driver and `--output` writes a file, as for `git diff`.
+fn classify_log_family(args: &[String], desc: &str) -> Classification {
+    if has_flag(args, &["--ext-diff"]) {
+        return Classification::Ask(format!("{desc} --ext-diff (enables external diff driver)"));
+    }
+    classify_output_path(args, &["--output"], &["--output"], desc)
+}
+
 fn classify_archive(args: &[String], desc: &str) -> Classification {
     classify_output_path(args, &["--output"], &["-o", "--output"], desc)
 }
@@ -455,6 +464,21 @@ const GUARDED_SAFE_SUBCOMMANDS: &[(&str, &str, SubClassifier)] = &[
         "diff",
         "no --ext-diff; an --output target runs the redirect pipeline",
         classify_diff,
+    ),
+    (
+        "log",
+        "no --ext-diff; an --output target runs the redirect pipeline",
+        classify_log_family,
+    ),
+    (
+        "show",
+        "no --ext-diff; an --output target runs the redirect pipeline",
+        classify_log_family,
+    ),
+    (
+        "whatchanged",
+        "no --ext-diff; an --output target runs the redirect pipeline",
+        classify_log_family,
     ),
     (
         "archive",

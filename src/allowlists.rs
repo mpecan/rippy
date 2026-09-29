@@ -9,9 +9,7 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "cat",
         "head",
         "tail",
-        "less",
         "more",
-        "bat",
         "hexdump",
         "strings",
         "xxd",
@@ -31,7 +29,6 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "file",
         // Directory listing
         "ls",
-        "tree",
         "exa",
         "eza",
         "lsd",
@@ -42,8 +39,8 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "df",
         // Text processing (read-only)
         "grep",
-        "rg",
-        "ag",
+        // rg, ag, man, bat, fzf, tree, less and hyperfine have a dedicated
+        // handler: an option runs a program or writes a file
         "diff",
         "cut",
         "tr",
@@ -109,7 +106,6 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "host",
         "getent",
         // Help/docs
-        "man",
         "info",
         "whatis",
         "apropos",
@@ -146,11 +142,9 @@ static SIMPLE_SAFE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // Modern CLI tools
         "jq",
         // yq has a dedicated handler (handles -i inplace)
-        "fzf",
         "tokei",
         "cloc",
         "scc",
-        "hyperfine",
         // Encoding
         "iconv",
         // dos2unix/unix2dos have a dedicated handler (rewrite the named file in place by default)
