@@ -492,3 +492,15 @@ ask_class = "approval"
 command = "echo hi; somecli list"
 decision = "ask"
 ask_class = "unknown-command"
+
+# An inert name with an unseen value is a dynamic value, not unanalyzable code;
+# the command's own class still counts (`CI=$X rm -rf build` needs approval).
+[[case]]
+command = "CI=$X ls"
+decision = "ask"
+ask_class = "dynamic-expansion"
+
+[[case]]
+command = "CI=$X rm -rf build"
+decision = "ask"
+ask_class = "approval"

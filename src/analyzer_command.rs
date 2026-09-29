@@ -33,22 +33,7 @@ impl Analyzer {
             );
         };
         if ast::assignment_has_expansion(assignments) {
-            self.trace(Stage::EnvPrefix, true, || {
-                "ask: assignment value contains a shell expansion".to_owned()
-            });
-            let kind = if assignments.iter().any(ast::word_executes_command) {
-                Unanalyzable
-            } else {
-                DynamicExpansion
-            };
-            let v = Verdict::uncertain(kind, "assignment with expansion");
-            // Bare or as a prefix: an exported name set here reaches every
-            // later command's environment, as `LD_PRELOAD=$X; cmd` does.
-            return if ast::sets_unvetted_name(assignments) {
-                v.into_approval()
-            } else {
-                v
-            };
+            return self.expansion_prefix(node, assignments, cwd, depth);
         }
         let Some(name) = ast::dangerous_assignment_name(assignments) else {
             return self.analyze_command_body(node, cwd, depth);
@@ -67,6 +52,37 @@ impl Analyzer {
             format!("ask: {name} is not a known-inert variable")
         });
         prefix
+    }
+
+    /// An assignment whose value rippy cannot see asks, with the same decision
+    /// and reason whatever follows. Its *class* also answers for the command:
+    /// `CI=$X rm -rf build` still needs approval, and a body that is denied
+    /// (a protected write) is never reviewable.
+    fn expansion_prefix(
+        &mut self,
+        node: &Node,
+        assignments: &[Node],
+        cwd: &Path,
+        depth: usize,
+    ) -> Verdict {
+        let kind = if assignments.iter().any(ast::word_executes_command) {
+            Unanalyzable
+        } else {
+            DynamicExpansion
+        };
+        let v = Verdict::uncertain(kind, "assignment with expansion");
+        let body = self.analyze_command_body(node, cwd, depth);
+        self.trace(Stage::EnvPrefix, true, || {
+            "ask: assignment value contains a shell expansion".to_owned()
+        });
+        // Bare or as a prefix: an exported name set here reaches every later
+        // command's environment, as `LD_PRELOAD=$X; cmd` does.
+        match body.decision {
+            _ if ast::sets_unvetted_name(assignments) => v.into_approval(),
+            Decision::Deny => v.into_approval(),
+            Decision::Ask => Verdict::most_restrictive(v, body),
+            Decision::Allow => v,
+        }
     }
 
     /// The command's own verdict, ignoring any env prefix.

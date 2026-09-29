@@ -205,6 +205,11 @@ const REPORTED_BYPASSES: &[&str] = &[
     "claude config set x",
     "export PATH=./bin; ls",
     "PATH=./bin somecli",
+    // Review of the rebase onto #210: expansion and inert-name prefixes.
+    "FOO=$HOME rm -rf build",
+    "CI=$X rm -rf build",
+    "LD_PRELOAD=$HOME/x.so ls",
+    "CI=1 somecli --list",
     "PATH=.:$PATH ls",
     "env PATH=./bin somecli",
     "hash -p ./evil ls; ls",
