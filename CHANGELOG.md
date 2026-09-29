@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.2](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.1...rippy-cli-v0.2.2) (2026-09-29)
+
+
+### Features
+
+* **jev:** opt-in Jev review of uncertain asks (rippy-jev distribution) ([#213](https://github.com/mpecan/rippy/issues/213)) ([bd80d72](https://github.com/mpecan/rippy/commit/bd80d72249dc3da8b8081c7b9e825b2acaa1d26d))
+
+
+### Bug Fixes
+
+* **ast:** invert env-name polarity — dangerous unless known inert ([#203](https://github.com/mpecan/rippy/issues/203)) ([#210](https://github.com/mpecan/rippy/issues/210)) ([5d783b6](https://github.com/mpecan/rippy/commit/5d783b6447e850ec14e5ccd810a6ab55bb2f76c0))
+* close pre-existing fail-opens in env names, package trust, re-joined args and read-only tools ([#211](https://github.com/mpecan/rippy/issues/211)) ([27a0039](https://github.com/mpecan/rippy/commit/27a0039a5c5d24856979a6bd85e6da38874f4867))
+* close six fail-opens found by mutation triage (partial hardening; [#200](https://github.com/mpecan/rippy/issues/200) reverted) ([#208](https://github.com/mpecan/rippy/issues/208)) ([051211a](https://github.com/mpecan/rippy/commit/051211ab9e4e87d2440514de2aa7b277709fafd2))
+
 ## [0.2.1](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.0...rippy-cli-v0.2.1) (2026-07-26)
 
 
