@@ -701,20 +701,20 @@ were fixed:
 ## Known pre-existing issues
 
 The reviews also found issues in the default build that predate this work.
-They are fixed outside this change (#210 is merged; #211 is a separate pull
-request), and the Jev build never depended on them: where an issue made the
-default build *allow* a command, Jev was never involved, and where it made the
-analyzer judge the wrong text, the ask was `indirect` or refused.
+They are fixed on main by #210 and #211, and the Jev build never depended on
+them: where an issue made the default build *allow* a command, Jev was never
+involved, and where it made the analyzer judge the wrong text, the ask was
+`indirect` or refused.
 
 - **`PATH=./bin ls` was allowed.** Fixed by #210: an env-var name is dangerous
   unless it is on an inert list, and an unvetted prefix makes any ask an
   approval, so Jev never sees it.
 - **Re-joined arguments were unquoted**, `env` dropped a wrapped program's
-  flags, and `env -S` dropped the words after its payload. Fixed in #211.
+  flags, and `env -S` dropped the words after its payload. Fixed by #211.
 - **Package names were not validated**, an untrusted project could choose the
-  package, and `~/.rippy/packages/` was not self-protected. Fixed in #211.
+  package, and `~/.rippy/packages/` was not self-protected. Fixed by #211.
 - **Attached and clustered options were not parsed** in `curl`, `git log
-  --output` and the read-only tools (`rg --pre=sh x`). Fixed in #211.
+  --output` and the read-only tools (`rg --pre=sh x`). Fixed by #211.
 - **`dd … of=FILE`** now asks: `dd` is an unknown command.
 
 ## Prototype results
