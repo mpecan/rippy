@@ -198,7 +198,7 @@ command = "env -u X ls -la"
 decision = "allow"
 
 [[case]]
-command = "env FOO=1 ls -la"
+command = "env CI=1 ls -la"
 decision = "allow"
 
 # Re-joined arguments are quoted: a quoted argument is one word, not a list.
@@ -215,3 +215,242 @@ decision = "allow"
 command = 'find . -exec sh -c "rm -rf x" \;'
 decision = "ask"
 reason_contains = "rm"
+
+[[case]]
+command = '''find . -exec sh -c 'cat {}' \;'''
+decision = "ask"
+
+[[case]]
+command = 'find . -exec cat {} \;'
+decision = "allow"
+
+[[case]]
+command = 'find . -exec {} \;'
+decision = "ask"
+
+[[case]]
+command = 'find . -exec echo x{} \;'
+decision = "ask"
+
+[[case]]
+command = '''fd -x sh -c 'echo {}''''
+decision = "ask"
+
+[[case]]
+command = 'fd -x cat {}'
+decision = "allow"
+
+[[case]]
+command = '''xargs -I{} sh -c 'echo {}''''
+decision = "ask"
+
+[[case]]
+command = 'xargs -I{} cat {}'
+decision = "allow"
+
+[[case]]
+command = 'xargs -I {} {}'
+decision = "ask"
+
+[[case]]
+command = '''xargs --replace=X sh -c 'echo X''''
+decision = "ask"
+
+[[case]]
+command = 'env -P /tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'env -C /tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'env --chdir=/tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'env -iC/tmp ls'
+decision = "ask"
+
+[[case]]
+command = '''env -S 'ls -la''''
+decision = "allow"
+
+[[case]]
+command = '''env -S '''''
+decision = "ask"
+
+[[case]]
+command = 'env -u HOME ls'
+decision = "allow"
+
+[[case]]
+command = 'env --unset=HOME ls'
+decision = "allow"
+
+[[case]]
+command = 'env -i ls'
+decision = "allow"
+
+[[case]]
+command = 'env -iu HOME ls'
+decision = "allow"
+
+[[case]]
+command = 'env --frobnicate ls'
+decision = "ask"
+
+[[case]]
+command = 'env -- CI=1 ls'
+decision = "allow"
+
+[[case]]
+command = '''env -S 'rm -rf /''''
+decision = "ask"
+
+[[case]]
+command = 'env --ch /tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'env --ignore-env ls'
+decision = "allow"
+
+# Every re-joining site quotes: the SQL stays one argument, so the write in it is
+# seen as SQL rather than as a separate `DROP` command.
+
+[[case]]
+command = 'env mysql -e "SELECT a FROM t; DROP TABLE tmp"'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'env mysql -e "SELECT a FROM t"'
+decision = "allow"
+
+[[case]]
+command = 'xargs mysql -e "SELECT a FROM t; DROP TABLE tmp"'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'xargs mysql -e "SELECT a FROM t"'
+decision = "allow"
+
+[[case]]
+command = 'find . -exec mysql -e "SELECT a FROM t; DROP TABLE tmp" \;'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'find . -exec mysql -e "SELECT a FROM t" \;'
+decision = "allow"
+
+[[case]]
+command = 'fd -x mysql -e "SELECT a FROM t; DROP TABLE tmp"'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'fd -x mysql -e "SELECT a FROM t"'
+decision = "allow"
+
+[[case]]
+command = 'uv run mysql -e "SELECT a FROM t; DROP TABLE tmp"'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'uv run mysql -e "SELECT a FROM t"'
+decision = "allow"
+
+[[case]]
+command = 'tokf run mysql -e "SELECT a FROM t; DROP TABLE tmp"'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'tokf run mysql -e "SELECT a FROM t"'
+decision = "allow"
+
+[[case]]
+command = 'docker exec c mysql -e "SELECT a FROM t; DROP TABLE tmp"'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'docker exec c mysql -e "SELECT a FROM t"'
+decision = "allow"
+
+[[case]]
+command = 'kubectl exec pod -- mysql -e "SELECT a FROM t; DROP TABLE tmp"'
+decision = "ask"
+reason_contains = "write SQL"
+
+[[case]]
+command = 'kubectl exec pod -- mysql -e "SELECT a FROM t"'
+decision = "allow"
+
+[[case]]
+command = 'env -i -- ls -la'
+decision = "allow"
+
+[[case]]
+command = 'env -i -- rm -rf x'
+decision = "ask"
+
+# GNU env splices the -S words into argv in place of the option and keeps
+# going, so the words after the payload still run.
+[[case]]
+command = "env -S 'CI=1' rm -rf x"
+decision = "ask"
+reason_contains = "rm"
+
+[[case]]
+command = "env --split-string='CI=1' rm x"
+decision = "ask"
+reason_contains = "rm"
+
+[[case]]
+command = "env -S 'LD_PRELOAD=x' ls"
+decision = "ask"
+
+[[case]]
+command = "env -S 'ls' -C /x"
+decision = "allow"
+
+[[case]]
+command = "env -iS 'ls' -la"
+decision = "allow"
+
+# Only the words before the command are env's assignments; `a=b` after it is
+# the command's argument.
+[[case]]
+command = "env grep a=b f"
+decision = "allow"
+
+[[case]]
+command = "env FOO=1 ls"
+decision = "ask"
+reason_contains = "unrecognized env-var assignment"
+
+# env's own assignments stay a prefix of the recursed command, so the
+# analyzer's env-name gate combines with the command's verdict.
+[[case]]
+command = "env LD_PRELOAD=x ls"
+decision = "ask"
+reason_contains = "LD_PRELOAD"
+
+[[case]]
+command = "env CI='a b' LANG=C ls -la"
+decision = "allow"
+
+[[case]]
+command = 'env -S "X=1 rm -rf /"'
+decision = "ask"
+reason_contains = "rm"
+
+# env stops reading options at its first assignment: `-i` here is the command.
+[[case]]
+command = "env CI=1 -i ls"
+decision = "ask"

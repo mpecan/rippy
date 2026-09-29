@@ -299,7 +299,7 @@ fn exemptions_are_still_real() {
 fn completeness_inputs_are_not_vacuous() {
     let declared = allow_catalog::declared_surfaces();
     assert!(declared.len() > 500, "{} declared surfaces", declared.len());
-    assert!(allowlists::all_simple_safe().len() > 120);
+    assert!(allowlists::all_simple_safe().len() > 100);
     assert!(declared_namespaces(&declared).len() > 50);
     assert!(guarded_prefixes(&declared).len() > 30);
     assert!(approved_prefixes(&declared).len() > 80);

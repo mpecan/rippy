@@ -230,10 +230,6 @@ command = 'join a.txt b.txt'
 decision = "allow"
 
 [[case]]
-command = 'ldd /bin/ls'
-decision = "allow"
-
-[[case]]
 command = 'less README.md'
 decision = "allow"
 

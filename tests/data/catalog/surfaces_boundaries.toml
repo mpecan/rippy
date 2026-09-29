@@ -353,3 +353,24 @@ decision = "ask"
 [[case]]
 command = "yq -i '.a = 1' config.yaml"
 decision = "ask"
+
+[[case]]
+command = 'echo x > ~/.rippy/packages/evil.toml'
+decision = "deny"
+
+[[case]]
+command = 'tee ~/.rippy/packages/a.toml'
+decision = "deny"
+
+# Self-protection matches whole path components.
+[[case]]
+command = 'echo x > ~/.rippy/packages-old/a.toml'
+decision = "ask"
+
+[[case]]
+command = 'echo x > ~/.RIPPY/config.toml'
+decision = "deny"
+
+[[case]]
+command = 'echo x > ~/.rippy//config.toml'
+decision = "deny"

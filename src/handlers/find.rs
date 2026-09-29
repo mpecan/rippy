@@ -1,4 +1,4 @@
-use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag, placeholder_injects};
 use crate::verdict::AllowReason;
 
 pub(crate) static FIND_HANDLER: FindHandler = FindHandler;
@@ -31,6 +31,9 @@ impl Handler for FindHandler {
                     .take_while(|a| a.as_str() != ";" && a.as_str() != "+")
                     .cloned()
                     .collect();
+                if placeholder_injects(&inner_args, &["{}"]) {
+                    return Classification::Ask(format!("find {arg} (file names become code)"));
+                }
                 if !inner_args.is_empty() {
                     return Classification::Recurse(crate::resolve::shell_join(&inner_args));
                 }

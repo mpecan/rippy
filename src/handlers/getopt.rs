@@ -123,6 +123,108 @@ fn scan_cluster<'a>(
     1
 }
 
+/// Everything getopt sees in an argv: every option occurrence, boolean or
+/// valued, and the operands, each in argv order.
+pub(crate) struct Argv<'a> {
+    pub(crate) options: Vec<(OptionName<'a>, Option<&'a str>)>,
+    pub(crate) operands: Vec<&'a str>,
+}
+
+impl Argv<'_> {
+    /// The first occurrence of `short` or one of `longs`, spelled in full
+    /// (`--pr` is reported as `--pre`), so a reason names the real option.
+    pub(crate) fn first(&self, short: &str, longs: &[&str]) -> Option<String> {
+        self.options.iter().find_map(|(n, _)| match *n {
+            OptionName::Short(c) if short.contains(c) => Some(format!("-{c}")),
+            OptionName::Long(l) if !l.is_empty() => longs
+                .iter()
+                .find(|full| full.starts_with(l))
+                .map(|full| format!("--{full}")),
+            _ => None,
+        })
+    }
+
+    /// The value of every occurrence of `short` or one of `longs`.
+    pub(crate) fn values(&self, short: &str, longs: &[&str]) -> Vec<&str> {
+        self.options
+            .iter()
+            .filter(|(n, _)| names(n, short, longs))
+            .filter_map(|(_, v)| *v)
+            .collect()
+    }
+}
+
+fn names(name: &OptionName<'_>, shorts: &str, longs: &[&str]) -> bool {
+    match *name {
+        OptionName::Short(c) => shorts.contains(c),
+        OptionName::Long(n) => !n.is_empty() && longs.iter().any(|l| l.starts_with(n)),
+    }
+}
+
+/// Scan `args` the way getopt does: clusters (`-aP pager`), glued values
+/// (`-ofile`), `--name=value`, abbreviated long names, and `--`.
+pub(crate) fn scan_argv<'a>(args: &'a [String], spec: &OptionSpec) -> Argv<'a> {
+    let mut parsed = Argv {
+        options: Vec::new(),
+        operands: Vec::new(),
+    };
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        i += 1;
+        if arg == "--" {
+            parsed.operands.extend(args[i..].iter().map(String::as_str));
+            break;
+        }
+        if let Some(long) = arg.strip_prefix("--") {
+            if let Some((name, value)) = long.split_once('=') {
+                parsed.options.push((OptionName::Long(name), Some(value)));
+            } else if spec.value_longs.iter().any(|l| l.starts_with(long)) {
+                parsed
+                    .options
+                    .push((OptionName::Long(long), args.get(i).map(String::as_str)));
+                i += 1;
+            } else {
+                parsed.options.push((OptionName::Long(long), None));
+            }
+        } else if let Some(cluster) = arg.strip_prefix('-').filter(|c| !c.is_empty()) {
+            i += scan_cluster_all(cluster, args.get(i), spec, &mut parsed.options);
+        } else {
+            parsed.operands.push(arg);
+        }
+    }
+    parsed
+}
+
+/// Every option in one short cluster; returns how many further argv tokens
+/// its value consumed (0 or 1).
+fn scan_cluster_all<'a>(
+    cluster: &'a str,
+    next: Option<&'a String>,
+    spec: &OptionSpec,
+    out: &mut Vec<(OptionName<'a>, Option<&'a str>)>,
+) -> usize {
+    for (offset, letter) in cluster.char_indices() {
+        let rest = &cluster[offset + letter.len_utf8()..];
+        if spec.value_shorts.contains(letter) {
+            if rest.is_empty() {
+                out.push((OptionName::Short(letter), next.map(String::as_str)));
+                return 1;
+            }
+            out.push((OptionName::Short(letter), Some(rest)));
+            return 0;
+        }
+        if spec.optional_shorts.contains(letter) {
+            out.push((
+                OptionName::Short(letter),
+                Some(rest).filter(|r| !r.is_empty()),
+            ));
+            return 0;
+        }
+        out.push((OptionName::Short(letter), None));
+    }
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +292,40 @@ mod tests {
     #[test]
     fn double_dash_ends_option_scanning() {
         assert!(scan(&["--", "-c", "SQL"]).is_empty());
+    }
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| (*a).to_string()).collect()
+    }
+
+    #[test]
+    fn scan_argv_sees_booleans_values_and_operands() {
+        let args = argv(&[
+            "-ac", "SQL", "-v", "--out=x", "--comm", "Q2", "file", "--", "-c",
+        ]);
+        let scan = scan_argv(&args, &SPEC);
+        assert!(scan.first("a", &[]).is_some() && scan.first("v", &[]).is_some());
+        assert_eq!(scan.values("", &["output"]), ["x"]);
+        assert_eq!(scan.values("c", &["command"]), ["SQL", "Q2"]);
+        assert_eq!(scan.operands, ["file", "-c"]);
+    }
+
+    #[test]
+    fn scan_argv_reports_every_occurrence() {
+        let args = argv(&["-o", "a", "-ob", "--output", "c"]);
+        assert_eq!(
+            scan_argv(&args, &SPEC).values("o", &["output"]),
+            ["a", "b", "c"]
+        );
+    }
+
+    #[test]
+    fn first_spells_the_option_in_full() {
+        let args = argv(&["-v", "--comm", "Q", "-a"]);
+        let scan = scan_argv(&args, &SPEC);
+        assert_eq!(scan.first("a", &["command"]).as_deref(), Some("--command"));
+        assert_eq!(scan.first("a", &[]).as_deref(), Some("-a"));
+        assert_eq!(scan.first("x", &["output"]), None);
     }
 
     #[test]

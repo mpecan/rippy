@@ -307,6 +307,32 @@ pub(crate) fn has_flag(args: &[String], flags: &[&str]) -> bool {
     args.iter().any(|a| flags.contains(&a.as_str()))
 }
 
+/// Programs that parse an argument as code: a file name substituted into one
+/// of their arguments is code, not data.
+const CODE_READERS: &[&str] = &[
+    "sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "node", "perl", "ruby", "php",
+    "awk", "gawk", "sed", "env", "xargs", "eval",
+];
+
+/// Whether substituting file names for any of `placeholders` in `inner`
+/// (`find -exec`, `fd -x`, `xargs -I`) can inject code: a placeholder names
+/// the program, sits inside a larger word (`sh -c 'cat {}'`), or is handed to
+/// an interpreter. A file named `$(touch x)` then runs. A placeholder that is
+/// a whole plain argument (`cp {} dest/`) is only ever data.
+/// See docs/security-invariants.md#rejoin-quoting.
+pub(crate) fn placeholder_injects(inner: &[String], placeholders: &[&str]) -> bool {
+    let holds = |a: &String| placeholders.iter().any(|p| a.contains(p));
+    let Some(program) = inner.first() else {
+        return false;
+    };
+    let name = program.rsplit('/').next().unwrap_or(program);
+    holds(program)
+        || inner
+            .iter()
+            .any(|a| holds(a) && !placeholders.contains(&a.as_str()))
+        || (CODE_READERS.contains(&name) && inner.iter().skip(1).any(holds))
+}
+
 /// Helper: true only when a help/version flag is the command's SOLE argument.
 ///
 /// SECURITY: help/version flags must NOT be matched anywhere in argv. Many

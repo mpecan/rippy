@@ -17,9 +17,12 @@ const DATA_FLAGS: &[&str] = &[
     "-T",
     "--upload-file",
     "--json",
+    "--form-string",
 ];
 
-const UNSAFE_METHODS: &[&str] = &["POST", "PUT", "DELETE", "PATCH"];
+/// Methods that only read. Any other `-X` (POST, PUT, DELETE, and `WebDAV`'s
+/// `MKCOL`, `MOVE`, `COPY`, `PROPPATCH`, …) may change the server.
+const READ_METHODS: &[&str] = &["GET", "HEAD", "OPTIONS"];
 
 /// Short options that take a value, as the rest of their token (`-o/path`,
 /// `-d@file`) or the next word. Every other short option is a boolean that may
@@ -57,6 +60,28 @@ const VALUE_LONG: &[&str] = &[
     "--referer",
     "--url",
     "--proxy",
+    "--form-string",
+    "--etag-save",
+    "--etag-compare",
+    "--hsts",
+    "--alt-svc",
+    "--write-out",
+    "--quote",
+    "--cacert",
+    "--cert",
+    "--key",
+    "--connect-timeout",
+    "--max-time",
+    "--retry",
+    "--range",
+    "--resolve",
+    "--interface",
+    "--limit-rate",
+    "--proxy-user",
+    "--oauth2-bearer",
+    "--unix-socket",
+    "--max-filesize",
+    "--data-urlencode",
 ];
 
 /// Options whose value is a local file curl writes.
@@ -71,6 +96,9 @@ const WRITE_TARGETS: &[&str] = &[
     "--trace-ascii",
     "--stderr",
     "--libcurl",
+    "--etag-save",
+    "--hsts",
+    "--alt-svc",
 ];
 
 /// Options that write a file whose name the server chooses.
@@ -83,6 +111,13 @@ const SERVER_NAMED_WRITES: &[&str] = &[
     "--output-dir",
 ];
 
+/// curl 8.3+ accepts `--expand-NAME` for every long option, with variables
+/// expanded in its value: `--expand-output FILE` is `--output FILE`.
+fn canonical(arg: &str) -> String {
+    arg.strip_prefix("--expand-")
+        .map_or_else(|| arg.to_owned(), |rest| format!("--{rest}"))
+}
+
 /// Every option in curl's argv as `(flag, value)`, in any spelling: `-o v`,
 /// `-ov`, a cluster ending in a value flag (`-sSo v`), `--output v` and
 /// `--output=v`. Matching whole words alone let `-d@/etc/passwd`, `-XPOST`
@@ -90,19 +125,20 @@ const SERVER_NAMED_WRITES: &[&str] = &[
 fn options(args: &[String]) -> Vec<(String, Option<String>)> {
     let mut out = Vec::new();
     let mut i = 0;
-    while let Some(arg) = args.get(i) {
+    while let Some(raw) = args.get(i) {
         i += 1;
-        if arg == "--" {
+        if raw == "--" {
             break;
         }
+        let arg = &canonical(raw);
         if let Some(long) = arg.strip_prefix("--") {
             if let Some((name, value)) = long.split_once('=') {
                 out.push((format!("--{name}"), Some(value.to_owned())));
             } else if VALUE_LONG.contains(&arg.as_str()) {
-                out.push((arg.clone(), args.get(i).cloned()));
+                out.push((arg.to_owned(), args.get(i).cloned()));
                 i += 1;
             } else {
-                out.push((arg.clone(), None));
+                out.push((arg.to_owned(), None));
             }
         } else if arg.len() > 1 && arg.starts_with('-') {
             for (pos, c) in arg.char_indices().skip(1) {
@@ -145,9 +181,20 @@ impl Handler for CurlHandler {
             .find(|(f, _)| f == "-X" || f == "--request")
             .and_then(|(_, v)| v.clone());
         if let Some(method) = method
-            && UNSAFE_METHODS.contains(&method.to_uppercase().as_str())
+            && !READ_METHODS.contains(&method.to_uppercase().as_str())
         {
             return Classification::Ask(format!("curl -X {method}"));
+        }
+        if has(&["-Q", "--quote"]) {
+            return Classification::Ask("curl --quote (runs server commands)".into());
+        }
+        // curl 8.3+ writes `%output{FILE}` in a write-out format to FILE.
+        let writes_out = opts.iter().any(|(f, v)| {
+            (f == "-w" || f == "--write-out")
+                && v.as_deref().is_some_and(|v| v.contains("%output{"))
+        });
+        if writes_out {
+            return Classification::Ask("curl --write-out %output (writes a file)".into());
         }
         if has(&["-K", "--config"]) {
             return Classification::Ask("curl --config".into());
@@ -161,6 +208,7 @@ impl Handler for CurlHandler {
             .iter()
             .filter(|(f, _)| WRITE_TARGETS.contains(&f.as_str()))
             .filter_map(|(_, v)| v.clone())
+            .filter(|v| v != "-")
             .collect();
         if !targets.is_empty() {
             return Classification::WithRedirects(
@@ -177,11 +225,12 @@ impl Handler for CurlHandler {
             AllowEntry::guarded(
                 "curl <url>",
                 format!(
-                    "no request body flag ({}), no -X/--request with {}, no -K/--config, and no \
+                    "no request body flag ({}), -X/--request only {}, no -K/--config, \
+                     no -Q/--quote, no --write-out %output, no \
                      server-named output flag ({}), in any spelling (glued, clustered or \
                      --name=value); a local write target ({}) runs the redirect pipeline",
                     DATA_FLAGS.join(" "),
-                    UNSAFE_METHODS.join("/"),
+                    READ_METHODS.join("/"),
                     SERVER_NAMED_WRITES.join(" "),
                     WRITE_TARGETS.join(" "),
                 ),

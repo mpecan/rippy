@@ -33,11 +33,11 @@ For those, the `Condition` column names the module that decides.
 
 Commands approved on their name alone, regardless of arguments.
 
-### `SIMPLE_SAFE` — 121 commands
+### `SIMPLE_SAFE` — 110 commands
 
 Approved on the command name alone, whatever the arguments.
 
-`:`, `[`, `apropos`, `arch`, `base32`, `base64`, `basename`, `bc`, `blkid`, `bzcat`, `cat`, `cksum`, `cloc`, `column`, `comm`, `cut`, `date`, `df`, `diff`, `dig`, `dirname`, `du`, `echo`, `exa`, `expand`, `expr`, `eza`, `false`, `file`, `findmnt`, `fmt`, `fold`, `free`, `getconf`, `getent`, `grep`, `groups`, `head`, `help`, `hexdump`, `host`, `hostname`, `htop`, `iconv`, `id`, `info`, `iostat`, `join`, `jq`, `ldd`, `locale`, `locate`, `ls`, `lsb_release`, `lsblk`, `lsd`, `lsof`, `md5sum`, `more`, `mount`, `netstat`, `nl`, `nm`, `nproc`, `nslookup`, `objdump`, `od`, `otool`, `paste`, `pgrep`, `ping`, `printenv`, `printf`, `ps`, `pwd`, `readelf`, `readlink`, `realpath`, `rev`, `scc`, `seq`, `sha1sum`, `sha256sum`, `sha512sum`, `shuf`, `size`, `sleep`, `ss`, `stat`, `strings`, `stty`, `sum`, `tac`, `tail`, `test`, `tldr`, `tokei`, `top`, `tput`, `tr`, `tracepath`, `traceroute`, `true`, `tty`, `type`, `uname`, `unexpand`, `uniq`, `uptime`, `vmstat`, `wc`, `whatis`, `whence`, `whereis`, `which`, `whoami`, `xxd`, `xzcat`, `yes`, `zcat`, `zstdcat`
+`:`, `[`, `apropos`, `base32`, `basename`, `bc`, `blkid`, `bzcat`, `cat`, `cksum`, `column`, `comm`, `cut`, `date`, `df`, `diff`, `dig`, `dirname`, `du`, `echo`, `exa`, `expand`, `expr`, `eza`, `false`, `file`, `findmnt`, `fmt`, `fold`, `free`, `getconf`, `getent`, `grep`, `groups`, `head`, `help`, `hexdump`, `host`, `hostname`, `htop`, `id`, `iostat`, `join`, `jq`, `locale`, `locate`, `ls`, `lsb_release`, `lsblk`, `lsd`, `lsof`, `md5sum`, `mount`, `netstat`, `nl`, `nm`, `nproc`, `nslookup`, `objdump`, `od`, `otool`, `paste`, `pgrep`, `ping`, `printenv`, `printf`, `ps`, `pwd`, `readelf`, `readlink`, `realpath`, `rev`, `seq`, `sha1sum`, `sha256sum`, `sha512sum`, `size`, `sleep`, `ss`, `stat`, `strings`, `stty`, `sum`, `tac`, `tail`, `test`, `tldr`, `tokei`, `top`, `tput`, `tr`, `tracepath`, `traceroute`, `true`, `tty`, `type`, `uname`, `unexpand`, `uptime`, `vmstat`, `wc`, `whatis`, `whence`, `whereis`, `which`, `whoami`, `xzcat`, `yes`, `zcat`, `zstdcat`
 
 ### Wrappers — 8 commands
 
@@ -53,9 +53,9 @@ Any command whose *only* argument is one of `--help`, `--version` is approved. S
 
 Which allowlist commands stay approved when an argument is set but unknown.
 
-When an argument is set but its value is unknown (a loop variable, a glob match), an allowlist command stays approved — except for these 7, whose behavior an argument can change dangerously:
+When an argument is set but its value is unknown (a loop variable, a glob match), an allowlist command stays approved — except for these 2, whose behavior an argument can change dangerously:
 
-`fzf`, `info`, `less`, `man`, `more`, `mount`, `stty`
+`mount`, `stty`
 
 With a *literal* argument these are still approved by the allowlist above.
 
@@ -187,7 +187,7 @@ Rows are written with `cd`; unless a row says otherwise they apply the same way 
 | Approved invocation | Condition |
 | --- | --- |
 | `curl --help\|-h\|--version\|-V` | sole argument |
-| `curl <url>` | no request body flag (-d --data --data-raw --data-binary --data-urlencode --data-ascii -F --form -T --upload-file --json), no -X/--request with POST/PUT/DELETE/PATCH, no -K/--config, and no server-named output flag (-O --remote-name --remote-name-all -J --remote-header-name --output-dir), in any spelling (glued, clustered or --name=value); a local write target (-o --output -D --dump-header -c --cookie-jar --trace --trace-ascii --stderr --libcurl) runs the redirect pipeline |
+| `curl <url>` | no request body flag (-d --data --data-raw --data-binary --data-urlencode --data-ascii -F --form -T --upload-file --json --form-string), -X/--request only GET/HEAD/OPTIONS, no -K/--config, no -Q/--quote, no --write-out %output, no server-named output flag (-O --remote-name --remote-name-all -J --remote-header-name --output-dir), in any spelling (glued, clustered or --name=value); a local write target (-o --output -D --dump-header -c --cookie-jar --trace --trace-ascii --stderr --libcurl --etag-save --hsts --alt-svc) runs the redirect pipeline |
 
 ### `dmesg`
 
@@ -493,20 +493,20 @@ Rows are written with `gcloud`; unless a row says otherwise they apply the same 
 | `git` | no subcommand; -C/--git-dir/--work-tree must stay in the cwd or a declared safe scope, and any -c/--config-env key must be on the safe config-key list |
 | `git -c <key>=<value> <subcommand>` | gate only, not an approval — the key must be one of user.name, user.email, color.ui, core.autocrlf, core.quotepath, init.defaultbranch, pull.rebase, advice.detachedhead, and the `<subcommand>` still has to be approved by its own row |
 | `git status` | — |
-| `git log` | no --ext-diff; an --output target runs the redirect pipeline |
-| `git show` | no --ext-diff; an --output target runs the redirect pipeline |
+| `git log` | no --ext-diff; every --output target runs the redirect pipeline |
+| `git show` | no --ext-diff; every --output target runs the redirect pipeline |
 | `git diff` | no --ext-diff; an --output target runs the redirect pipeline |
 | `git blame` | — |
 | `git annotate` | — |
-| `git shortlog` | — |
+| `git shortlog` | no --ext-diff; every --output target runs the redirect pipeline |
 | `git describe` | — |
 | `git rev-parse` | — |
 | `git rev-list` | — |
-| `git reflog` | — |
-| `git whatchanged` | no --ext-diff; an --output target runs the redirect pipeline |
-| `git diff-tree` | — |
-| `git diff-files` | — |
-| `git diff-index` | — |
+| `git reflog` | no --ext-diff; every --output target runs the redirect pipeline |
+| `git whatchanged` | no --ext-diff; every --output target runs the redirect pipeline |
+| `git diff-tree` | no --ext-diff; every --output target runs the redirect pipeline |
+| `git diff-files` | no --ext-diff; every --output target runs the redirect pipeline |
+| `git diff-index` | no --ext-diff; every --output target runs the redirect pipeline |
 | `git range-diff` | — |
 | `git format-patch` | an -o/--output-directory target runs the redirect pipeline |
 | `git difftool` | no -x/--extcmd |
@@ -775,19 +775,30 @@ Rows are written with `python`; unless a row says otherwise they apply the same 
 | `python -m antigravity` | — |
 | `python <script>` | script readable from the working directory and its source passes the analysis in src/python_safety.rs |
 
-### `rg`, `ag`, `man`, `bat`, `fzf`, `tree`, `less`, `hyperfine`
+### `rg`, `ag`, `man`, `bat`, `fzf`, `tree`, `less`, `more`, `xxd`, `uniq`, `shuf`, `iconv`, `info`, `base64`, `cloc`, `scc`, `arch`, `ldd`
 
 Rows are written with `rg`; unless a row says otherwise they apply the same way to every command name in this heading.
 
 | Approved invocation | Condition |
 | --- | --- |
-| `rg` | no --pre (runs a program) |
+| `rg` | no --pre/--hostname-bin (runs a program) |
 | `ag` | no --pager (runs a program) |
-| `man` | no -P/--pager/-H/--html (runs a program) |
-| `bat` | no --pager (runs a program) |
-| `fzf` | no --preview/--bind/--with-shell (runs a program) |
-| `tree` | a -o target runs the redirect pipeline |
-| `less` | no +CMD containing ! or \| (runs a shell command); a -o/-O/--log-file/--LOG-FILE target runs the redirect pipeline |
+| `man` | no -P/-H/-C/--pager/--html/--config-file (runs a program) |
+| `bat` | no --pager/--generate-config-file (runs a program); not the cache subcommand |
+| `fzf` | no --preview/--bind/--with-shell/--listen/--listen-unsafe (runs a program); every output file runs the redirect pipeline |
+| `tree` | no -R (runs a program); every output file runs the redirect pipeline |
+| `less` | no -k/--lesskey-file/--lesskey-src/--lesskey-content (runs a program); no +CMD containing ! or \|; every output file runs the redirect pipeline |
+| `more` | no -k/--lesskey-file/--lesskey-src/--lesskey-content (runs a program); no +CMD containing ! or \|; every output file runs the redirect pipeline |
+| `xxd` | every output file runs the redirect pipeline |
+| `uniq` | every output file runs the redirect pipeline |
+| `shuf` | every output file runs the redirect pipeline |
+| `iconv` | every output file runs the redirect pipeline |
+| `info` | every output file runs the redirect pipeline |
+| `base64` | every output file runs the redirect pipeline |
+| `cloc` | no --extract-with (runs a program); every output file runs the redirect pipeline |
+| `scc` | no --extract-with (runs a program); every output file runs the redirect pipeline |
+| `arch` | no operand (it is run) |
+| `ldd` | no operand (it is run) |
 
 ### `ruby`, `irb`
 

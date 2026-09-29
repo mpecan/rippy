@@ -1,9 +1,15 @@
-//! Read-only tools with an option that runs a program or writes a file. Each
-//! was on the simple-safe allowlist, which approved it whatever its flags:
-//! `rg --pre CMD` pipes every searched file through `CMD`, `man -P CMD` and
-//! `bat --pager CMD` page through `CMD`, `fzf --preview CMD` runs `CMD`,
-//! `less +'!CMD'` runs `CMD` at start-up, and `tree -o FILE` writes `FILE`.
+//! Read-only tools with options that run a program or write a file. Each was on
+//! the simple-safe allowlist, which approved it whatever its flags:
+//! `rg --pre CMD`, `man -P CMD` and `fzf --preview CMD` run `CMD`,
+//! `less +'!CMD'` runs `CMD` at start-up, `tree -o FILE` and `xxd IN OUT`
+//! write a file, and `arch CMD` runs `CMD`.
+//!
+//! Options are read with [`scan_argv`], so every getopt spelling counts: a
+//! cluster (`man -aP cmd`), a glued value (`tree -oFILE`), `--name=value`, an
+//! abbreviated long name (`less --log-f=FILE`), and every occurrence.
+//! See docs/security-invariants.md#guarded-readers.
 
+use super::getopt::{Argv, OptionSpec, scan_argv};
 use super::{AllowEntry, Classification, Handler, HandlerContext};
 use crate::verdict::AllowReason;
 
@@ -11,141 +17,354 @@ pub(crate) static GUARDED_READER_HANDLER: GuardedReaderHandler = GuardedReaderHa
 
 pub(crate) struct GuardedReaderHandler;
 
-/// A read-only tool and the options that make it do more.
+/// What a guarded tool's options and operands can do.
 struct Guard {
-    command: &'static str,
-    /// Options that run a program, in any spelling.
-    exec: &'static [&'static str],
+    names: &'static [&'static str],
+    /// The tool's value-taking options, so clusters decode correctly.
+    spec: OptionSpec<'static>,
+    /// Options that run a program: `(short letters, long names)`.
+    exec: (&'static str, &'static [&'static str]),
     /// Options whose value is a file the tool writes.
-    write: &'static [&'static str],
+    write: (&'static str, &'static [&'static str]),
+    /// Operand positions that are output files (`xxd IN OUT`, `uniq IN OUT`).
+    output_operands: &'static [usize],
+    /// Special rules beyond options.
+    rule: Rule,
+}
+
+#[derive(PartialEq, Eq)]
+enum Rule {
+    None,
+    /// less/more `+CMD`: `!` runs a shell command and `|` pipes to one.
+    StartupCommand,
+    /// Any operand is a program the tool runs (`arch CMD`, `ldd BIN`).
+    OperandsRun,
+    /// A first operand of `cache` rebuilds bat's cache from a directory.
+    BatCache,
+}
+
+const NO_OPTIONS: (&str, &[&str]) = ("", &[]);
+
+const fn spec(
+    value_shorts: &'static str,
+    value_longs: &'static [&'static str],
+) -> OptionSpec<'static> {
+    OptionSpec {
+        value_shorts,
+        optional_shorts: "",
+        value_longs,
+    }
 }
 
 const GUARDS: &[Guard] = &[
     Guard {
-        command: "rg",
-        exec: &["--pre"],
-        write: &[],
+        names: &["rg"],
+        spec: spec(
+            "eEfgmMtTABCjrd",
+            &[
+                "pre",
+                "pre-glob",
+                "hostname-bin",
+                "hyperlink-format",
+                "glob",
+                "iglob",
+                "type",
+                "type-not",
+                "type-add",
+                "regexp",
+                "file",
+                "max-count",
+                "context",
+                "after-context",
+                "before-context",
+                "encoding",
+                "threads",
+                "max-columns",
+                "replace",
+                "max-depth",
+                "sort",
+                "sortr",
+                "color",
+                "colors",
+                "ignore-file",
+                "engine",
+                "max-filesize",
+            ],
+        ),
+        exec: ("", &["pre", "hostname-bin"]),
+        write: NO_OPTIONS,
+        output_operands: &[],
+        rule: Rule::None,
     },
     Guard {
-        command: "ag",
-        exec: &["--pager"],
-        write: &[],
+        names: &["ag"],
+        spec: spec(
+            "ABCGgmp",
+            &["pager", "depth", "file-search-regex", "max-count"],
+        ),
+        exec: ("", &["pager"]),
+        write: NO_OPTIONS,
+        output_operands: &[],
+        rule: Rule::None,
     },
     Guard {
-        command: "man",
-        exec: &["-P", "--pager", "-H", "--html"],
-        write: &[],
+        names: &["man"],
+        spec: spec(
+            "CMPSemrLRHp",
+            &[
+                "pager",
+                "html",
+                "config-file",
+                "manpath",
+                "sections",
+                "encoding",
+            ],
+        ),
+        exec: ("PHC", &["pager", "html", "config-file"]),
+        write: NO_OPTIONS,
+        output_operands: &[],
+        rule: Rule::None,
     },
     Guard {
-        command: "bat",
-        exec: &["--pager"],
-        write: &[],
+        names: &["bat"],
+        spec: spec(
+            "lHrm",
+            &[
+                "pager",
+                "language",
+                "theme",
+                "style",
+                "map-syntax",
+                "line-range",
+                "highlight-line",
+                "file-name",
+                "tabs",
+                "wrap",
+                "terminal-width",
+                "color",
+            ],
+        ),
+        exec: ("", &["pager", "generate-config-file"]),
+        write: NO_OPTIONS,
+        output_operands: &[],
+        rule: Rule::BatCache,
     },
     Guard {
-        command: "fzf",
-        exec: &["--preview", "--bind", "--with-shell"],
-        write: &[],
+        names: &["fzf"],
+        spec: spec(
+            "qdnf",
+            &[
+                "preview",
+                "bind",
+                "with-shell",
+                "listen",
+                "listen-unsafe",
+                "history",
+                "query",
+                "delimiter",
+                "nth",
+                "with-nth",
+                "height",
+                "prompt",
+                "header",
+                "preview-window",
+            ],
+        ),
+        exec: (
+            "",
+            &["preview", "bind", "with-shell", "listen", "listen-unsafe"],
+        ),
+        write: ("", &["history"]),
+        output_operands: &[],
+        rule: Rule::None,
     },
     Guard {
-        command: "tree",
-        exec: &[],
-        write: &["-o"],
+        names: &["tree"],
+        spec: spec(
+            "oLPIH",
+            &["charset", "filelimit", "timefmt", "sort", "output"],
+        ),
+        exec: ("R", &[]),
+        write: ("o", &["output"]),
+        output_operands: &[],
+        rule: Rule::None,
     },
     Guard {
-        command: "less",
-        exec: &[],
-        write: &["-o", "-O", "--log-file", "--LOG-FILE"],
+        names: &["less", "more"],
+        spec: spec(
+            "bhjkoOpPtTxyzD#",
+            &[
+                "log-file",
+                "LOG-FILE",
+                "lesskey-file",
+                "lesskey-src",
+                "lesskey-content",
+                "tag",
+                "tag-file",
+                "pattern",
+                "prompt",
+                "tabs",
+            ],
+        ),
+        exec: ("k", &["lesskey-file", "lesskey-src", "lesskey-content"]),
+        write: ("oO", &["log-file", "LOG-FILE"]),
+        output_operands: &[],
+        rule: Rule::StartupCommand,
+    },
+    Guard {
+        names: &["xxd"],
+        spec: spec("cglosn", &[]),
+        exec: NO_OPTIONS,
+        write: NO_OPTIONS,
+        output_operands: &[1],
+        rule: Rule::None,
+    },
+    Guard {
+        names: &["uniq"],
+        spec: spec("fsw", &["skip-fields", "skip-chars", "check-chars"]),
+        exec: NO_OPTIONS,
+        write: NO_OPTIONS,
+        output_operands: &[1],
+        rule: Rule::None,
+    },
+    Guard {
+        names: &["shuf", "iconv", "info", "base64"],
+        spec: spec(
+            "oinftdb",
+            &[
+                "output",
+                "input-range",
+                "head-count",
+                "from-code",
+                "to-code",
+            ],
+        ),
+        exec: NO_OPTIONS,
+        write: ("o", &["output"]),
+        output_operands: &[],
+        rule: Rule::None,
+    },
+    Guard {
+        names: &["cloc", "scc"],
+        spec: spec("", &["extract-with", "out", "report-file", "output", "sql"]),
+        exec: ("", &["extract-with"]),
+        write: ("", &["out", "report-file", "output", "sql"]),
+        output_operands: &[],
+        rule: Rule::None,
+    },
+    Guard {
+        names: &["arch", "ldd"],
+        spec: spec("", &[]),
+        exec: NO_OPTIONS,
+        write: NO_OPTIONS,
+        output_operands: &[],
+        rule: Rule::OperandsRun,
     },
 ];
 
-/// How an argument spells a flag.
-#[derive(Debug, PartialEq, Eq)]
-enum Spelling<'a> {
-    /// The flag alone; any value is the next word.
-    Bare,
-    /// `--flag=v` or a glued short `-Fv`.
-    WithValue(&'a str),
+impl Guard {
+    /// Why this invocation must ask, if it runs something.
+    fn runs(&self, name: &str, argv: &Argv<'_>) -> Option<String> {
+        let (shorts, longs) = self.exec;
+        if let Some(option) = argv.first(shorts, longs) {
+            return Some(format!("{name} {option} (runs a program)"));
+        }
+        let first = argv.operands.first().copied();
+        let startup_shell = argv
+            .operands
+            .iter()
+            .any(|o| o.starts_with('+') && (o.contains('!') || o.contains('|')));
+        match self.rule {
+            Rule::StartupCommand if startup_shell => {
+                Some(format!("{name} +! (runs a shell command)"))
+            }
+            Rule::OperandsRun if first.is_some() => Some(format!("{name} (runs its operand)")),
+            Rule::BatCache if first == Some("cache") => {
+                Some("bat cache (builds from files)".into())
+            }
+            _ => None,
+        }
+    }
+
+    /// Every file this invocation writes; `-` is standard output.
+    fn targets(&self, argv: &Argv<'_>) -> Vec<String> {
+        let (shorts, longs) = self.write;
+        let mut targets = argv.values(shorts, longs);
+        targets.extend(
+            self.output_operands
+                .iter()
+                .filter_map(|&i| argv.operands.get(i).copied()),
+        );
+        targets
+            .into_iter()
+            .filter(|t| *t != "-")
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn surface(&self) -> String {
+        let (exec_s, exec_l) = self.exec;
+        let mut parts = Vec::new();
+        if !exec_s.is_empty() || !exec_l.is_empty() {
+            parts.push(format!("no {} (runs a program)", spell(exec_s, exec_l)));
+        }
+        match self.rule {
+            Rule::StartupCommand => parts.push("no +CMD containing ! or |".to_owned()),
+            Rule::OperandsRun => parts.push("no operand (it is run)".to_owned()),
+            Rule::BatCache => parts.push("not the cache subcommand".to_owned()),
+            Rule::None => {}
+        }
+        let (write_s, write_l) = self.write;
+        if !write_s.is_empty() || !write_l.is_empty() || !self.output_operands.is_empty() {
+            parts.push("every output file runs the redirect pipeline".to_owned());
+        }
+        parts.join("; ")
+    }
 }
 
-/// Whether `arg` is `flag` in any spelling.
-fn matches_flag<'a>(arg: &'a str, flag: &str) -> Option<Spelling<'a>> {
-    if arg == flag {
-        return Some(Spelling::Bare);
-    }
-    if flag.starts_with("--") {
-        return arg
-            .strip_prefix(flag)
-            .and_then(|r| r.strip_prefix('='))
-            .map(Spelling::WithValue);
-    }
-    (flag.len() == 2 && arg.len() > 2 && arg.starts_with(flag))
-        .then(|| Spelling::WithValue(&arg[2..]))
-}
-
-/// `less +CMD`: a start-up command. `+F`, `+G` and `+/pattern` only move the
-/// view; `!` runs a shell command and `|` pipes to one.
-fn less_runs_shell(args: &[String]) -> bool {
-    args.iter()
-        .any(|a| a.starts_with('+') && (a.contains('!') || a.contains('|')))
+fn spell(shorts: &str, longs: &[&str]) -> String {
+    shorts
+        .chars()
+        .map(|c| format!("-{c}"))
+        .chain(longs.iter().map(|l| format!("--{l}")))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 impl Handler for GuardedReaderHandler {
     fn commands(&self) -> &[&str] {
-        &["rg", "ag", "man", "bat", "fzf", "tree", "less", "hyperfine"]
+        &[
+            "rg", "ag", "man", "bat", "fzf", "tree", "less", "more", "xxd", "uniq", "shuf",
+            "iconv", "info", "base64", "cloc", "scc", "arch", "ldd",
+        ]
     }
 
     fn classify(&self, ctx: &HandlerContext) -> Classification {
         let name = ctx.command_name;
-        if name == "hyperfine" {
-            return Classification::Ask("hyperfine (runs the commands it benchmarks)".into());
-        }
-        if name == "less" && less_runs_shell(ctx.args) {
-            return Classification::Ask("less +! (runs a shell command)".into());
-        }
-        let Some(guard) = GUARDS.iter().find(|g| g.command == name) else {
+        let Some(guard) = GUARDS.iter().find(|g| g.names.contains(&name)) else {
             return Classification::Ask(format!("{name} (unknown guarded reader)"));
         };
-        for (i, arg) in ctx.args.iter().enumerate() {
-            if let Some(flag) = guard.exec.iter().find(|f| matches_flag(arg, f).is_some()) {
-                return Classification::Ask(format!("{name} {flag} (runs a program)"));
-            }
-            for flag in guard.write {
-                if let Some(spelling) = matches_flag(arg, flag) {
-                    let target = match spelling {
-                        Spelling::WithValue(v) => Some(v.to_owned()),
-                        Spelling::Bare => ctx.args.get(i + 1).cloned(),
-                    };
-                    let Some(target) = target else {
-                        return Classification::Ask(format!("{name} {flag} (no target)"));
-                    };
-                    return Classification::WithRedirects(
-                        AllowReason::handler(format!("{name} is safe")),
-                        vec![target],
-                    );
-                }
-            }
+        let argv = scan_argv(ctx.args, &guard.spec);
+        if let Some(reason) = guard.runs(name, &argv) {
+            return Classification::Ask(reason);
         }
-        Classification::Allow(AllowReason::handler(format!("{name} is safe")))
+        let reason = AllowReason::handler(format!("{name} is safe"));
+        let targets = guard.targets(&argv);
+        if targets.is_empty() {
+            Classification::Allow(reason)
+        } else {
+            Classification::WithRedirects(reason, targets)
+        }
     }
 
     fn allow_surface(&self) -> Vec<AllowEntry> {
         GUARDS
             .iter()
-            .map(|g| {
-                let mut parts = Vec::new();
-                if !g.exec.is_empty() {
-                    parts.push(format!("no {} (runs a program)", g.exec.join("/")));
-                }
-                if g.command == "less" {
-                    parts.push("no +CMD containing ! or | (runs a shell command)".to_owned());
-                }
-                if !g.write.is_empty() {
-                    parts.push(format!(
-                        "a {} target runs the redirect pipeline",
-                        g.write.join("/")
-                    ));
-                }
-                AllowEntry::guarded(g.command, parts.join("; "))
+            .flat_map(|g| {
+                let guard = g.surface();
+                g.names
+                    .iter()
+                    .map(move |n| AllowEntry::guarded(*n, guard.clone()))
             })
             .collect()
     }
@@ -156,27 +375,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flag_spellings() {
-        assert_eq!(matches_flag("--pre", "--pre"), Some(Spelling::Bare));
-        assert_eq!(
-            matches_flag("--pre=sh", "--pre"),
-            Some(Spelling::WithValue("sh"))
-        );
-        assert_eq!(matches_flag("--pre-glob", "--pre"), None);
-        assert_eq!(
-            matches_flag("-Pless", "-P"),
-            Some(Spelling::WithValue("less"))
-        );
-        assert_eq!(matches_flag("-o", "-o"), Some(Spelling::Bare));
-        assert_eq!(matches_flag("--output", "-o"), None);
-    }
-
-    #[test]
-    fn less_start_up_commands() {
-        let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert!(less_runs_shell(&args(&["+!id", "f"])));
-        assert!(less_runs_shell(&args(&["+|sh", "f"])));
-        assert!(!less_runs_shell(&args(&["+F", "log"])));
-        assert!(!less_runs_shell(&args(&["+/error", "log"])));
+    fn commands_list_every_guarded_name() {
+        let mut listed: Vec<&str> = GuardedReaderHandler.commands().to_vec();
+        let mut guarded: Vec<&str> = GUARDS
+            .iter()
+            .flat_map(|g| g.names.iter().copied())
+            .collect();
+        listed.sort_unstable();
+        guarded.sort_unstable();
+        assert_eq!(listed, guarded);
     }
 }

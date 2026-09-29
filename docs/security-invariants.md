@@ -29,12 +29,20 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#dangerous-env-name` | A dangerous literal assignment Asks even on a safe-listed command, before the fast path or any handler runs | `tests/data/catalog/injection_env_var.toml`, `tests/security_invariants.rs::env_prefix_dangerous_var_asks_even_when_command_is_allow_ruled` |
 | `#dangerous-env-name` | The `env` handler applies the same check to the `NAME=VALUE` args it sets | `tests/data/catalog/injection_env_var.toml` |
 | `#dangerous-env-name` | `env -S` / `--split-string=` / `-vS` payloads are extracted and recursed into | `src/handlers/env_xargs.rs::split_string_separate_arg`, `src/handlers/env_xargs.rs::split_string_attached_short_and_long`, `src/handlers/env_xargs.rs::split_string_bundled_boolean_cluster`, `tests/data/catalog/injection_env_var.toml` |
-| `#dangerous-env-name` | A short cluster with an ambiguous option boundary yields an empty payload so the handler Asks | `src/handlers/env_xargs.rs::split_string_uncertain_cluster_fails_closed` |
+| `#dangerous-env-name` | A short cluster is decoded getopt-style (a value option takes the rest of the word), and an empty `-S` payload Asks | `src/handlers/env_xargs.rs::short_clusters_are_parsed_getopt_style`, `tests/data/catalog/injection_wrappers.toml` |
 | `#dangerous-env-name` | A dangerous prefix cannot ride a chain to Allow | `tests/data/catalog/injection_string_rule_chokepoint.toml` |
 | `#dangerous-env-name` | A name rippy has no entry for is dangerous — the predicate is inert-listed, not denylisted | `src/ast_tests.rs::unknown_env_names_are_dangerous`, `tests/data/catalog/injection_env_var.toml` |
 | `#dangerous-env-name` | Every inert name is pinned, so widening the list is a visible change | `src/ast_tests.rs::inert_env_names_are_allowed` |
 | `#dangerous-env-name` | Names that read as inert but select code (`LOCPATH`, `TERMINFO`, `PAGER`) stay dangerous | `src/ast_tests.rs::lookalike_env_names_stay_dangerous` |
 | `#dangerous-env-name` | The prefix Ask does not short-circuit the command's own verdict, so a Deny is not downgraded | `tests/data/catalog/injection_env_var.toml` |
+| `#package-trust` | Only the global config decides whether project configs are trusted, and the last setting wins; a package or project cannot switch it on | `src/config/tests_part2.rs::a_package_cannot_trust_the_project`, `src/config/tests_part2.rs::trust_setting_is_last_wins` |
+| `#package-trust` | Only a trusted project config may choose the package | `src/config/tests_part2.rs::untrusted_project_cannot_choose_the_package`, `src/config/tests_part2.rs::trusted_project_package_overrides_global` |
+| `#package-trust` | A package name is a file stem, never a path, and discovery skips any other name | `src/config/tests_part2.rs::path_like_package_names_are_refused`, `src/packages/custom.rs::package_names_are_file_stems_only`, `src/packages/custom.rs::discovery_skips_invalid_names` |
+| `#package-trust` | `~/.rippy/packages` is self-protected, matched by whole normalised path components | `src/self_protect.rs::custom_packages_are_protected`, `src/self_protect.rs::spelling_variants_are_normalised`, `src/self_protect.rs::only_whole_components_match`, `tests/data/catalog/surfaces_boundaries.toml` |
+| `#rejoin-quoting` | Every handler that re-parses its inner argv quotes each argument, so one argument stays one word | `tests/data/catalog/injection_wrappers.toml` |
+| `#rejoin-quoting` | A placeholder that lands in code (the program name, inside a larger word, or any argument of a code reader) Asks | `tests/data/catalog/injection_wrappers.toml` |
+| `#guarded-readers` | A reader's option that runs a program Asks in every getopt spelling (cluster, glued value, `--name=value`, abbreviation) | `src/handlers/getopt.rs::scan_argv_sees_booleans_values_and_operands`, `src/handlers/getopt.rs::first_spells_the_option_in_full`, `tests/data/catalog/guarded_readers.toml` |
+| `#guarded-readers` | Every output target, from options and output operands, runs the redirect pipeline; `-` is standard output | `src/handlers/getopt.rs::scan_argv_reports_every_occurrence`, `tests/data/catalog/guarded_readers.toml` |
 | `#append-assignment-shadow` | `literal_assignment` rejects `NAME+=VALUE` | `src/ast_tests.rs::literal_assignment_rejects_append` |
 | `#append-assignment-shadow` | `append_assignment_name` matches append-only forms | `src/ast_tests.rs::append_assignment_name_matches_append_only` |
 | `#append-assignment-shadow` | An append shadows a prior literal as set-but-unknown rather than resolving the stale value | `src/analyzer_tests2.rs::append_assignment_shadows_prior_literal_not_a_stale_value`, `src/analyzer_tests2.rs::append_assignment_handler_still_asks` |
@@ -141,10 +149,14 @@ reparses `STRING` as the whole command line. Because that payload arg contains
 carrying both a dangerous env prefix (`env -S "LD_PRELOAD=x cat"`) and any
 dangerous inner command (`env -S "X=1 rm -rf /"`) past every check. The handler
 therefore extracts the split-string payload and `Recurse`s into it so the
-dangerous-env gate and inner-command analysis both run. A short cluster whose
-leading flags are not known booleans (e.g. `-uS`, where `-u` consumes an
-argument) has an ambiguous option boundary and is treated as an empty payload so
-the handler Asks rather than misparse.
+dangerous-env gate and inner-command analysis both run. Short clusters are
+decoded getopt-style: a value-taking letter takes the rest of the word or the
+next one (`-uS` unsets `S`; `-vS 'cmd'` splits `cmd`), and an empty payload
+Asks. GNU env splices the split words into argv in place of the option
+and keeps going, so the handler recurses into the whole spliced line:
+`env -S 'CI=1' rm -rf x` runs `rm -rf x`, not just `CI=1`. env reads no
+options after its first assignment, and its assignments stay a prefix of the
+recursed command so the analyzer's gate combines with the command's verdict.
 
 `is_dangerous_env_name` covers the dynamic-linker families (`LD_*`, `DYLD_*`), a
 fixed list of interpreter/shell hooks (`BASH_ENV`, `PERL5OPT`, `NODE_OPTIONS`,
@@ -418,3 +430,40 @@ so at the call site keeps the combinator free to treat emptiness as the bug it
 usually is. The arms that dropped an executing expression — `ArithmeticCommand`,
 `ForArith`, and the input-redirect shortcut — read their raw text instead,
 because rable does not descend into arithmetic for a nested substitution.
+
+## package-trust
+
+A package carries rules and settings, so choosing one is as powerful as writing
+the config. Trust is therefore decided before any package loads, from the global
+config alone (last `trust-project-configs` wins), and the project config is read
+once, so what the trust check saw is what gets loaded. Only a trusted project may
+choose the package. A package name is a file stem in `~/.rippy/packages`; a name
+holding a path separator would load any TOML file as rules. The packages
+directory is self-protected like the config files, matched by whole components
+after normalising `.`, `..`, repeated separators and case (macOS and Windows file
+systems ignore case, so `~/.RIPPY/config.toml` is the same file).
+
+## rejoin-quoting
+
+Wrappers and recursing handlers (`env`, `xargs`, `find -exec`, `fd -x`,
+`uv run`, `tokf run`, `docker exec`, `kubectl exec`, and the generic wrapper
+path) hand their inner argv back to the analyzer as a string. Joining with plain
+spaces let one quoted argument re-parse as several words or commands, so the
+join quotes each argument (`resolve::shell_join`).
+
+Quoting has its own hazard: a placeholder the tool substitutes at run time
+(`{}` for `find`, `{}`/`{.}`/… for `fd`, the `-I` string for `xargs`) is then a
+quoted literal, but the tool splices a file name or input line into it. When the
+placeholder is the program, part of a larger word, or anywhere in a code reader's
+arguments (`sh -c 'cat {}'`), that input becomes code, so the handler Asks.
+
+## guarded-readers
+
+Some read-only tools have options that run a program or write a file (`rg
+--pre`, `man -P`, `less +!cmd`, `tree -o`, `xxd IN OUT`). They were on the
+simple-safe allowlist, which approved them whatever their flags. They now go
+through a table-driven handler that reads argv the way getopt does: short
+clusters, glued values, `--name=value`, abbreviated long names and every
+occurrence, so no spelling of an exec option slips through. Every output target
+runs the same redirect pipeline as `>`.
+

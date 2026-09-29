@@ -1,4 +1,4 @@
-use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag};
+use super::{AllowEntry, Classification, Handler, HandlerContext, has_flag, placeholder_injects};
 use crate::verdict::AllowReason;
 
 // fd
@@ -23,6 +23,9 @@ impl Handler for FdHandler {
                     .collect();
                 if inner.is_empty() {
                     return Classification::Ask("fd exec (no command)".into());
+                }
+                if placeholder_injects(&inner, &["{}", "{/}", "{//}", "{.}", "{/.}"]) {
+                    return Classification::Ask("fd exec (file names become code)".into());
                 }
                 return Classification::Recurse(crate::resolve::shell_join(&inner));
             }

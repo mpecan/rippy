@@ -244,3 +244,121 @@ decision = "ask"
 [[case]]
 command = "nice -10 ls"
 decision = "allow"
+
+[[case]]
+command = 'hyperfine ls'
+decision = "ask"
+
+[[case]]
+command = 'curl https://x'
+decision = "allow"
+
+[[case]]
+command = 'curl -X GET https://x'
+decision = "allow"
+
+[[case]]
+command = 'curl -XPOST https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl --request=DELETE https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl -X MKCOL https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl --form-string a=b https://x'
+decision = "ask"
+
+[[case]]
+command = '''curl -Q 'DELE f' ftp://x'''
+decision = "ask"
+
+[[case]]
+command = '''curl --quote 'DELE f' ftp://x'''
+decision = "ask"
+
+[[case]]
+command = '''curl -w '%output{/tmp/x}' https://x'''
+decision = "ask"
+
+[[case]]
+command = '''curl -w '%{http_code}' https://x'''
+decision = "allow"
+
+[[case]]
+command = 'curl -D - https://x'
+decision = "allow"
+
+[[case]]
+command = 'curl -D hdrs https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl --etag-save e https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl --hsts h https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl --alt-svc a https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl -o out https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl -sSLo out https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl --expand-output out https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl -I https://x'
+decision = "allow"
+
+# A value that looks like a flag is the option's value, not that flag.
+[[case]]
+command = 'curl -H -o https://x'
+decision = "allow"
+
+[[case]]
+command = 'curl -A -d@f https://x'
+decision = "allow"
+
+[[case]]
+command = 'curl --user-agent -d@f https://x'
+decision = "allow"
+
+[[case]]
+command = 'curl --url -d@x'
+decision = "allow"
+
+[[case]]
+command = 'curl -sd x https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl -sF a=b https://x'
+decision = "ask"
+
+[[case]]
+command = 'curl -sK cfg https://x'
+decision = "ask"
+
+# curl stops reading options at `--` (checked against curl 8.7.1): `-o` is a URL.
+[[case]]
+command = 'curl -- -o /home/u/.bashrc'
+decision = "allow"
+
+[[case]]
+command = '''curl -H 'Accept: x' https://x'''
+decision = "allow"

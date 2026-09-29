@@ -338,3 +338,67 @@ decision = "ask"
 [[case]]
 command = "TERM=xterm ls"
 decision = "allow"
+
+[[case]]
+command = 'PATH=/tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'CDPATH=/tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'HOME=/tmp ls'
+decision = "ask"
+
+[[case]]
+command = 'GIT_DIR=/x git status'
+decision = "ask"
+
+[[case]]
+command = 'GIT_EXEC_PATH=/x git status'
+decision = "ask"
+
+[[case]]
+command = '''LESSOPEN='|sh x' less f'''
+decision = "ask"
+
+[[case]]
+command = 'MANPAGER=sh man ls'
+decision = "ask"
+
+[[case]]
+command = 'BAT_PAGER=sh bat x'
+decision = "ask"
+
+[[case]]
+command = 'RIPGREP_CONFIG_PATH=/x rg foo'
+decision = "ask"
+
+[[case]]
+command = 'FZF_DEFAULT_COMMAND=id fzf'
+decision = "ask"
+
+[[case]]
+command = 'CURL_HOME=/x curl https://x'
+decision = "ask"
+
+[[case]]
+command = 'LD_PRELOAD=/x ls'
+decision = "ask"
+
+[[case]]
+command = 'ZDOTDIR=. zsh -c true'
+decision = "ask"
+
+[[case]]
+command = 'GEM_HOME=./g gem list'
+decision = "ask"
+
+[[case]]
+command = 'PROMPT_COMMAND=id ls'
+decision = "ask"
+
+[[case]]
+command = 'RUBYLIB=./lib ruby -e 1'
+decision = "ask"
