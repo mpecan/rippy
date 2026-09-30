@@ -8,10 +8,8 @@ use std::ops::Range;
 
 use rable::{Node, NodeKind};
 
-use super::redact;
 use crate::ast;
-
-const REDACTED: &str = "<redacted>";
+use crate::redact::{self, REDACTED};
 
 /// One simple command.
 pub struct Leaf<'a> {
@@ -194,8 +192,9 @@ impl<'a> Shape<'a> {
     }
 
     /// The command as sent to Jev: comments removed (they are the easiest
-    /// steering channel) and secret-looking values replaced. Falls back to
-    /// keeping comments when a heredoc body could contain a literal `#`.
+    /// steering channel) and secret-looking values replaced, by context and by
+    /// provider shape. Falls back to keeping comments when a heredoc body could
+    /// contain a literal `#`.
     #[must_use]
     pub fn sanitized(&self) -> String {
         let mut edits = self.redactions();
@@ -206,7 +205,7 @@ impl<'a> Shape<'a> {
                     .map(|r| (r, String::new())),
             );
         }
-        apply_edits(self.source, edits)
+        redact::provider_shapes(&apply_edits(self.source, edits))
     }
 
     fn inside_word(&self, i: usize) -> bool {
@@ -250,13 +249,13 @@ impl<'a> Shape<'a> {
                 continue;
             }
             let text = &self.source[span.clone()];
-            for r in redact::secret_ranges(text, after_secret_flag) {
+            for r in redact::secret_ranges(text, after_secret_flag, redact::Rules::STRICT) {
                 edits.push((
                     span.start + r.start..span.start + r.end,
                     REDACTED.to_owned(),
                 ));
             }
-            after_secret_flag = redact::is_secret_flag(text);
+            after_secret_flag = redact::secret_flag(text, redact::Rules::STRICT);
         }
         edits
     }

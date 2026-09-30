@@ -9,6 +9,8 @@
 //! 2. Bash AST parsing + analysis (`BashParser::parse` + `Analyzer::analyze`)
 //! 3. Glob pattern matching (`Pattern::matches`)
 //! 4. Config file parsing (`Config::load_from_str`, both formats)
+//! 5. Secret redaction (`redact::secrets`, `redact::json`), which runs on every
+//!    logged or tracked command
 //!
 //! Failures discovered by proptest are auto-persisted to
 //! `proptest-regressions/proptest_robustness.txt` and should be committed so
@@ -24,6 +26,7 @@ use rippy_cli::config::{Config, ConfigFormat};
 use rippy_cli::parser::BashParser;
 use rippy_cli::pattern::Pattern;
 use rippy_cli::payload::Payload;
+use rippy_cli::redact;
 
 /// Build a fresh analyzer with an empty config and a stable working directory.
 /// We deliberately use `Config::empty()` so commands fall through to the full
@@ -184,6 +187,40 @@ proptest! {
 
         let mut analyzer = fresh_analyzer();
         let _ = analyzer.analyze(&source);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    #[test]
+    fn redaction_no_panic(text in "[\\s\\S]{0,512}") {
+        let _ = redact::secrets(&text);
+    }
+
+    #[test]
+    fn redaction_no_panic_on_shell_shapes(
+        text in concat!(
+            r#"([a-z]{1,6}|://|-[a-zA-Z]|--[a-z-]{1,8}=?|[A-Z_]{2,8}=|'|"|\\|"#,
+            r"[;|&<>()]| |\n|Σ|€){0,40}"
+        ),
+    ) {
+        let _ = redact::secrets(&text);
+        let _ = redact::json(&serde_json::json!({"password": text, "k": [text]}));
+    }
+
+    // A secret-named variable's value never survives, wherever it lands in
+    // the shown text and whatever surrounds it.
+    #[test]
+    fn a_recorded_secret_never_survives(
+        value in "[A-Za-z0-9._-]{4,24}",
+        before in "[ -~]{0,40}",
+        after in "[ -~]{0,40}",
+    ) {
+        let mut revealed = redact::Revealed::default();
+        revealed.record("DEPLOY_TOKEN", &value);
+        let shown = revealed.show(format!("{before}{value}{after}"));
+        prop_assert!(!shown.contains(&value), "{} -> {}", value, shown);
     }
 }
 

@@ -69,10 +69,22 @@ fn ensure_schema(conn: &Connection) -> Result<(), RippyError> {
 
 /// Record a single decision in the tracking database.
 ///
+/// The command, reason and payload are stored with secret-looking values
+/// redacted: the database is a long-lived plain-text copy
+/// (docs/security-invariants.md#history-redaction).
+///
 /// # Errors
 ///
 /// Returns `RippyError::Tracking` if the insert fails.
 pub fn record_decision(conn: &Connection, entry: &TrackingEntry) -> Result<(), RippyError> {
+    let command = entry.command.map(crate::redact::secrets);
+    let reason = crate::redact::secrets(entry.reason);
+    let payload_json = entry.payload_json.map(|p| {
+        serde_json::from_str(p).map_or_else(
+            |_| crate::redact::secrets(p),
+            |v| crate::redact::json(&v).to_string(),
+        )
+    });
     conn.execute(
         "INSERT INTO decisions \
          (session_id, mode, tool_name, command, decision, reason, payload_json) \
@@ -81,10 +93,10 @@ pub fn record_decision(conn: &Connection, entry: &TrackingEntry) -> Result<(), R
             entry.session_id,
             mode_str(entry.mode),
             entry.tool_name,
-            entry.command,
+            command,
             entry.decision.as_str(),
-            entry.reason,
-            entry.payload_json,
+            reason,
+            payload_json,
         ],
     )
     .map_err(|e| RippyError::Tracking(format!("could not insert decision: {e}")))?;
@@ -378,6 +390,35 @@ mod tests {
             decision: Decision::Allow,
             reason: "safe command",
             payload_json: None,
+        }
+    }
+
+    #[test]
+    fn every_stored_field_is_redacted() {
+        let conn = in_memory_db();
+        let secret = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
+        let command = format!("somecli --token {secret}");
+        let reason = format!("somecli (unknown command) (resolved: {command})");
+        let payload = format!("{{\"description\": \"{secret}\"}}");
+        record_decision(
+            &conn,
+            &TrackingEntry {
+                command: Some(&command),
+                reason: &reason,
+                payload_json: Some(&payload),
+                ..sample_entry()
+            },
+        )
+        .unwrap();
+        let row: (String, String, String) = conn
+            .query_row(
+                "SELECT command, reason, payload_json FROM decisions",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        for field in [&row.0, &row.1, &row.2] {
+            assert!(!field.contains(secret), "{field}");
         }
     }
 

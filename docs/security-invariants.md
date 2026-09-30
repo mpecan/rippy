@@ -43,6 +43,13 @@ every anchor needs a row, every `see docs/security-invariants.md#…` pointer in
 | `#rejoin-quoting` | A placeholder that lands in code (the program name, inside a larger word, or any argument of a code reader) Asks | `tests/data/catalog/injection_wrappers.toml` |
 | `#guarded-readers` | A reader's option that runs a program Asks in every getopt spelling (cluster, glued value, `--name=value`, abbreviation) | `src/handlers/getopt.rs::scan_argv_sees_booleans_values_and_operands`, `src/handlers/getopt.rs::first_spells_the_option_in_full`, `tests/data/catalog/guarded_readers.toml` |
 | `#guarded-readers` | Every output target, from options and output operands, runs the redirect pipeline; `-` is standard output | `src/handlers/getopt.rs::scan_argv_reports_every_occurrence`, `tests/data/catalog/guarded_readers.toml` |
+| `#history-redaction` | Every secret shape (provider tokens, credential flags, secret-named assignments, auth headers, JSON keys, URL credentials) is redacted, and ordinary commands, env injections (`LD_PRELOAD=…`), identifiers and `mkdir -p`-style short flags are left intact | `src/redact/tests.rs::every_secret_is_redacted`, `src/redact/tests.rs::ordinary_commands_are_untouched`, `src/redact/tests.rs::short_flags_count_only_for_credential_programs`, `src/redact/tests.rs::identifiers_stay_visible_in_history_but_not_when_strict`, `src/redact/tests.rs::provider_shapes_the_word_rules_miss_are_redacted`, `src/redact/tests.rs::only_key_like_words_are_tokens_in_history`, `src/redact/tests.rs::second_round_shapes`, `src/redact/tests2.rs::every_credential_program_row_is_read`, `src/redact/tests2.rs::single_dash_flags_count_by_a_strong_name_only`, `src/redact/tests2.rs::an_argv_array_hides_a_flag_value` |
+| `#history-redaction` | A value never swallows the rest of a quoted phrase, so an approver still sees the command that runs | `src/redact/tests.rs::a_value_never_swallows_the_rest_of_a_phrase`, `src/redact/tests2.rs::a_phrase_inside_a_phrase_is_read_as_a_command_too` |
+| `#history-redaction` | A secret-named variable's value is scrubbed from everything shown for that command, in any spelling, and nothing changes when nothing was resolved | `src/redact/tests.rs::a_secret_named_value_is_scrubbed_whatever_its_shape`, `src/redact/tests.rs::a_quoted_spelling_of_the_value_is_scrubbed_too`, `src/redact/tests.rs::nothing_changes_when_nothing_was_resolved`, `src/redact/tests.rs::a_four_byte_value_is_scrubbed_by_name`, `src/redact/tests.rs::a_value_is_scrubbed_in_every_spelling_rippy_shows`, `src/redact/tests2.rs::a_longer_value_is_scrubbed_before_one_it_contains`, `src/redact/tests2.rs::a_new_command_forgets_what_the_last_one_revealed`, `tests/proptest_robustness.rs::a_recorded_secret_never_survives`, `tests/history_redaction.rs::a_command_local_secret_is_scrubbed` |
+| `#history-redaction` | No environment secret reaches the hook reason (including handler reasons built from the resolved command), the `-v` trace, `rippy inspect`, the tracking database or the log, end to end | `tests/history_redaction.rs::no_secret_reaches_the_reason_the_database_or_the_log`, `src/redact/proptests.rs::a_secret_named_value_is_never_shown`, `src/tracking.rs::every_stored_field_is_redacted`, `src/logging.rs::secrets_are_redacted_from_every_field` |
+| `#history-redaction` | Redaction never panics, including on the input that panics leakguard 0.9.1, and a panic message never reaches stderr with its input; redacting known secrets twice changes nothing | `tests/proptest_robustness.rs::redaction_no_panic`, `tests/proptest_robustness.rs::redaction_no_panic_on_shell_shapes`, `src/redact/tests.rs::text_ending_in_a_scheme_separator_does_not_panic`, `src/redact/tests.rs::redaction_is_idempotent` |
+| `#history-redaction` | Only the display is redacted: a resolved value still decides the verdict | `tests/history_redaction.rs::the_hidden_value_picks_the_verdict`, `tests/history_redaction.rs::a_redacted_value_still_decides_the_verdict` |
+| `#history-redaction` | Jev keeps the strict rules: what history leaves readable is redacted before it leaves the machine | `src/jev/shape_tests.rs::jev_redacts_what_history_keeps`, `src/jev/shape_tests.rs::jev_redacts_provider_shapes`, `src/redact/tests.rs::strict_rules_still_redact_short_flags_everywhere`, `src/redact/tests2.rs::jev_strict_reads_openssl_pass_values_too` |
 | `#append-assignment-shadow` | `literal_assignment` rejects `NAME+=VALUE` | `src/ast_tests.rs::literal_assignment_rejects_append` |
 | `#append-assignment-shadow` | `append_assignment_name` matches append-only forms | `src/ast_tests.rs::append_assignment_name_matches_append_only` |
 | `#append-assignment-shadow` | An append shadows a prior literal as set-but-unknown rather than resolving the stale value | `src/analyzer_tests2.rs::append_assignment_shadows_prior_literal_not_a_stale_value`, `src/analyzer_tests2.rs::append_assignment_handler_still_asks` |
@@ -467,3 +474,68 @@ clusters, glued values, `--name=value`, abbreviated long names and every
 occurrence, so no spelling of an exec option slips through. Every output target
 runs the same redirect pipeline as `>`.
 
+## history-redaction
+
+rippy expands `$VAR` from its own environment to judge a command, and used to
+show what it judged verbatim: `echo $GITHUB_TOKEN` came back as
+`(resolved: echo ghp_…)`. That reason is returned to the AI tool (so it enters
+the model's context) and, with `tracking` or `log` on, is stored in plain text.
+
+**Environment values** are handled where they enter. Resolving a variable
+records its value (`redact::Revealed`), and everything the analyzer shows for
+that command passes through it on the way out: the final reason, including
+reasons a handler builds from the resolved command (`redirect to …`), every
+trace line (`-v`, `rippy inspect`), and `resolved_command`. The value of a
+secret-named variable is scrubbed whatever its shape, in every spelling rippy
+may show it in: as is, shell-quoted, escaped by a trace's `{:?}`, and, for a
+value holding shell words (`sh -c $X_TOKEN`), each word of eight or more
+characters. The rest of the text is redacted as below. An analysis that resolved nothing is
+shown exactly as before. The command is still *judged* on the real value, so
+a variable that expands to `rm` still asks.
+
+**Text** (`redact::secrets`, also applied to everything the tracking database
+and the log store) is redacted in three layers:
+
+- **Context** finds credentials by position: a credential flag's value (a long
+  flag by its name, like a variable: `--password`, `--passphrase`, not
+  `--author` or `--password-file`), a secret-named assignment, operand, config
+  key or JSON key (spaced or compact), the value after an `Authorization:`
+  header and its scheme, URL userinfo, secret query parameters and form
+  fields. A bare `Bearer`/`token` in prose is not a marker. Short flags, and a few long
+  ones, count only for the program that uses them that way (`curl -u`,
+  `curl --user`, `mysql -pX`, `docker login -p`, not `docker run -p` or
+  `mkdir -p`). A quoted phrase is read as a command of
+  its own, so a value never swallows what follows it, and an unclosed quote is
+  read as a literal.
+- **Shape** (`leakguard`, secret detectors only) finds provider formats with no
+  context. Its email, IP, phone and card detectors are off: they would hide
+  what a reviewer needs. leakguard 0.9.1 panics on text ending in `://`; the
+  call is padded and guarded, and any panic redacts the whole text. The
+  binary's panic hook prints only where a panic happened, never its message,
+  which can quote the input.
+- **JSON** (`redact::json`, the log's raw payload) hides the value of every
+  secret-named key.
+
+A name marks a secret when it contains `TOKEN`, `SECRET`, `PASSWORD`,
+`PASSWD`, `PASSPHRASE`, `APIKEY`, `CREDENTIAL`, `PRIVATEKEY` or `ACCESSKEY`
+(separators ignored: `PGPASSWORD`, `apiToken`), or ends in a `KEY`, `KEYS`,
+`PASS`, `PWD`, `PAT`, `AUTH`, `DSN`, `COOKIE` or `SESSION` segment (`MYSQL_PWD`, `GH_PAT`, but not
+`SSH_AUTH_SOCK` or `$PWD`). Values shorter than four characters are not
+scrubbed by name.
+
+The history keeps what a reader needs: assignments are redacted only by name
+(`LD_PRELOAD=/tmp/evil.so` stays visible, since it is what rippy flags), and
+canonical identifiers (UUIDs, 40- or 64-hex digests) and lower-case paths or
+branch names are never taken for tokens. Jev uses the same rules strictly
+(`Rules::STRICT`), where all of those are redacted, because the text leaves
+the machine.
+
+Redaction covers common shapes, not every secret. Kept as is: a literal with
+no context, no known format and an innocent name (`gh secret set N --body X`,
+`htpasswd -b f user pw`), a value under four characters, a secret in a
+variable with an innocent name unless its shape is known, and a truncated
+private key. The command as the AI typed it is echoed unredacted by `-v` and
+in `rippy inspect`'s `command` field (it is the AI's own text), but stored
+redacted. The log's `jev` field holds only what Jev was sent (already
+sanitized strictly) and its answers. Rows stored before this change are not
+rewritten.

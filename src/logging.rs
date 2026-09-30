@@ -4,6 +4,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use crate::mode::Mode;
+use crate::redact;
 use crate::verdict::Verdict;
 
 /// Parameters for a log entry.
@@ -19,6 +20,10 @@ pub struct LogEntry<'a> {
 }
 
 /// Write a JSON log line to the configured log file.
+///
+/// Secret-looking values are redacted from the command, the reason and the raw
+/// payload, including any value under a secret-named key
+/// (docs/security-invariants.md#history-redaction).
 /// Errors are printed to stderr but never block the hook.
 pub fn write_log_entry(entry: &LogEntry<'_>) {
     let timestamp = SystemTime::now()
@@ -29,11 +34,11 @@ pub fn write_log_entry(entry: &LogEntry<'_>) {
     let mut json = serde_json::json!({
         "timestamp": timestamp,
         "decision": entry.verdict.decision.as_str(),
-        "reason": entry.verdict.reason,
+        "reason": redact::secrets(&entry.verdict.reason),
     });
 
     if let Some(cmd) = entry.command {
-        json["command"] = serde_json::Value::String(cmd.to_owned());
+        json["command"] = serde_json::Value::String(redact::secrets(cmd));
     }
 
     if let Some(jev) = entry.jev {
@@ -43,7 +48,7 @@ pub fn write_log_entry(entry: &LogEntry<'_>) {
     if entry.log_full {
         json["mode"] = serde_json::Value::String(format!("{:?}", entry.mode));
         if let Some(payload) = entry.raw_payload {
-            json["payload"] = payload.clone();
+            json["payload"] = redact::json(payload);
         }
     }
 
@@ -129,6 +134,39 @@ mod tests {
         assert_eq!(e["decision"], "ask");
         assert_eq!(e["mode"], "Claude");
         assert_eq!(e["payload"]["tool_name"], "Bash");
+    }
+
+    #[test]
+    fn secrets_are_redacted_from_every_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("test.log");
+        let secret = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
+        let command = format!("somecli --token {secret}");
+        let verdict = Verdict::ask(format!("somecli (unknown command) (resolved: {command})"));
+        let payload =
+            serde_json::json!({"tool_input": {"command": command, "description": secret}});
+        write_log_entry(&entry_to(
+            &log_path,
+            true,
+            Some(&command),
+            &verdict,
+            Some(&payload),
+        ));
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(!content.contains(secret), "{content}");
+        assert!(content.contains("somecli --token <redacted>"), "{content}");
+    }
+
+    #[test]
+    fn secrets_inside_payload_arrays_are_redacted() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("test.log");
+        let secret = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
+        let verdict = Verdict::ask("x");
+        let payload = serde_json::json!({"tool_input": {"args": ["--token", secret]}});
+        write_log_entry(&entry_to(&log_path, true, None, &verdict, Some(&payload)));
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(!content.contains(secret), "{content}");
     }
 
     #[test]

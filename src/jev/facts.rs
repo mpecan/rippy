@@ -155,7 +155,7 @@ pub fn collect(
             programs.insert(name.to_owned(), json!(places.program_label(cwd, name)));
         }
         for (i, word) in leaf.words.iter().enumerate() {
-            for var in expanded_names(word) {
+            for var in crate::ast::expanded_names(word) {
                 let role = role_of(leaf.words, i, name);
                 let status = match lookup(&var) {
                     None => "not set in rippy's environment".to_owned(),
@@ -217,20 +217,6 @@ fn word_text(node: &rable::Node) -> String {
         NodeKind::Word { value, .. } => value.clone(),
         _ => String::new(),
     }
-}
-
-/// Names of the parameters a word expands (`$NS`, `${OUT}`, `${X:-y}`).
-fn expanded_names(word: &rable::Node) -> Vec<String> {
-    let NodeKind::Word { parts, .. } = &word.kind else {
-        return Vec::new();
-    };
-    parts
-        .iter()
-        .filter_map(|p| match &p.kind {
-            NodeKind::ParamExpansion { param, .. } => Some(param.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 #[cfg(test)]

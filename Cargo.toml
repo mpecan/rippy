@@ -39,6 +39,8 @@ tokf-hook-types = "0.2.39"
 toml = "0.8"
 rkyv = "0.8.15"
 sha2 = "0.10"
+# Exact pin: a young crate on the redaction path (docs/security-invariants.md#history-redaction).
+leakguard = { version = "=0.9.1", default-features = false, features = ["std"] }
 ureq = { version = "3", features = ["json"], optional = true }
 
 [build-dependencies]

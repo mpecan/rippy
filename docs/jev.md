@@ -339,7 +339,9 @@ never are.
 every word span. A `#` that starts a word and lies outside every word span
 begins a comment, and is removed up to the end of its line.
 
-**Redaction** (`src/jev/redact.rs`) replaces with `<redacted>`:
+**Redaction** (`src/redact/`, shared with the history, see
+[history redaction](security-invariants.md#history-redaction)) replaces with
+`<redacted>`:
 - assignment values, and uppercase `NAME=value` arguments (`export TOKEN=…`,
   `env API_KEY=…`)
 - values of credential flags (`--token`, `--password`, `--api-key`, `--user`,
@@ -351,7 +353,12 @@ begins a comment, and is removed up to the end of its line.
 - provider token shapes (also after a path, `./ghp_…`), JWTs, and long opaque
   base64/hex runs
 - URL userinfo (split at the last `@`) and credential-named query and fragment
-  parameters
+  parameters (`token`, `access_token`, `refresh_token`, `id_token`,
+  `private_token`, `client_secret`, `secret_key`, `access_key`, `api_key`,
+  `key`, `secret`, `password`, `sig`, `code`, …)
+- provider formats `leakguard` recognises anywhere in the text (GitHub, AWS,
+  `OpenAI`, Stripe, Slack, Google, Azure, Telegram, Discord keys, private-key
+  blocks)
 
 A word that is itself an expansion (`$X`, `${X:-y}`) is never redacted or
 mangled: its value is not in the text. As a value of a credential flag
@@ -657,7 +664,7 @@ them are fixed and pinned by tests:
 | `PATH=./bin cmd`, `export`, `hash`, `trap`, `.` | Approval; lookup variables as arguments refused |
 | `python3 - < x.py`, heredoc and piped interpreters | Approval |
 | `(resolved: …)` in the reason sent real variable values | Suffix stripped |
-| Redacted values re-surfaced as path facts; `export T=…`, `-u user:pass`, `Bearer`, JWTs, query secrets, `p@ss@host` were not redacted | Facts only from text that survives redaction; `redact.rs` covers those shapes |
+| Redacted values re-surfaced as path facts; `export T=…`, `-u user:pass`, `Bearer`, JWTs, query secrets, `p@ss@host` were not redacted | Facts only from text that survives redaction; `src/redact/` covers those shapes |
 | rable spans drift after non-ASCII text, which could hide a command from Jev | Non-ASCII commands are never sent |
 | A package (selectable by an untrusted project, even by absolute path) could carry `[jev]` and aim it at any endpoint with any env var as the key | `[jev]` in a package is ignored with a warning |
 | Environment proxies and redirects in the HTTP client | Both disabled; any non-2xx is `unavailable` |

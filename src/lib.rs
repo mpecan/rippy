@@ -35,6 +35,7 @@ pub mod payload;
 pub(crate) mod perl_safety;
 pub mod profile_cmd;
 pub(crate) mod python_safety;
+pub mod redact;
 pub(crate) mod resolve;
 pub(crate) mod risk;
 pub(crate) mod ruby_safety;
