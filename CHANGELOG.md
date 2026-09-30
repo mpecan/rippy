@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.2...rippy-cli-v0.2.3) (2026-09-30)
+
+
+### Features
+
+* **redact:** keep secrets out of reasons, traces, the tracking db and the log ([#214](https://github.com/mpecan/rippy/issues/214)) ([153e0cb](https://github.com/mpecan/rippy/commit/153e0cb639a33d6e2a087b88b9bf61b11c471b7a))
+
 ## [0.2.2](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.1...rippy-cli-v0.2.2) (2026-09-29)
 
 
