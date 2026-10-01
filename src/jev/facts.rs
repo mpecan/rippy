@@ -15,6 +15,15 @@ use super::shape::Shape;
 /// never sent: its behaviour is the project's own code.
 pub const PROJECT_PROGRAM: &str = "project dependency";
 
+/// A program rippy's own `PATH` lookup missed. Worded so the model cannot read
+/// it as "the command will fail harmlessly"; see docs/jev.md#fact-wording.
+pub const PROGRAM_NOT_FOUND: &str =
+    "not found on rippy's PATH; may still exist when the command runs";
+
+/// A variable unset in rippy's environment; same caution as `PROGRAM_NOT_FOUND`.
+pub const VARIABLE_UNSET: &str =
+    "not set in rippy's environment; may hold any value when the command runs";
+
 /// Whether any program in `facts` resolves inside the project.
 #[must_use]
 pub fn names_project_program(facts: &Value) -> bool {
@@ -98,7 +107,7 @@ impl Places<'_> {
                 "system-installed"
             };
         }
-        "not found on PATH"
+        PROGRAM_NOT_FOUND
     }
 }
 
@@ -158,7 +167,7 @@ pub fn collect(
             for var in crate::ast::expanded_names(word) {
                 let role = role_of(leaf.words, i, name);
                 let status = match lookup(&var) {
-                    None => "not set in rippy's environment".to_owned(),
+                    None => VARIABLE_UNSET.to_owned(),
                     Some(v) if looks_like_path(&v) => {
                         format!("set to a path {}", places.label(&places.resolve(cwd, &v)))
                     }

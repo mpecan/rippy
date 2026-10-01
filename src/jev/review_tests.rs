@@ -137,7 +137,7 @@ fn a_confident_clean_answer_approves_with_provenance() {
     assert_eq!(r.verdict.decision, Decision::Allow);
     assert_eq!(
         r.verdict.reason,
-        "jev: approved (read_only, conf 0.97 >= 0.90, typesafe/jev-1.13-20260917 q2)"
+        "jev: approved (read_only, conf 0.97 >= 0.90, typesafe/jev-1.13-20260917 q3)"
     );
     assert!(matches!(
         r.verdict.allow_reason(),
@@ -160,7 +160,7 @@ fn exfiltration_escalates_and_forces_a_prompt() {
     assert!(
         r.verdict
             .reason
-            .starts_with("⚠ jev: possible exfiltration (p=0.93, typesafe/jev-1.13-20260917 q2)")
+            .starts_with("⚠ jev: possible exfiltration (p=0.93, typesafe/jev-1.13-20260917 q3)")
     );
     assert!(r.verdict.reason.ends_with("somecli (unknown command)"));
     assert!(r.force_prompt);
@@ -188,7 +188,7 @@ fn keep_annotates_and_stays_uncertain() {
     assert_eq!(
         r.verdict.reason,
         "somecli (unknown command) (jev: local_change, conf 0.99; \
-         kept: local_change is not an allowed effect; typesafe/jev-1.13-20260917 q2)"
+         kept: local_change is not an allowed effect; typesafe/jev-1.13-20260917 q3)"
     );
     assert!(!r.force_prompt);
 }
@@ -279,7 +279,8 @@ fn the_state_sent_is_sanitized_and_carries_facts() {
     );
     assert_eq!(
         state["facts"]["variables"]["NS"],
-        "argument after -n for kubectl; not set in rippy's environment"
+        "argument after -n for kubectl; not set in rippy's environment; \
+         may hold any value when the command runs"
     );
     assert_eq!(sent[0]["model"], "jev-1.13");
     assert!(!sent[0].to_string().contains("hunter2"));
@@ -361,7 +362,7 @@ fn an_unsafe_model_id_is_not_echoed() {
     }));
     let r = run(unknown("somecli list"), "somecli list", &enabled(), &fake);
     assert!(
-        r.verdict.reason.ends_with("jev-1.13 q2)"),
+        r.verdict.reason.ends_with("jev-1.13 q3)"),
         "{}",
         r.verdict.reason
     );
