@@ -290,12 +290,8 @@ message = "No force push"
 use serial_test::serial;
 
 #[test]
-#[serial(env)]
 fn param_expansion_in_echo_resolves_to_allow() {
-    // SAFETY: serial_test guarantees no concurrent env mutation.
-    unsafe {
-        std::env::set_var("HOME", "/tmp/test-home");
-    }
+    // `rippy_command()` hands the child a set HOME, so `${HOME}` resolves.
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo ${HOME}"}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0, "resolved echo should allow, stdout: {stdout}");

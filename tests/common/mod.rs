@@ -6,36 +6,62 @@ pub mod surfaces;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::Duration;
 
-fn rippy_binary() -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_BIN_EXE_rippy"));
-    if !path.exists() {
-        path = PathBuf::from("target/debug/rippy");
-    }
-    path
-}
+/// Isolated homes older than this belong to finished runs and are swept.
+const STALE_HOME_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// An empty `$HOME` shared by every spawn in this test binary, under cargo's
-/// target tmp dir so it is wiped per run instead of leaking into `/tmp`.
+/// An empty `$HOME` shared by every spawn in this test process, at
+/// `CARGO_TARGET_TMPDIR/isolated-home/<test binary>-<pid>`.
+///
+/// Keying by pid means two concurrent runs of the same test binary (two
+/// `cargo test`s, or nextest's process-per-test) never share or wipe each
+/// other's home. Cargo never cleans `CARGO_TARGET_TMPDIR`, so each process
+/// sweeps sibling homes untouched for a day; `cargo clean` removes the rest.
+///
+/// Treat this home as read-only: tests run in parallel against it, and rippy
+/// writes files such as `trusted.json` non-atomically. A test that makes rippy
+/// write under `$HOME` (`trust --yes`, `init`, `--global` edits, tracking)
+/// must override `HOME` with its own temp dir.
 pub fn isolated_home() -> &'static Path {
     static HOME: OnceLock<PathBuf> = OnceLock::new();
     HOME.get_or_init(|| {
         let exe = std::env::current_exe().expect("test binary path");
-        let stem = exe.file_stem().expect("test binary name").to_os_string();
-        let home = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join("isolated-home")
-            .join(stem);
+        let stem = exe.file_stem().expect("test binary name").to_string_lossy();
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("isolated-home");
+        sweep_stale_homes(&root);
+        let home = root.join(format!("{stem}-{}", std::process::id()));
+        // A leftover from an earlier process that had this pid.
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("create isolated HOME");
         home
     })
 }
 
+fn sweep_stale_homes(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > STALE_HOME_AGE);
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 /// The only way a test should spawn `rippy`: the developer's own `$HOME`
 /// config (`tracking = "on"`, `[jev]`, trusted.json) must never apply to, or
-/// be written by, a test run. A test needing its own home overrides `HOME`.
+/// be written by, a test run. A test needing its own home overrides `HOME`
+/// with a real directory; never clear or empty it, or rippy falls back to the
+/// passwd home (see `tests/test_isolation.rs`).
 pub fn rippy_command() -> Command {
-    let mut cmd = Command::new(rippy_binary());
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rippy"));
     cmd.env("HOME", isolated_home())
         .env_remove("RIPPY_CONFIG")
         .env_remove("DIPPY_CONFIG");

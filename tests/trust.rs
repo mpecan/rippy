@@ -256,10 +256,12 @@ fn trust_command_yes_trusts_without_stdin() {
     let dir = tempfile::TempDir::new().unwrap();
     let config_path = dir.path().join(".rippy");
     std::fs::write(&config_path, "deny echo\n").unwrap();
+    let home = tempfile::TempDir::new().unwrap();
 
     let output = common::rippy_command()
         .args(["trust", "--yes"])
         .current_dir(dir.path())
+        .env("HOME", home.path())
         .output()
         .unwrap();
 

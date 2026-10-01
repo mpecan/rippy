@@ -187,9 +187,12 @@ fn init_stdout_prints_stdlib() {
 #[test]
 fn init_creates_config_file() {
     let dir = tempfile::TempDir::new().unwrap();
+    // init trusts the file it creates, so it writes trusted.json under HOME.
+    let home = tempfile::TempDir::new().unwrap();
     let output = common::rippy_command()
         .args(["init"])
         .current_dir(dir.path())
+        .env("HOME", home.path())
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -203,9 +206,12 @@ fn init_creates_config_file() {
 #[test]
 fn init_with_package_flag() {
     let dir = tempfile::TempDir::new().unwrap();
+    // init trusts the file it creates, so it writes trusted.json under HOME.
+    let home = tempfile::TempDir::new().unwrap();
     let output = common::rippy_command()
         .args(["init", "--package", "review"])
         .current_dir(dir.path())
+        .env("HOME", home.path())
         .output()
         .unwrap();
     assert!(output.status.success());

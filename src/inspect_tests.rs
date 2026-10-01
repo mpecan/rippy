@@ -51,6 +51,15 @@ fn trace_test_analyzer() -> crate::analyzer::Analyzer {
     crate::analyzer::Analyzer::from_env(config, Environment::for_test(cwd)).unwrap()
 }
 
+/// What `collect_trace_data` produces, minus its reads of the real `$HOME`.
+fn isolated_trace(command: &str, cwd: &Path, config_path: Option<&Path>) -> TraceOutput {
+    let config = Config::load_with_home(cwd, config_path, None).unwrap();
+    let mut analyzer =
+        crate::analyzer::Analyzer::from_env(config, Environment::for_test(cwd.to_path_buf()))
+            .unwrap();
+    trace_with_analyzer(&mut analyzer, command).unwrap()
+}
+
 fn analyzer_at(dir: &Path, config_path: &Path) -> crate::analyzer::Analyzer {
     let config = Config::load_with_home(dir, Some(config_path), None).unwrap();
     crate::analyzer::Analyzer::from_env(config, Environment::for_test(dir.to_path_buf())).unwrap()
@@ -109,8 +118,8 @@ fn directive_to_display_skips_set() {
 
 #[test]
 fn trace_handler_command() {
-    let cwd = std::env::current_dir().unwrap();
-    let output = collect_trace_data("git push origin main", &cwd, None).unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
+    let output = isolated_trace("git push origin main", &cwd, None);
     assert_eq!(output.decision, "ask");
     assert!(
         output
@@ -122,8 +131,8 @@ fn trace_handler_command() {
 
 #[test]
 fn trace_safe_command() {
-    let cwd = std::env::current_dir().unwrap();
-    let output = collect_trace_data("cat /tmp/file", &cwd, None).unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
+    let output = isolated_trace("cat /tmp/file", &cwd, None);
     assert_eq!(output.decision, "allow");
     assert!(
         output
@@ -143,7 +152,7 @@ fn trace_with_config_rule() {
     )
     .unwrap();
 
-    let output = collect_trace_data("echo evil", dir.path(), Some(&config_path)).unwrap();
+    let output = isolated_trace("echo evil", dir.path(), Some(&config_path));
     assert_eq!(output.decision, "deny");
     assert_eq!(output.reason, "no evil");
     assert!(
@@ -166,7 +175,7 @@ fn trace_env_prefix_matches_config_rule() {
     )
     .unwrap();
 
-    let output = collect_trace_data("LANG=x echo evil", dir.path(), Some(&config_path)).unwrap();
+    let output = isolated_trace("LANG=x echo evil", dir.path(), Some(&config_path));
     assert_eq!(output.decision, "deny");
     assert_eq!(output.reason, "no evil");
     assert!(
@@ -199,8 +208,7 @@ fn trace_env_prefix_pipeline_records_withheld_allow_rule() {
     )
     .unwrap();
 
-    let output =
-        collect_trace_data("LANG=x echo hi | cat", dir.path(), Some(&config_path)).unwrap();
+    let output = isolated_trace("LANG=x echo hi | cat", dir.path(), Some(&config_path));
     assert_eq!(output.decision, "allow");
     assert!(
         output
@@ -230,7 +238,7 @@ fn trace_env_prefix_pipeline_records_withheld_allow_rule() {
 #[test]
 fn trace_unknown_command_asks() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = collect_trace_data("some_unknown_tool --flag", dir.path(), None).unwrap();
+    let output = isolated_trace("some_unknown_tool --flag", dir.path(), None);
     // Unknown commands should result in ask (default).
     assert_eq!(output.decision, "ask");
 }
@@ -290,14 +298,11 @@ fn json_output_parses() {
 
 #[test]
 fn trace_pipe_command_parses() {
-    let cwd = std::env::current_dir().unwrap();
-    let output = collect_trace_data("ls -la | head", &cwd, None).unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
+    let output = isolated_trace("ls -la | head", &cwd, None);
     assert_ne!(output.reason, "could not parse command");
-    // Pin the decision to the analyzer's own verdict rather than a hard-coded
-    // "allow" so this test cannot flap on a developer's global config or CC
-    // permissions.
-    let config = Config::load(&cwd, None).unwrap();
-    let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+    // Pin the decision to the analyzer's own verdict rather than a hard-coded "allow".
+    let mut analyzer = trace_test_analyzer();
     let verdict = analyzer.analyze("ls -la | head").unwrap();
     assert_eq!(output.decision, verdict.decision.as_str());
     assert!(output.steps.iter().any(|s| s.stage == "Parse" && s.matched));
@@ -305,14 +310,14 @@ fn trace_pipe_command_parses() {
 
 #[test]
 fn trace_and_operator_parses() {
-    let cwd = std::env::current_dir().unwrap();
-    let output = collect_trace_data("git log --oneline && git status", &cwd, None).unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
+    let output = isolated_trace("git log --oneline && git status", &cwd, None);
     assert_ne!(output.reason, "could not parse command");
 }
 
 #[test]
 fn trace_compound_never_unparseable() {
-    let cwd = std::env::current_dir().unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
     let commands = [
         "ls -la | head",
         "git log --oneline && git status",
@@ -322,7 +327,7 @@ fn trace_compound_never_unparseable() {
         "x=$(ls); echo $x",
     ];
     for command in commands {
-        let output = collect_trace_data(command, &cwd, None).unwrap();
+        let output = isolated_trace(command, &cwd, None);
         assert_ne!(
             output.reason, "could not parse command",
             "command was wrongly reported unparseable: {command}"
@@ -334,11 +339,10 @@ fn trace_compound_never_unparseable() {
 fn trace_safe_command_with_redirect_not_short_circuited() {
     // Regression for #137: a lone safe command with a redirect must route
     // through the analyzer, not auto-approve on the command name.
-    let cwd = std::env::current_dir().unwrap();
-    let output = collect_trace_data("echo secret > .env", &cwd, None).unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
+    let output = isolated_trace("echo secret > .env", &cwd, None);
 
-    let config = Config::load(&cwd, None).unwrap();
-    let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+    let mut analyzer = trace_test_analyzer();
     let verdict = analyzer.analyze("echo secret > .env").unwrap();
     assert_eq!(output.decision, verdict.decision.as_str());
     assert_ne!(output.decision, "allow");
@@ -346,30 +350,29 @@ fn trace_safe_command_with_redirect_not_short_circuited() {
 
 #[test]
 fn trace_semicolon_list_not_judged_on_first_cmd() {
-    let cwd = std::env::current_dir().unwrap();
-    let output = collect_trace_data("ls; echo done", &cwd, None).unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
+    let output = isolated_trace("ls; echo done", &cwd, None);
 
     // Trace decision must equal the analyzer's verdict, proving the list is
     // routed recursively rather than judged on its safe first word `ls`.
-    let config = Config::load(&cwd, None).unwrap();
-    let mut analyzer = crate::analyzer::Analyzer::new(config, false, cwd, false).unwrap();
+    let mut analyzer = trace_test_analyzer();
     let verdict = analyzer.analyze("ls; echo done").unwrap();
     assert_eq!(output.decision, verdict.decision.as_str());
 }
 
 #[test]
 fn trace_unsafe_compound_not_allowed() {
-    let cwd = std::env::current_dir().unwrap();
-    let output = collect_trace_data("ls && rm -rf /", &cwd, None).unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
+    let output = isolated_trace("ls && rm -rf /", &cwd, None);
     // An unsafe compound must never auto-approve on the strength of `ls`.
     assert_ne!(output.decision, "allow");
 }
 
 #[test]
 fn trace_truly_unparseable_still_asks() {
-    let cwd = std::env::current_dir().unwrap();
+    let cwd = PathBuf::from(TRACE_CWD);
     // A bare `if` keyword is an incomplete construct rable rejects with Err.
-    let output = collect_trace_data("if", &cwd, None).unwrap();
+    let output = isolated_trace("if", &cwd, None);
     assert_eq!(output.decision, "ask");
     assert_eq!(
         output.reason,

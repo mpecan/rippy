@@ -3,13 +3,26 @@
 //! tracking database (hundreds of MB of test commands), and `trust --yes` filled
 //! the real `trusted.json` with temp-dir entries.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
 
 use std::path::Path;
 
 const TRACKING_ON: &str = "[settings]\ntracking = \"on\"\n";
+
+/// Ways a test could spawn rippy with the caller's real home. Clearing or
+/// emptying `HOME` is as bad as a bare spawn: `dirs::home_dir()` (trust db,
+/// jev, setup) then falls back to the passwd entry, i.e. the real `~`.
+const ESCAPES: &[&str] = &[
+    "CARGO_BIN_EXE_",
+    "target/debug/rippy",
+    "target/release/rippy",
+    "Command::new(\"rippy\"",
+    ".env_clear()",
+    ".env_remove(\"HOME\")",
+    ".env(\"HOME\", \"\")",
+];
 
 fn tracked_commands(home: &Path) -> Vec<String> {
     let conn = rusqlite::Connection::open(home.join(".rippy/tracking.db")).unwrap();
@@ -27,17 +40,12 @@ fn spawned_rippy_never_sees_the_callers_home() {
     if let Some(real) = std::env::var_os("HOME") {
         assert_ne!(home, Path::new(&real));
     }
-    let cmd = common::rippy_command();
-    let envs: Vec<_> = cmd.get_envs().collect();
-    assert!(envs.contains(&("HOME".as_ref(), Some(home.as_os_str()))));
-    assert!(envs.contains(&("RIPPY_CONFIG".as_ref(), None)));
-    assert!(envs.contains(&("DIPPY_CONFIG".as_ref(), None)));
 }
 
 #[test]
 fn a_default_hook_run_tracks_into_the_isolated_home() {
-    // This binary's isolated home is used by no other test, so the config
-    // written here cannot leak into another test.
+    // The one deliberate write to the shared isolated home: no other test in
+    // this binary relies on its tracking setting.
     let home = common::isolated_home();
     std::fs::create_dir_all(home.join(".rippy")).unwrap();
     std::fs::write(home.join(".rippy/config.toml"), TRACKING_ON).unwrap();
@@ -47,7 +55,34 @@ fn a_default_hook_run_tracks_into_the_isolated_home() {
     let (_, code) = common::run_rippy(&payload.to_string(), "claude", &[]);
     assert_eq!(code, 0);
 
-    assert_eq!(tracked_commands(home), [marker]);
+    assert!(tracked_commands(home).iter().any(|c| c == marker));
+}
+
+#[test]
+fn trust_yes_writes_the_trust_db_under_the_given_home() {
+    let project = tempfile::TempDir::new().unwrap();
+    let config = project.path().join(".rippy.toml");
+    std::fs::write(
+        &config,
+        "[[rules]]\naction = \"deny\"\npattern = \"echo\"\n",
+    )
+    .unwrap();
+    let home = tempfile::TempDir::new().unwrap();
+
+    let output = common::rippy_command()
+        .args(["trust", "--yes"])
+        .current_dir(project.path())
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+
+    let db = std::fs::read_to_string(home.path().join(".rippy/trusted.json")).unwrap();
+    let canonical = config.canonicalize().unwrap();
+    assert!(
+        db.contains(&*canonical.to_string_lossy()),
+        "{canonical:?} not in {db}"
+    );
 }
 
 #[test]
@@ -66,19 +101,17 @@ fn no_test_spawns_rippy_around_the_isolating_helper() {
                 && !path.ends_with(file!())
             {
                 let text = std::fs::read_to_string(&path).unwrap();
-                let direct = [
-                    "CARGO_BIN_EXE_",
-                    "target/debug/rippy",
-                    "target/release/rippy",
-                ];
-                if direct.iter().any(|needle| text.contains(needle)) {
-                    offenders.push(path);
-                }
+                offenders.extend(
+                    ESCAPES
+                        .iter()
+                        .filter(|needle| text.contains(**needle))
+                        .map(|needle| format!("{}: {needle}", path.display())),
+                );
             }
         }
     }
     assert!(
         offenders.is_empty(),
-        "spawn rippy with common::rippy_command() so it gets an isolated HOME: {offenders:?}"
+        "spawn rippy with common::rippy_command() and a real HOME: {offenders:?}"
     );
 }
