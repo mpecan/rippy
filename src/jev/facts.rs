@@ -20,7 +20,8 @@ pub const PROJECT_PROGRAM: &str = "project dependency";
 pub const PROGRAM_NOT_FOUND: &str =
     "not found on rippy's PATH; may still exist when the command runs";
 
-/// A variable unset in rippy's environment; same caution as `PROGRAM_NOT_FOUND`.
+/// A variable unset in rippy's environment. Worded so the model cannot read it
+/// as an empty value; see docs/jev.md#fact-wording.
 pub const VARIABLE_UNSET: &str =
     "not set in rippy's environment; may hold any value when the command runs";
 

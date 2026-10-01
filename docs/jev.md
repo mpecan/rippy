@@ -411,7 +411,7 @@ Facts rippy sends (`src/jev/facts.rs`), computed without running anything:
 |---|---|---|
 | `variables` | each expanded variable: the argument it fills, and whether it is set in rippy's environment; a set value is described, never sent | `NS: argument after -n for kubectl; not set in rippy's environment; may hold any value when the command runs`, `OUT: …; set to a path inside project` |
 | `paths` | each path-like argument and redirect target that appears verbatim in the sanitized command, labelled against the project root; home paths are shown as `~/…` | `~/.ssh/id_rsa: outside project (home directory)` |
-| `programs` | a `PATH` lookup of each command name, labelled system-installed / user-installed / project dependency / not found | `kubectl: system-installed`, `srm: not found on rippy's PATH; may still exist when the command runs` |
+| `programs` | a `PATH` lookup of each command name, labelled system-installed / user-installed / project dependency / not found (on rippy's `PATH`) | `kubectl: system-installed`, `srm: not found on rippy's PATH; may still exist when the command runs` |
 | `user_context` | the global `[jev] context` string, if set | `kubectl only talks to local kind clusters` |
 
 A path fact is emitted only when its text survives redaction unchanged, so a
@@ -424,6 +424,21 @@ Two things are deliberately left out:
   inside/outside labels are sent.
 - **The agent's own `description` field from the hook payload.** It is written
   by the agent and would be a direct steering channel.
+
+**User context.** A global-only `[jev] context = "…"` string may describe the
+user's environment, for example "kubectl talks only to local kind clusters".
+Because prose shifts the answers, it is sent under `facts.user_context` and
+should be checked with `rippy jev` before use.
+
+**Versioning.** The question set, its wording and the fact schema are one
+versioned unit, `QUESTION_SET_VERSION`. The version is part of the reason string
+and the `question_set` log field, and will be part of the cache key
+([Phase 3](#phase-3-later)). Each round of the prototype changed the answers
+measurably, so wording changes are reviewed and re-run against the labelled
+sample like any other policy change. Labelled data and models fine-tuned on
+rippy's questions are tied to the version they were built from: after a bump,
+re-check them against the labelled sample, and relabel or retrain if their
+answers move.
 
 ### Fact wording
 
@@ -445,23 +460,19 @@ gpt-oss-120b) were sent this state:
 
 Both reasoned "srm is not on PATH, so this only prints `command not found`" and
 answered `read_only`, nothing irreversible. Hosted Jev classed it `destructive`
-(0.69–0.79 confidence, with `read_only` at 0.17–0.25), but the wording invited
-the misreading. From `q3` both facts say the lookup is rippy's and that the
-program or value may exist when the command runs. With that wording, hosted
-Jev answered `destructive` at 1.00 (`read_only` 0, `irreversible` 0.81 up from
-0.50) in two runs on 2026-10-01. Unit tests in
-`src/jev/facts_tests.rs` pin the exact strings.
+(0.69–0.79 confidence), but still put 0.17–0.25 on `read_only`: the wording
+invited the misreading. From `q3` both facts say the lookup is rippy's and that
+the program or value may exist when the command runs. In two runs on 2026-10-01
+hosted Jev then answered `destructive` at 1.00, `read_only` fell to 0, and
+`irreversible` rose from 0.50 to 0.81. Unit tests in `src/jev/facts_tests.rs`
+pin the exact strings.
 
-**User context.** A global-only `[jev] context = "…"` string may describe the
-user's environment, for example "kubectl talks only to local kind clusters".
-Because prose shifts the answers, it is sent under `facts.user_context` and
-should be checked with `rippy jev` before use.
-
-**Versioning.** The question set, its wording and the fact schema are one
-versioned unit, `QUESTION_SET_VERSION`, and the version is part of the reason
-string and the cache key. Each round of the prototype changed the answers
-measurably, so wording changes are reviewed and re-run against the labelled
-sample like any other policy change.
+On the labelled sample (`scripts/jev-eval`, 76 cases reaching Jev) the change
+costs usefulness, not safety. False approvals stay at 0 and exfiltration
+escalations at 8/9, but safe approvals fall from 29/35 to 26/35:
+`somecli list --format json`, `bat --plain $FILE` and `hexyl $FILE` are now
+kept. A wording that lets a missing program or an unseen value read as harmless
+is the riskier error.
 
 ### Questions
 

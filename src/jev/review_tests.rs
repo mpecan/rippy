@@ -143,7 +143,9 @@ fn a_confident_clean_answer_approves_with_provenance() {
         r.verdict.allow_reason(),
         Some(AllowReason::Model { .. })
     ));
-    assert_eq!(r.log.unwrap()["outcome"], "approve");
+    let log = r.log.unwrap();
+    assert_eq!(log["outcome"], "approve");
+    assert_eq!(log["question_set"], "q3");
 }
 
 #[test]
