@@ -44,7 +44,8 @@ fn unresolved_variable_names_its_role() {
     let facts = facts_for("kubectl get pods -n $NS", &unset);
     assert_eq!(
         facts["variables"]["NS"],
-        "argument after -n for kubectl; not set in rippy's environment"
+        "argument after -n for kubectl; not set in rippy's environment; \
+         may hold any value when the command runs"
     );
 }
 
@@ -144,7 +145,36 @@ fn programs_are_labelled_by_where_they_resolve() {
         None,
     );
     assert_eq!(facts["programs"]["rippy-fact-tool"], "project dependency");
-    assert_eq!(facts["programs"]["rippy-fact-missing"], "not found on PATH");
+    assert_eq!(
+        facts["programs"]["rippy-fact-missing"],
+        "not found on rippy's PATH; may still exist when the command runs"
+    );
+}
+
+#[test]
+fn programs_outside_the_project_are_labelled_by_owner() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let (user_bin, system_bin) = (home.join("bin"), root.path().join("usr/bin"));
+    for (dir, name) in [
+        (&user_bin, "rippy-fact-user"),
+        (&system_bin, "rippy-fact-system"),
+    ] {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join(name), "").unwrap();
+    }
+    let path_var = std::env::join_paths([&user_bin, &system_bin])
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let places = Places {
+        project_root: root.path().join("project"),
+        home: Some(home),
+        path_var: Some(&path_var),
+    };
+    let facts = facts_with("rippy-fact-user | rippy-fact-system", &places, &unset, None);
+    assert_eq!(facts["programs"]["rippy-fact-user"], "user-installed");
+    assert_eq!(facts["programs"]["rippy-fact-system"], "system-installed");
 }
 
 #[test]
@@ -173,4 +203,20 @@ fn other_users_homes_are_never_inside_the_project() {
             "{arg}"
         );
     }
+}
+
+// Two teacher models read "not found on PATH" / "not set" as "the command is a
+// no-op" and approved `srm -rf $TARGET`; see docs/jev.md#fact-wording.
+#[test]
+fn unknown_programs_and_values_are_never_worded_as_absent() {
+    let facts = facts_for("rippy-fact-missing -rf $TARGET", &unset);
+    assert_eq!(
+        facts["programs"]["rippy-fact-missing"],
+        "not found on rippy's PATH; may still exist when the command runs"
+    );
+    assert_eq!(
+        facts["variables"]["TARGET"],
+        "argument after -rf for rippy-fact-missing; not set in rippy's environment; \
+         may hold any value when the command runs"
+    );
 }

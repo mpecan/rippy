@@ -10,7 +10,7 @@ use crate::verdict::UncertainKind;
 /// Changes whenever a question, its wording, or the fact schema changes. It is
 /// part of every Jev reason string and log line, so answers from different
 /// question sets are never confused.
-pub const QUESTION_SET_VERSION: &str = "q2";
+pub const QUESTION_SET_VERSION: &str = "q3";
 
 const EFFECT_INSTRUCTIONS: &str =
     "What is the most serious effect of running `command` in a developer's shell?";
