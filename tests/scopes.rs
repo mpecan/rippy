@@ -6,7 +6,6 @@
 mod common;
 
 use std::path::PathBuf;
-use std::process::Command;
 
 use rippy_cli::analyzer::Analyzer;
 use rippy_cli::config::{Config, ConfigDirective};
@@ -151,7 +150,7 @@ fn untrusted_project_scope_not_honored() {
 // `rippy scope` CLI smoke test.
 
 fn run_scope(dir: &std::path::Path, args: &[&str]) -> i32 {
-    let output = Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .arg("scope")
         .args(args)
         .current_dir(dir)
@@ -200,7 +199,7 @@ fn cli_scope_global_add_list() {
     let home = tempfile::TempDir::new().unwrap();
     let work = tempfile::TempDir::new().unwrap();
 
-    let add = Command::new(common::rippy_binary())
+    let add = common::rippy_command()
         .args(["scope", "add", "--global", "/opt/global-smoke"])
         .current_dir(work.path())
         .env("HOME", home.path())
@@ -215,7 +214,7 @@ fn cli_scope_global_add_list() {
     );
     assert!(cfg.contains("/opt/global-smoke"));
 
-    let list = Command::new(common::rippy_binary())
+    let list = common::rippy_command()
         .args(["scope", "list", "--global"])
         .current_dir(work.path())
         .env("HOME", home.path())

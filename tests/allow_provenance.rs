@@ -201,7 +201,7 @@ fn after_rule_message_reaches_additional_context() {
         r#"{"tool_name":"Bash","tool_input":{"command":"ls"},"#,
         r#""tool_result":{"output":"file.txt"},"hook_event_name":"PostToolUse"}"#
     );
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["--mode", "claude"])
         .current_dir(dir.path())
         .env("HOME", home.path())

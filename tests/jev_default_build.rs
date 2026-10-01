@@ -7,14 +7,11 @@
 mod common;
 
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 #[test]
 fn version_has_no_jev_suffix() {
-    let out = Command::new(common::rippy_binary())
-        .arg("--version")
-        .output()
-        .unwrap();
+    let out = common::rippy_command().arg("--version").output().unwrap();
     assert!(!String::from_utf8_lossy(&out.stdout).contains("+jev"));
 }
 
@@ -23,7 +20,7 @@ fn an_enabled_jev_section_warns_and_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("jev.toml");
     std::fs::write(&config, "[jev]\nenabled = true\n").unwrap();
-    let mut child = Command::new(common::rippy_binary())
+    let mut child = common::rippy_command()
         .args(["--mode", "claude", "--config"])
         .arg(&config)
         .current_dir(dir.path())

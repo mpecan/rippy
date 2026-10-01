@@ -7,12 +7,12 @@
 //! custom packages are discovered, loaded, and layered correctly.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 mod common;
 
 fn rippy_with_home(args: &[&str], home: &Path) -> (String, String, i32) {
-    let mut cmd = Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     for arg in args {
         cmd.arg(arg);
     }
@@ -28,7 +28,7 @@ fn rippy_with_home(args: &[&str], home: &Path) -> (String, String, i32) {
 }
 
 fn rippy_hook_with_home(json: &str, mode: &str, cwd: &Path, home: &Path) -> (String, String, i32) {
-    let mut cmd = Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode").arg(mode);
     cmd.current_dir(cwd)
         .env("HOME", home)
@@ -372,7 +372,7 @@ fn builtin_takes_priority_over_custom_with_same_name() {
 }
 
 fn profile_set_project(project: &Path, home: &Path) -> i32 {
-    Command::new(common::rippy_binary())
+    common::rippy_command()
         .args(["profile", "set", "develop", "--project"])
         .current_dir(project)
         .env("HOME", home)

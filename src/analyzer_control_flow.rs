@@ -199,6 +199,7 @@ mod tests {
 
     use super::Analyzer;
     use crate::config::Config;
+    use crate::environment::Environment;
     use crate::parser::BashParser;
     use crate::resolve::tests::MockLookup;
     use crate::verdict::Decision;
@@ -238,7 +239,8 @@ mod tests {
     fn unrouted_node_kind_asks_rather_than_allowing() {
         let nodes = BashParser::new().unwrap().parse("ls").unwrap();
         let cwd = PathBuf::from("/project");
-        let mut analyzer = Analyzer::new(Config::empty(), false, cwd.clone(), false).unwrap();
+        let mut analyzer =
+            Analyzer::from_env(Config::empty(), Environment::for_test(cwd.clone())).unwrap();
 
         let verdict = analyzer.analyze_control_flow(&nodes[0], &cwd, 0);
 

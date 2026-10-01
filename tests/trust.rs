@@ -33,7 +33,7 @@ fn trust_untrusted_config_emits_stderr_warning() {
     .unwrap();
 
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
-    let mut cmd = std::process::Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode")
         .arg("claude")
         .current_dir(dir.path())
@@ -77,7 +77,7 @@ fn trust_trusted_project_config_applied() {
 
     // Run rippy with HOME pointing to our fake home.
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
-    let mut cmd = std::process::Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode")
         .arg("claude")
         .current_dir(dir.path())
@@ -122,7 +122,7 @@ fn trust_global_setting_bypasses_check() {
     .unwrap();
 
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
-    let mut cmd = std::process::Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode")
         .arg("claude")
         .current_dir(dir.path())
@@ -148,7 +148,7 @@ fn trust_command_status_untrusted() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::write(dir.path().join(".rippy"), "allow git status\n").unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["trust", "--status"])
         .current_dir(dir.path())
         .output()
@@ -179,7 +179,7 @@ fn trust_command_revoke() {
     db.save().unwrap();
 
     // Revoke it.
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["trust", "--revoke"])
         .current_dir(dir.path())
         .env("HOME", &trust_dir)
@@ -226,7 +226,7 @@ fn trust_modified_config_is_ignored() {
 
     // Run rippy — modified config should be ignored.
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
-    let mut cmd = std::process::Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode")
         .arg("claude")
         .current_dir(dir.path())
@@ -256,10 +256,12 @@ fn trust_command_yes_trusts_without_stdin() {
     let dir = tempfile::TempDir::new().unwrap();
     let config_path = dir.path().join(".rippy");
     std::fs::write(&config_path, "deny echo\n").unwrap();
+    let home = tempfile::TempDir::new().unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["trust", "--yes"])
         .current_dir(dir.path())
+        .env("HOME", home.path())
         .output()
         .unwrap();
 
@@ -274,7 +276,7 @@ fn trust_command_yes_trusts_without_stdin() {
 #[test]
 fn trust_command_list_empty() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["trust", "--list"])
         .current_dir(dir.path())
         .env("HOME", dir.path())
@@ -304,7 +306,7 @@ fn trust_command_status_when_trusted() {
     db.trust(&config_path, &content);
     db.save().unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["trust", "--status"])
         .current_dir(dir.path())
         .env("HOME", &fake_home)
@@ -372,7 +374,7 @@ fn trust_repo_level_survives_config_change() {
 
     // Run rippy — should still trust because repo_id matches.
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo hello"}}"#;
-    let mut cmd = std::process::Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode")
         .arg("claude")
         .current_dir(dir.path())
