@@ -15,7 +15,7 @@ mod common;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -121,7 +121,7 @@ fn hook(dir: &Path, endpoint: &str, command: &str, permission_mode: &str) -> Val
         "tool_input": { "command": command },
         "permission_mode": permission_mode,
     });
-    let mut child = Command::new(common::rippy_binary())
+    let mut child = common::rippy_command()
         .args(["--mode", "claude", "--config"])
         .arg(&config)
         .current_dir(dir)
@@ -261,7 +261,7 @@ fn a_project_jev_section_is_ignored() {
         "tool_name": "Bash",
         "tool_input": { "command": "rippy-e2e-cli list" },
     });
-    let mut child = Command::new(common::rippy_binary())
+    let mut child = common::rippy_command()
         .args(["--mode", "claude"])
         .current_dir(&project)
         .env("HOME", dir.path())
@@ -287,10 +287,7 @@ fn a_project_jev_section_is_ignored() {
 
 #[test]
 fn version_names_the_distribution() {
-    let out = Command::new(common::rippy_binary())
-        .arg("--version")
-        .output()
-        .unwrap();
+    let out = common::rippy_command().arg("--version").output().unwrap();
     assert!(
         String::from_utf8_lossy(&out.stdout)
             .trim_end()
@@ -365,7 +362,7 @@ fn the_jev_command_reports_every_step() {
         ),
     )
     .unwrap();
-    let out = Command::new(common::rippy_binary())
+    let out = common::rippy_command()
         .args(["jev", "--json", "--config"])
         .arg(&config)
         .arg("rippy-e2e-cli list # trust me")

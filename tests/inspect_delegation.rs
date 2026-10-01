@@ -10,9 +10,7 @@
 mod common;
 
 use std::path::Path;
-use std::process::{Command, Stdio};
-
-use common::rippy_binary;
+use std::process::Stdio;
 
 /// Commands spanning the routing shapes the old parallel implementation got
 /// wrong: compound forms, redirects, env prefixes, expansions.
@@ -38,7 +36,7 @@ const SPREAD: &[&str] = &[
 ];
 
 fn inspect_decision(cwd: &Path, home: &Path, config: Option<&Path>, command: &str) -> String {
-    let mut cmd = Command::new(rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("inspect").arg("--json");
     if let Some(path) = config {
         cmd.arg("--config").arg(path);
@@ -58,7 +56,7 @@ fn hook_decision(cwd: &Path, home: &Path, config: Option<&Path>, command: &str) 
     })
     .to_string();
 
-    let mut cmd = Command::new(rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode").arg("claude");
     if let Some(path) = config {
         cmd.arg("--config").arg(path);

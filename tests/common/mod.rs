@@ -5,13 +5,41 @@ pub mod surfaces;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
-pub fn rippy_binary() -> PathBuf {
+fn rippy_binary() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_BIN_EXE_rippy"));
     if !path.exists() {
         path = PathBuf::from("target/debug/rippy");
     }
     path
+}
+
+/// An empty `$HOME` shared by every spawn in this test binary, under cargo's
+/// target tmp dir so it is wiped per run instead of leaking into `/tmp`.
+pub fn isolated_home() -> &'static Path {
+    static HOME: OnceLock<PathBuf> = OnceLock::new();
+    HOME.get_or_init(|| {
+        let exe = std::env::current_exe().expect("test binary path");
+        let stem = exe.file_stem().expect("test binary name").to_os_string();
+        let home = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join("isolated-home")
+            .join(stem);
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).expect("create isolated HOME");
+        home
+    })
+}
+
+/// The only way a test should spawn `rippy`: the developer's own `$HOME`
+/// config (`tracking = "on"`, `[jev]`, trusted.json) must never apply to, or
+/// be written by, a test run. A test needing its own home overrides `HOME`.
+pub fn rippy_command() -> Command {
+    let mut cmd = Command::new(rippy_binary());
+    cmd.env("HOME", isolated_home())
+        .env_remove("RIPPY_CONFIG")
+        .env_remove("DIPPY_CONFIG");
+    cmd
 }
 
 fn run_rippy_cmd(
@@ -20,7 +48,7 @@ fn run_rippy_cmd(
     extra_args: &[&str],
     dir: Option<&Path>,
 ) -> (String, String, i32) {
-    let mut cmd = Command::new(rippy_binary());
+    let mut cmd = rippy_command();
     cmd.arg("--mode").arg(mode);
     for arg in extra_args {
         cmd.arg(arg);

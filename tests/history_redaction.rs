@@ -9,7 +9,7 @@ mod common;
 
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 /// Marks a case whose secret is typed into the command, not in the environment.
 const LITERAL: &str = "RIPPY_TEST_UNUSED";
@@ -107,7 +107,7 @@ fn run_hook(command: &str, var: &str, value: &str, config: &Path, home: &Path) -
         "tool_input": {"command": command},
         "hook_event_name": "PreToolUse",
     });
-    let mut child = Command::new(common::rippy_binary())
+    let mut child = common::rippy_command()
         .args(["--mode", "claude", "-v"])
         .env("HOME", home)
         .env("RIPPY_CONFIG", config)
@@ -134,7 +134,7 @@ fn run_hook(command: &str, var: &str, value: &str, config: &Path, home: &Path) -
 
 /// `rippy inspect --json` for `command`, with `var` set.
 fn inspect(command: &str, var: &str, value: &str, home: &Path) -> String {
-    let out = Command::new(common::rippy_binary())
+    let out = common::rippy_command()
         .args(["inspect", "--json", command])
         .env("HOME", home)
         .env(var, value)
