@@ -15,7 +15,7 @@ fn inspect_list_with_config() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["inspect", "--config"])
         .arg(&config)
         .output()
@@ -30,7 +30,7 @@ fn inspect_list_with_config() {
 
 #[test]
 fn inspect_trace_safe_command() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["inspect", "cat /tmp/file"])
         .output()
         .unwrap();
@@ -50,7 +50,7 @@ fn inspect_trace_with_config_rule() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["inspect", "--config"])
         .arg(&config)
         .arg("echo evil")
@@ -64,7 +64,7 @@ fn inspect_trace_with_config_rule() {
 
 #[test]
 fn inspect_json_output() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["inspect", "--json", "cat /tmp/file"])
         .output()
         .unwrap();
@@ -81,7 +81,7 @@ fn inspect_list_json_output() {
     let config = dir.path().join("test.toml");
     std::fs::write(&config, "[[rules]]\naction = \"allow\"\npattern = \"ls\"\n").unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["inspect", "--json", "--config"])
         .arg(&config)
         .output()
@@ -121,7 +121,7 @@ fn stats_json_from_populated_db() {
     .unwrap();
     drop(conn);
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["stats", "--json", "--db"])
         .arg(&db_path)
         .output()
@@ -174,7 +174,7 @@ fn stdlib_sudo_asks() {
 
 #[test]
 fn init_stdout_prints_stdlib() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["init", "--stdout"])
         .output()
         .unwrap();
@@ -187,9 +187,12 @@ fn init_stdout_prints_stdlib() {
 #[test]
 fn init_creates_config_file() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    // init trusts the file it creates, so it writes trusted.json under HOME.
+    let home = tempfile::TempDir::new().unwrap();
+    let output = common::rippy_command()
         .args(["init"])
         .current_dir(dir.path())
+        .env("HOME", home.path())
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -203,9 +206,12 @@ fn init_creates_config_file() {
 #[test]
 fn init_with_package_flag() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    // init trusts the file it creates, so it writes trusted.json under HOME.
+    let home = tempfile::TempDir::new().unwrap();
+    let output = common::rippy_command()
         .args(["init", "--package", "review"])
         .current_dir(dir.path())
+        .env("HOME", home.path())
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -216,7 +222,7 @@ fn init_with_package_flag() {
 
 #[test]
 fn init_stdout_still_works() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["init", "--stdout"])
         .output()
         .unwrap();
@@ -229,7 +235,7 @@ fn init_stdout_still_works() {
 #[test]
 fn init_invalid_package_fails() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["init", "--package", "bogus"])
         .current_dir(dir.path())
         .output()
@@ -246,7 +252,7 @@ fn init_invalid_package_fails() {
 fn init_refuses_existing() {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::write(dir.path().join(".rippy.toml"), "existing").unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["init"])
         .current_dir(dir.path())
         .output()
@@ -259,7 +265,7 @@ fn init_refuses_existing() {
 #[test]
 fn discover_finds_curl_flags() {
     let home = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["discover", "curl", "--json"])
         .env("HOME", home.path())
         .output()
@@ -276,10 +282,7 @@ fn discover_finds_curl_flags() {
 
 #[test]
 fn discover_without_args_errors() {
-    let output = std::process::Command::new(common::rippy_binary())
-        .args(["discover"])
-        .output()
-        .unwrap();
+    let output = common::rippy_command().args(["discover"]).output().unwrap();
     assert!(!output.status.success());
 }
 
@@ -333,7 +336,7 @@ fn suggest_from_session_file() {
     let session_file = dir.path().join("test-session.jsonl");
     std::fs::write(&session_file, suggest_session_jsonl()).unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args([
             "suggest",
             "--session-file",
@@ -362,7 +365,7 @@ fn suggest_from_session_file() {
 
 #[test]
 fn debug_shows_allow_verdict() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["debug", "git status"])
         .output()
         .unwrap();
@@ -387,7 +390,7 @@ fn debug_shows_deny_with_reason() {
     )
     .unwrap();
     let config_str = config_path.to_str().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["debug", "rm -rf /tmp", "--config", config_str])
         .output()
         .unwrap();
@@ -401,7 +404,7 @@ fn debug_shows_deny_with_reason() {
 
 #[test]
 fn debug_json_output_valid() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["debug", "ls", "--json"])
         .output()
         .unwrap();
@@ -418,7 +421,7 @@ fn debug_shows_config_source_override() {
     let config_path = dir.path().join("custom.toml");
     std::fs::write(&config_path, "").unwrap();
     let config_str = config_path.to_str().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["debug", "echo hello", "--config", config_str])
         .output()
         .unwrap();
@@ -431,7 +434,7 @@ fn debug_shows_config_source_override() {
 
 #[test]
 fn debug_unknown_command_shows_ask() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["debug", "totally_unknown_command_xyz"])
         .output()
         .unwrap();
@@ -449,7 +452,7 @@ fn debug_unknown_command_shows_ask() {
 
 #[test]
 fn debug_shows_resolved_command_for_arithmetic() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["debug", "echo $((2+2))"])
         .output()
         .unwrap();
@@ -466,7 +469,7 @@ fn debug_shows_resolved_command_for_arithmetic() {
 
 #[test]
 fn debug_json_includes_resolved_field() {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["debug", "echo $'\\x41'", "--json"])
         .output()
         .unwrap();

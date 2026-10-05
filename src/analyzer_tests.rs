@@ -338,7 +338,7 @@ fn config_override_allows() {
         Rule::new(RuleTarget::Command, Decision::Allow, "rm -rf /tmp")
             .with_message("cleanup allowed"),
     )]);
-    let mut a = Analyzer::new(config, false, PathBuf::from("/tmp"), false).unwrap();
+    let mut a = Analyzer::from_env(config, Environment::for_test(PathBuf::from("/tmp"))).unwrap();
     let v = a.analyze("rm -rf /tmp").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }
@@ -461,7 +461,11 @@ fn cc_allow_rule_overrides_handler() {
         r#"{"permissions": {"allow": ["Bash(git push)"]}}"#,
     )
     .unwrap();
-    let mut a = Analyzer::new(Config::empty(), false, dir.path().to_path_buf(), false).unwrap();
+    let mut a = Analyzer::from_env(
+        Config::empty(),
+        Environment::for_test(dir.path().to_path_buf()),
+    )
+    .unwrap();
     let v = a.analyze("git push origin main").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }
@@ -476,7 +480,11 @@ fn cc_deny_rule_overrides_handler() {
         r#"{"permissions": {"deny": ["Bash(ls)"]}}"#,
     )
     .unwrap();
-    let mut a = Analyzer::new(Config::empty(), false, dir.path().to_path_buf(), false).unwrap();
+    let mut a = Analyzer::from_env(
+        Config::empty(),
+        Environment::for_test(dir.path().to_path_buf()),
+    )
+    .unwrap();
     let v = a.analyze("ls").unwrap();
     assert_eq!(v.decision, Decision::Deny);
 }
@@ -497,7 +505,8 @@ fn cc_rules_checked_before_rippy_config() {
     let config = Config::from_directives(vec![ConfigDirective::Rule(
         Rule::new(RuleTarget::Command, Decision::Ask, "rm -rf /tmp").with_message("dangerous"),
     )]);
-    let mut a = Analyzer::new(config, false, dir.path().to_path_buf(), false).unwrap();
+    let mut a =
+        Analyzer::from_env(config, Environment::for_test(dir.path().to_path_buf())).unwrap();
     let v = a.analyze("rm -rf /tmp").unwrap();
     assert_eq!(v.decision, Decision::Allow);
 }

@@ -127,7 +127,8 @@ impl Analyzer {
     }
 
     /// Create a new analyzer with a custom variable lookup (used by tests
-    /// to inject deterministic env values via `MockLookup`).
+    /// to inject deterministic env values via `MockLookup`). No home is set,
+    /// so the developer's `~/.claude` permissions never reach a test.
     ///
     /// # Errors
     ///
@@ -141,6 +142,7 @@ impl Analyzer {
         var_lookup: Box<dyn VarLookup>,
     ) -> Result<Self, RippyError> {
         let env = Environment::from_system(working_directory, remote, verbose)
+            .with_home(None)
             .with_var_lookup(var_lookup);
         Self::from_env(config, env)
     }

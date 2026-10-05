@@ -68,7 +68,7 @@ fn heredoc_safe_allows() {
 #[test]
 fn allow_command_creates_toml_rule() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["allow", "git status"])
         .current_dir(dir.path())
         .output()
@@ -83,7 +83,7 @@ fn allow_command_creates_toml_rule() {
 #[test]
 fn deny_command_with_message() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["deny", "rm -rf *", "use trash instead"])
         .current_dir(dir.path())
         .output()
@@ -98,7 +98,7 @@ fn deny_command_with_message() {
 #[test]
 fn ask_command_creates_toml_rule() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["ask", "docker run *"])
         .current_dir(dir.path())
         .output()
@@ -113,7 +113,7 @@ fn ask_command_creates_toml_rule() {
 #[test]
 fn allow_global_writes_to_home_config() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["allow", "git status", "--global"])
         .env("HOME", dir.path())
         .output()
@@ -128,7 +128,7 @@ fn allow_global_writes_to_home_config() {
 #[test]
 fn suggest_from_command_output() {
     let dir = tempfile::TempDir::new().unwrap();
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["suggest", "--from-command", "git push origin main"])
         .current_dir(dir.path())
         .output()
@@ -179,7 +179,7 @@ fn suggest_from_db_json() {
     }
     drop(conn);
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args([
             "suggest",
             "--db",
@@ -290,12 +290,8 @@ message = "No force push"
 use serial_test::serial;
 
 #[test]
-#[serial(env)]
 fn param_expansion_in_echo_resolves_to_allow() {
-    // SAFETY: serial_test guarantees no concurrent env mutation.
-    unsafe {
-        std::env::set_var("HOME", "/tmp/test-home");
-    }
+    // `rippy_command()` hands the child a set HOME, so `${HOME}` resolves.
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"echo ${HOME}"}}"#;
     let (stdout, code) = run_rippy(json, "claude", &[]);
     assert_eq!(code, 0, "resolved echo should allow, stdout: {stdout}");
@@ -391,7 +387,7 @@ fn plain_echo_still_allows() {
 fn hook_decision(dir: &std::path::Path, command: &str) -> String {
     let payload =
         serde_json::json!({"tool_name":"Bash","tool_input":{"command": command}}).to_string();
-    let mut cmd = std::process::Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.args(["--mode", "claude"])
         .env("HOME", dir)
         .current_dir(dir)
@@ -416,7 +412,7 @@ fn hook_decision(dir: &std::path::Path, command: &str) -> String {
 /// Run `rippy inspect <cmd> --json` under an isolated HOME + cwd, returning
 /// `(decision, reason)`.
 fn inspect_decision(dir: &std::path::Path, command: &str) -> (String, String) {
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["inspect", command, "--json"])
         .env("HOME", dir)
         .current_dir(dir)

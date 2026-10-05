@@ -7,9 +7,7 @@
 
 mod common;
 
-use std::process::Command;
-
-use common::{rippy_binary, run_rippy};
+use common::run_rippy;
 
 #[test]
 fn malformed_payload_asks_in_gemini_and_cursor_modes() {
@@ -244,7 +242,7 @@ fn ordinary_documents_and_scripts_are_not_refused_for_their_shape() {
 
 #[test]
 fn subcommands_still_report_real_errors() {
-    let out = Command::new(rippy_binary())
+    let out = common::rippy_command()
         .args(["inspect", "--config", "/nonexistent/rippy.toml", "ls"])
         .output()
         .expect("spawn rippy inspect");
@@ -255,7 +253,7 @@ fn subcommands_still_report_real_errors() {
 
 #[test]
 fn unknown_subcommand_flag_still_reports_usage() {
-    let out = Command::new(rippy_binary())
+    let out = common::rippy_command()
         .args(["list", "--definitely-not-a-flag"])
         .output()
         .expect("spawn rippy list");

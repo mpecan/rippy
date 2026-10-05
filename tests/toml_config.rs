@@ -97,7 +97,7 @@ fn migrate_stdout_produces_valid_toml() {
     let config = dir.path().join(".rippy");
     std::fs::write(&config, "allow git status\ndeny rm -rf \"use trash\"\n").unwrap();
 
-    let output = std::process::Command::new(common::rippy_binary())
+    let output = common::rippy_command()
         .args(["migrate", "--stdout"])
         .arg(&config)
         .output()
@@ -141,7 +141,7 @@ fn config_weakening_verdict_annotated() {
     .unwrap();
 
     let json = r#"{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/stuff"}}"#;
-    let mut cmd = std::process::Command::new(common::rippy_binary());
+    let mut cmd = common::rippy_command();
     cmd.arg("--mode")
         .arg("claude")
         .current_dir(dir.path())

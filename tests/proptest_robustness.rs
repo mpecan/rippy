@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use proptest::prelude::*;
 use rippy_cli::analyzer::Analyzer;
 use rippy_cli::config::{Config, ConfigFormat};
+use rippy_cli::environment::Environment;
 use rippy_cli::parser::BashParser;
 use rippy_cli::pattern::Pattern;
 use rippy_cli::payload::Payload;
@@ -31,14 +32,13 @@ use rippy_cli::redact;
 /// Build a fresh analyzer with an empty config and a stable working directory.
 /// We deliberately use `Config::empty()` so commands fall through to the full
 /// analyzer pipeline rather than short-circuiting on stdlib rule matches.
+/// `Environment::for_test` keeps the developer's `~/.claude` rules out.
 fn fresh_analyzer() -> Analyzer {
-    Analyzer::new(
+    Analyzer::from_env(
         Config::empty(),
-        /* remote */ false,
-        PathBuf::from("/tmp"),
-        /* verbose */ false,
+        Environment::for_test(PathBuf::from("/tmp")),
     )
-    .expect("Analyzer::new with empty config and /tmp cwd is infallible")
+    .expect("an analyzer with empty config and /tmp cwd is infallible")
 }
 
 /// Strategy: `$(cat <<DELIM\n<body>\nDELIM\n)`. Biases proptest toward the
