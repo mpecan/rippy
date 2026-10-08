@@ -65,8 +65,8 @@ cargo binstall rippy-cli --pkg-url '{ repo }/releases/download/rippy-cli-v{ vers
 ```
 
 `rippy --version` ends in `+jev` on this build. It does nothing until enabled; see
-[Jev review of uncertain asks](#jev-review-of-uncertain-asks-rippy-jev-only). It can also use a local
-model instead of a hosted one, so commands never leave your machine; see
+[Jev review of uncertain asks](#jev-review-of-uncertain-asks-rippy-jev-only). It can also use
+a local model instead of a hosted one, so commands never leave your machine; see
 [Run it locally](#run-it-locally).
 
 ## Quick Start
@@ -376,71 +376,66 @@ timeout-ms = 2000
 
 #### Run it locally
 
-To keep commands on your machine, point `[jev]` at a local model instead.
-[rippy-kev](https://github.com/mpecan/rippy-kev) trains small open models on
-rippy's own questions. On never-seen programs, rippy-kev-4b approves more safe
-commands than hosted Jev with fewer severe approvals:
+To keep commands on your machine, point `[jev]` at a local
+[rippy-kev](https://github.com/mpecan/rippy-kev) model (open, Apache-2.0) instead:
 
-| model | weights | p50 on an M4 Max | thresholds |
+| model | weights | median per command (M4 Max) | `min-confidence` |
 |---|---|---|---|
-| rippy-kev-4b | [Risethagain/rippy-kev-4b](https://huggingface.co/Risethagain/rippy-kev-4b) | ~0.75 s | `min-confidence = 0.75` |
-| rippy-kev-0.8b | [Risethagain/rippy-kev-0.8b](https://huggingface.co/Risethagain/rippy-kev-0.8b) (read its caveats) | ~0.2 s | `min-confidence = 0.85` |
+| rippy-kev-4b | [Risethagain/rippy-kev-4b][kev-4b] | ~0.75 s | 0.75 |
+| rippy-kev-0.8b | [Risethagain/rippy-kev-0.8b][kev-0.8b] | ~0.25 s | 0.85 |
 
-Serve one with Kev's server (fastest on Apple silicon):
+[kev-4b]: https://huggingface.co/Risethagain/rippy-kev-4b
+[kev-0.8b]: https://huggingface.co/Risethagain/rippy-kev-0.8b
 
 ```sh
-git clone https://github.com/jaredpalmer/kev && cd kev && uv sync --extra serve
+# in a checkout of https://github.com/jaredpalmer/kev, after `uv sync --extra serve`
 uv run --extra serve python -m kev.serve --run Risethagain/rippy-kev-4b --port 8012
+export RIPPY_KEV_KEY=local   # any non-empty value, where your AI tool is launched
 ```
-
-Or with llama.cpp (build 11361 or later), using the Q8_0 GGUF from the same repo:
-
-```sh
-llama-server -m rippy-kev-4b-v2-Q8_0.gguf --port 8012 -ngl 99 --parallel 1 -c 4096 --cache-ram 0 --ctx-checkpoints 0
-```
-
-Then configure rippy:
 
 ```toml
 [jev]
 enabled = true
 endpoint = "http://127.0.0.1:8012/v1/systemone"
 model = "kev-latest"
-api-key-env = "RIPPY_KEV_KEY"   # any non-empty value; the local server needs no key
-min-confidence = 0.75           # use the model's own thresholds, not Jev's
-max-irreversible = 0.2
-max-writes-outside = 0.3
+api-key-env = "RIPPY_KEV_KEY"
+min-confidence = 0.75        # rippy-kev-0.8b: 0.85
 ```
 
-The models need rippy 0.2.4 or later. The evaluation, thresholds and caveats are in
-[docs/jev.md](docs/jev.md#local-models).
+The models need rippy 0.2.4 or later. Setup with llama.cpp, checks and troubleshooting are
+in the [model-assisted review guide](https://rippy.pecan.si/configuration/model-review/);
+training and evaluation are in [docs/jev.md](docs/jev.md#local-models).
 
-What to know before enabling it:
+#### What to know before enabling it
 
-- **With a hosted endpoint, commands leave your machine.** Eligible commands are sent to the endpoint with comments
-  removed and secrets replaced by `<redacted>`: assignment and `NAME=value` values, credential
-  flags, `Bearer`/`Authorization` values, token shapes and JWTs, and URL credentials and query
-  secrets. Variable values are never sent. Redaction covers common shapes; it is not a
-  guarantee. Only plain commands are sent: never ones with a group, loop, substitution,
-  heredoc, stdin redirect, `NAME=value` prefix, multiple lines or non-ASCII text.
-- **It trades some safety for fewer prompts.** Jev judges a command by its text, so rippy never
-  sends one whose behaviour is defined elsewhere: `./scripts/*` and other path- or script-named
-  programs, task runners (`make`, `npm`, `poetry`, …), unknown git subcommands, interpreters
-  given any argument, anything rippy judged through a wrapper, alias or a script's contents
-  (`timeout 5 …`, `xargs …`, `bash script.sh`), `--flag=path` arguments, remote contexts
-  (`docker exec`), programs that resolve inside the project, and rippy's own CLI. Jev is also
-  asked whether a command runs project code (tests, builds, linters, hooks) and such commands keep
-  their ask. A misleading program name on `PATH` can still mislead it.
-- **Suspicious answers escalate.** If Jev sees possible exfiltration, or the command text trying to
-  steer its own classification, the ask stays, gets a warning, and always prompts, even under
-  `auto-mode = "defer"`.
-- **Failures change nothing.** A timeout, HTTP error, missing key or odd answer leaves the ask as
-  it was, with `(jev unavailable: …)` in the reason.
-- **Every decision is visible.** Approvals read `jev: approved (read_only, conf 0.97 >= 0.90, …)`,
-  and the JSON log records the state sent and Jev's raw answers. Use `rippy jev '<command>'` to
-  check commands against your thresholds before relying on them.
+Unless a point says otherwise, these apply to any endpoint, hosted or local.
 
-The design, threat model and prototype measurements are in [docs/jev.md](docs/jev.md).
+- **With a hosted endpoint, commands leave your machine.** Eligible commands are sent with
+  comments removed and secrets replaced by `<redacted>`: assignment and `NAME=value` values,
+  credential flags, `Bearer`/`Authorization` values, token shapes and JWTs, and URL credentials
+  and query secrets. Variable values are never sent. Redaction covers common shapes; it is not
+  a guarantee. Only plain commands are sent: never ones with a group, loop, substitution,
+  heredoc, stdin redirect, `NAME=value` prefix, multiple lines or non-ASCII text. A local
+  endpoint gets the same redacted command, and nothing leaves the machine.
+- **It trades some safety for fewer prompts.** The model judges a command by its text, so
+  rippy never sends one whose behaviour is defined elsewhere: `./scripts/*` and other path- or
+  script-named programs, task runners (`make`, `npm`, `poetry`, …), unknown git subcommands,
+  interpreters given any argument, anything rippy judged through a wrapper, alias or a
+  script's contents (`timeout 5 …`, `xargs …`, `bash script.sh`), `--flag=path` arguments,
+  remote contexts (`docker exec`), programs that resolve inside the project, and rippy's own
+  CLI. The model is also asked whether a command runs project code (tests, builds, linters,
+  hooks) and such commands keep their ask. A misleading program name on `PATH` can still
+  mislead it.
+- **Suspicious answers escalate.** If the model sees possible exfiltration, or the command text
+  trying to steer its own classification, the ask stays, gets a warning, and always prompts,
+  even under `auto-mode = "defer"`.
+- **Failures change nothing.** A timeout, HTTP error, missing key or odd answer leaves the ask
+  as it was, with `(jev unavailable: …)` in the reason.
+- **Every decision is visible.** Approvals read `jev: approved (read_only, conf 0.97 >= 0.90,
+  …)`, and the JSON log records the state sent and the model's raw answers. Use
+  `rippy jev '<command>'` to check commands against your thresholds before relying on them.
+
+The design, threat model and measurements are in [docs/jev.md](docs/jev.md).
 
 ### Pattern matching
 

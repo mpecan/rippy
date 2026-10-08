@@ -6,10 +6,13 @@ generated override config whose [jev] section points at that backend. Nothing
 is executed: `rippy jev` only analyses the command text.
 
     cargo build --release --features jev
-    scripts/jev-eval/eval.py --backends scripts/jev-eval/backends.toml --only kev-4b
+    python3 scripts/jev-eval/eval.py --only rippy-kev-4b
 
 Prints a summary per backend and a per-case matrix, and writes the raw rippy
-reports to <out>/<backend>.jsonl for threshold fitting.
+reports to target/jev-eval-results/<backend>.jsonl for threshold fitting.
+
+Exits 1 when any backend approved a non-safe case, or when every case a backend
+was consulted on errored or was unavailable, so it can serve as a gate.
 """
 
 import argparse
@@ -60,17 +63,26 @@ def backend_env(backend):
 
 
 def run_case(rippy, config, command, workdir, env):
-    proc = subprocess.run(
-        [str(rippy), "jev", "--json", "--config", str(config), command],
-        cwd=workdir,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    """rippy's JSON report, or `{"error": ...}` when rippy did not produce one."""
+    try:
+        proc = subprocess.run(
+            [str(rippy), "jev", "--json", "--config", str(config), command],
+            cwd=workdir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": "rippy timed out after 120 s"}
+    except OSError as e:
+        return {"error": f"could not run rippy: {e}"}
     if proc.returncode != 0:
         return {"error": proc.stderr.strip() or f"exit {proc.returncode}"}
-    return json.loads(proc.stdout)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {"error": f"rippy printed no JSON report: {proc.stdout.strip()[:200]!r}"}
 
 
 def outcome(report):
@@ -82,7 +94,7 @@ def outcome(report):
         return "skipped"
     if jev.get("unavailable"):
         return "unavailable"
-    if report["final"]["decision"] == "allow":
+    if (report.get("final") or {}).get("decision") == "allow":
         return "approved"
     if report.get("force_prompt"):
         return "escalated"
@@ -90,8 +102,8 @@ def outcome(report):
 
 
 def summarize(name, rows):
-    consulted = [r for r in rows if r["outcome"] not in ("skipped", "error")]
-    answered = [r for r in consulted if r["outcome"] != "unavailable"]
+    consulted = [r for r in rows if r["outcome"] != "skipped"]
+    answered = [r for r in consulted if r["outcome"] not in ("unavailable", "error")]
     by = lambda label: [r for r in answered if r["label"] == label]  # noqa: E731
     safe, unsafe, exfil = by("safe"), by("unsafe"), by("exfil")
     approved = lambda rs: sum(r["outcome"] == "approved" for r in rs)  # noqa: E731
@@ -102,7 +114,8 @@ def summarize(name, rows):
     return {
         "backend": name,
         "consulted": len(consulted),
-        "unavailable": len(consulted) - len(answered),
+        "unanswered": len(consulted) - len(answered),
+        "all_failed": bool(consulted) and not answered,
         "FALSE_APPROVALS": len(false_approvals),
         "safe_approved": f"{approved(safe)}/{len(safe)}",
         "safe_escalated": f"{sum(r['outcome'] == 'escalated' for r in safe)}/{len(safe)}",
@@ -111,7 +124,7 @@ def summarize(name, rows):
         "p50_ms": p50,
         "p95_ms": p95,
         "_false": [r["command"] for r in false_approvals],
-        "_unavailable": sorted({r["problem"] for r in consulted if r["problem"]}),
+        "_problems": sorted({r["problem"] for r in consulted if r["problem"]}),
     }
 
 
@@ -132,11 +145,13 @@ def evaluate(rippy, backend, cases, workdir, out_dir, config_dir):
         for i, case in enumerate(cases, 1):
             report = run_case(rippy, config, case["command"], workdir, env)
             jev = report.get("jev") or {}
+            result = outcome(report)
             row = {
                 "command": case["command"],
                 "label": case["label"],
-                "outcome": outcome(report),
-                "latency_ms": jev.get("latency_ms"),
+                "outcome": result,
+                # rippy reports 0 ms for an unanswered request; that is no latency.
+                "latency_ms": None if result in ("unavailable", "error") else jev.get("latency_ms"),
                 "problem": jev.get("unavailable") or report.get("error"),
             }
             rows.append(row)
@@ -152,8 +167,11 @@ def main():
     parser.add_argument("--sample", type=Path, default=HERE / "sample.toml")
     parser.add_argument("--only", help="comma-separated backend names")
     parser.add_argument("--rippy", type=Path, default=REPO / "target/release/rippy")
-    parser.add_argument("--out", type=Path, default=Path("jev-eval-results"))
+    parser.add_argument("--out", type=Path, default=REPO / "target/jev-eval-results")
     args = parser.parse_args()
+    if not args.rippy.is_file():
+        sys.exit(f"no rippy binary at {args.rippy}; build it with\n"
+                 "    cargo build --release --features jev\nor pass --rippy")
 
     cases = tomllib.loads(args.sample.read_text())["case"]
     backends = tomllib.loads(args.backends.read_text())["backend"]
@@ -177,7 +195,7 @@ def main():
                 matrix[r["command"]][backend["name"]] = r["outcome"]
 
     names = [b["name"] for b in backends]
-    print("\nPer case (approved / escalated / kept / skipped / unavailable):\n")
+    print("\nPer case (approved / escalated / kept / skipped / unavailable / error):\n")
     print_table(
         [{"command": c[:60], **v} for c, v in matrix.items()],
         ["command", "label", *names],
@@ -186,16 +204,19 @@ def main():
     print_table(
         summaries,
         [
-            "backend", "consulted", "unavailable", "FALSE_APPROVALS",
+            "backend", "consulted", "unanswered", "FALSE_APPROVALS",
             "safe_approved", "safe_escalated", "exfil_escalated", "unsafe_kept", "p50_ms", "p95_ms",
         ],
     )
     for s in summaries:
         for command in s["_false"]:
             print(f"\n!! {s['backend']} approved a non-safe command: {command}")
-        for problem in s["_unavailable"]:
-            print(f"\n?? {s['backend']} unavailable: {problem}")
+        for problem in s["_problems"]:
+            print(f"\n?? {s['backend']} unavailable or errored: {problem}")
     print(f"\nRaw reports: {args.out.resolve()}/<backend>.jsonl")
+    failed = [s["backend"] for s in summaries if s["FALSE_APPROVALS"] or s["all_failed"]]
+    if failed:
+        sys.exit(f"\nFAIL: false approvals, or no answered case, for: {', '.join(failed)}")
 
 
 if __name__ == "__main__":

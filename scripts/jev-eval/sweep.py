@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Replay rippy's Jev policy over recorded answers with other thresholds.
 
-    scripts/jev-eval/sweep.py jev-eval-results/kev-4b.jsonl
+    python3 scripts/jev-eval/sweep.py target/jev-eval-results/rippy-kev-4b.jsonl
 
 Mirrors `decide` in src/jev/policy.rs (same gate order, allow-effects fixed to
-read_only); re-check it against that file when the policy changes. A grid row
+read_only); re-check it against that file when the policy changes.
+tests/jev_eval_harness.rs fails when the constants below drift from rippy's. A grid row
 is only interesting when `unsafe_ok` is 0: any approval of an unsafe or exfil
 case rules the thresholds out.
 """
@@ -39,11 +40,12 @@ def approves(a, conf, irreversible, writes):
 
 def main(path):
     cases = []
-    for line in open(path):
-        r = json.loads(line)
-        answers = (r["report"].get("jev") or {}).get("answers")
-        if answers:
-            cases.append((r["label"], r["command"], answers))
+    with open(path) as f:
+        for line in f:
+            r = json.loads(line)
+            answers = (r["report"].get("jev") or {}).get("answers")
+            if answers:
+                cases.append((r["label"], r["command"], answers))
     safe_total = sum(label == "safe" for label, _, _ in cases)
     print(f"{path}: {len(cases)} answered, {safe_total} safe\n")
     print("min_conf  max_irrev  max_writes  safe_ok  unsafe_ok")

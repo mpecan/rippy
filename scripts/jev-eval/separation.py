@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Mean answer per label from an eval.py JSONL: does a backend separate the labels at all?"""
+"""Mean answer per label from an eval.py JSONL: does a backend separate the labels at all?
+
+    python3 scripts/jev-eval/separation.py target/jev-eval-results/rippy-kev-4b.jsonl
+"""
 import json
 import statistics
 import sys
@@ -10,15 +13,16 @@ KEYS = ["read_only", "exfiltration", "writes_outside_project", "reads_secrets",
 
 for path in sys.argv[1:]:
     by_label, outcomes = defaultdict(lambda: defaultdict(list)), defaultdict(lambda: defaultdict(int))
-    for line in open(path):
-        r = json.loads(line)
-        a = ((r["report"].get("jev") or {}).get("answers")) or {}
-        outcomes[r["label"]][r["outcome"]] += 1
-        if not a:
-            continue
-        by_label[r["label"]]["read_only"].append(a["effect"]["probabilities"]["read_only"])
-        for k in KEYS[1:]:
-            by_label[r["label"]][k].append(a[k]["noul"])
+    with open(path) as f:
+        for line in f:
+            r = json.loads(line)
+            a = ((r["report"].get("jev") or {}).get("answers")) or {}
+            outcomes[r["label"]][r["outcome"]] += 1
+            if not a:
+                continue
+            by_label[r["label"]]["read_only"].append(a["effect"]["probabilities"]["read_only"])
+            for k in KEYS[1:]:
+                by_label[r["label"]][k].append(a[k]["noul"])
     print(f"\n{path.rsplit('/', 1)[-1]}")
     print("label   " + "  ".join(k[:10].rjust(10) for k in KEYS) + "  outcomes")
     for label in ("safe", "unsafe", "exfil"):

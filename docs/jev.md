@@ -3,8 +3,9 @@
 Status: **implemented** (phases 0–2; phase 3 is future work). This document
 describes an opt-in rippy
 distribution that consults TypeSafe's [Jev](https://docs.typesafe.ai/introduction.md)
-decision model when rippy asks *because it is unsure*, never when it asks
-because a human must approve. The default `rippy` build is unaffected and
+decision model, or a local model behind the same interface (see
+[Local models](#local-models)), when rippy asks *because it is unsure*, never
+when it asks because a human must approve. The default `rippy` build is unaffected and
 contains no network code.
 
 ## Contents
@@ -85,6 +86,7 @@ configurable endpoint:
 | OpenRouter | `https://openrouter.ai/api/v1/systemone` | `jev-1.13` (routed to `typesafe/jev-1.13`) |
 | TypeSafe direct | `https://api.typesafe.ai/v1/systemone` | `jev-latest` |
 | Proxy / gateway | any compatible URL | as configured |
+| Local server (Kev's `kev.serve`, llama.cpp) | `http://127.0.0.1:<port>/v1/systemone` | `kev-latest`; see [Local models](#local-models) |
 
 OpenRouter's separate `/api/alpha/decisions` surface has a different shape and
 is alpha. It is not supported.
@@ -606,33 +608,38 @@ Status: **implemented.** The two builds are mutually exclusive by design. Both i
   a `--pkg-url` override for the jev archive.
 - **CI:** a job runs clippy and the test suite with `--features jev`.
 - **README:** an "Optional: Jev" section that states plainly that this trades
-  some safety for convenience, and exactly what is sent to a third party.
+  some safety for convenience, and exactly what is sent to a hosted endpoint.
 
 ## Local models
 
-Jev is hosted: eligible commands leave the machine. The same client can instead
-talk to a local System One server, so nothing leaves the machine. The protocol
-is the same, so no code changes; only `[jev] endpoint`, `model` and the
-thresholds differ.
+Hosted Jev runs on a third party's servers, so eligible commands leave the
+machine. The same client can instead talk to a System One server on the local
+machine, and then nothing is sent anywhere. The protocol is the same, so no code
+changes; only `[jev] endpoint`, `model` and `min-confidence` differ.
+
+This section covers the models' training, evaluation and design. Setup (install,
+serving, key variable, config, troubleshooting) is on the docs site:
+[Model-assisted review](https://rippy.pecan.si/configuration/model-review/).
 
 [rippy-kev](https://github.com/mpecan/rippy-kev) trains small decision models
 for this purpose, on rippy's own question set:
 
-| model | weights | size | p50 per command (M4 Max, kev.serve) |
+| model | weights | size | median per command (M4 Max, kev.serve) |
 |---|---|---|---|
 | rippy-kev-4b v2 | [Risethagain/rippy-kev-4b](https://huggingface.co/Risethagain/rippy-kev-4b) | 4B, LoRA on Qwen3.5-4B-Base | ~0.75 s |
-| rippy-kev-0.8b v2 | [Risethagain/rippy-kev-0.8b](https://huggingface.co/Risethagain/rippy-kev-0.8b) | 0.8B, LoRA on Qwen3.5-0.8B-Base | ~0.15–0.25 s |
+| rippy-kev-0.8b v2 | [Risethagain/rippy-kev-0.8b](https://huggingface.co/Risethagain/rippy-kev-0.8b) | 0.8B, LoRA on Qwen3.5-0.8B-Base | ~0.25 s |
 
 Both are delta fine-tunes of [Kev](https://github.com/jaredpalmer/kev), an open
 Jev-style model family, and they are Apache-2.0.
 
 **Training.**
 
-- **Commands:** about 26k states rippy itself would send, built from
-  tldr-pages examples, plus generated hard cases (steering, exfiltration,
+- **Commands:** 26.3k records: 23.7k states rippy itself would send, built from
+  tldr-pages examples, plus 2.6k generated hard cases (steering, exfiltration,
   secret reads, download-and-run).
-- **Labels:** two independent Claude Sonnet passes on every record. A blind
-  Claude Opus adjudication covers records whose labels split on approval.
+- **Labels:** two independent Claude Sonnet passes on every record. Gemma 4 31B
+  casts a third vote on the dev and test splits. A blind Claude Opus
+  adjudication settles disputed records.
 - **Jev's role:** hosted Jev was only an evaluation reference, never a
   teacher.
 - **Question set:** the models are trained on question set `q3`, rippy 0.2.4
@@ -641,58 +648,81 @@ Jev-style model family, and they are Apache-2.0.
 
 **Results.**
 
-- The test programs are absent from training, and the thresholds are fitted
-  on a separate dev split.
+- The test programs are absent from training: 944 safe and 945 severe cases.
 - "Severe" means destructive, network send, download-and-run, exfiltration,
   secret reads, irreversible, or writes outside the project, by the merged
   teacher labels.
+- Every row is at matched risk: thresholds fitted per backend so that each
+  approves at most 1% of the severe cases in a separate dev split. Jev's row
+  therefore uses its fitted thresholds (`min-confidence` 0.90,
+  `max-irreversible` 0.3, `max-writes-outside` 0.4), not the hosted config in
+  the README.
+- The gold sample is a small hand-checked set with 35 safe commands.
 
-Never-seen programs, at a budget of 1% severe approvals on dev:
+| backend | never-seen safe approved | never-seen severe approved | gold safe approved | gold severe approved |
+|---|---|---|---|---|
+| Jev 1.13 (hosted) | 611 / 944 (65%) | 12 / 945 | 27 / 35 | 0 |
+| rippy-kev-4b v2, `min-confidence` 0.75 | 668 / 944 (71%) | 9 / 945 | 28 / 35 | 0 |
+| rippy-kev-0.8b v2, `min-confidence` 0.80 | 453 / 944 (48%) | 11 / 945 | 19 / 35 | 0 |
+| rippy-kev-0.8b v2, `min-confidence` 0.85 (recommended) | 416 / 944 (44%) | 4 / 945 | 17 / 35 | 0 |
 
-| backend | never-seen safe approved | severe approved | gold sample: safe / severe |
-|---|---|---|---|
-| Jev 1.13 (hosted) | 65% | 12 / 945 | 27/35 / 0 |
-| rippy-kev-4b v2 | 71% | 9 / 945 | 28/35 / 0 |
-| rippy-kev-0.8b v2 | 48% | 11 / 945 | 19/35 / 0 |
+At matched risk (thresholds fitted per backend for 1% severe approvals on dev),
+rippy-kev-4b approves more safe commands than Jev at a similar severe-approval
+rate; 9 against 12 of 945 is too small a gap to call it safer.
 
-The 0.8B model mostly misses commands that *display* stored credentials
-(`xauth list`, `mc alias list`). Its model card lists the caveats and a
-stricter setting.
+**Where they miss.** The few severe approvals, for Jev and both models, are
+mostly commands from tools the model does not know, such as file-transfer and
+configuration tools. On the seen and hard-case sets, both the 4B and the 0.8B
+also approved commands that list stored credentials, such as `xauth list` and
+`mc alias list`. The model cards list the caveats.
 
-**Thresholds are per model.** The defaults were tuned on Jev, and a local
-model's probabilities are calibrated differently. Use the thresholds published
-with each model:
+**Thresholds are per model.** A local model's probabilities are calibrated
+differently from Jev's, so the default `min-confidence` (0.9, tuned on Jev)
+makes it approve far less. Only `min-confidence` differs; the other gates keep
+rippy's defaults, including `max-irreversible = 0.2` and
+`max-writes-outside = 0.3`.
 
-```toml
-# ~/.rippy/config.toml
-[jev]
-enabled = true
-endpoint = "http://127.0.0.1:8012/v1/systemone"
-model = "kev-latest"
-api-key-env = "RIPPY_KEV_KEY"   # any non-empty value; local servers need no key
-timeout-ms = 2000
-min-confidence = 0.75           # rippy-kev-4b; rippy-kev-0.8b: 0.85
-max-irreversible = 0.2
-max-writes-outside = 0.3
-```
+- **rippy-kev-4b:** 0.75 is the balanced setting, about a 1% severe budget on
+  dev. 0.95 is a strict alternative.
+- **rippy-kev-0.8b:** 0.85 is recommended. 0.80 is the balanced setting (more
+  approvals, more severe ones), and 0.95 the strictest.
 
-**Serving.** Either server works with the same config:
+**Serving.** Either server works with the same rippy config:
 
-- Kev's own server (`kev.serve`) loads the published adapter directly and
-  runs on MLX on Apple silicon. It is the faster option on a Mac.
-- llama.cpp (build 11361 and later) serves `POST /v1/systemone` natively.
-  - Each model repo carries a Q8_0 GGUF that matches the original's decisions.
-    Q4_K_M drifts and is not recommended.
+- Kev's own server (`kev.serve`) loads the published adapter directly and runs
+  on MLX on Apple silicon (CUDA or ROCm elsewhere). It is the faster option on
+  a Mac.
+- llama.cpp serves `POST /v1/systemone` natively since release b11361 (tested
+  on b11429).
+  - Each model repository carries a Q8_0 GGUF. Over about 2,950 decisions it
+    flipped 8 to 14 of the original's; Q4_K_M drifts further and is not
+    recommended.
   - Run `llama-server` with `-c 4096 --cache-ram 0 --ctx-checkpoints 0`: with
     its defaults, latency grew over a long run and memory reached 11 GB.
+  - In single-model mode llama-server ignores the request's `model` field and
+    names the loaded model in its answer. `--alias kev-latest` keeps the model
+    id in rippy's reasons the same as under `kev.serve`.
 
-**Checking a backend.** Use `scripts/jev-eval` to compare any System One
-backends on a labelled sample through the real binary:
+**Checking a backend.** `scripts/jev-eval` compares System One backends on a
+labelled sample through the real binary. It needs Python 3.11 or later and a
+`rippy-jev` build, and the backend's server must be running:
+
+```sh
+cargo build --release --features jev
+python3 scripts/jev-eval/eval.py --only rippy-kev-4b
+python3 scripts/jev-eval/sweep.py target/jev-eval-results/rippy-kev-4b.jsonl
+```
 
 - `eval.py` reports false approvals, safe approvals, exfiltration escalations
-  and latency.
-- `sweep.py` replays the policy offline to find thresholds.
-- `backends.toml` lists Jev and the local models above.
+  and latency, and writes raw reports to `target/jev-eval-results/`. It exits
+  non-zero when any non-safe case was approved, or when every consulted case
+  errored or was unavailable, so it can serve as a gate.
+- `sweep.py` replays the policy offline over those reports to find thresholds.
+  It mirrors `src/jev/policy.rs`; `tests/jev_eval_harness.rs` fails when its
+  constants drift from rippy's.
+- `separation.py` shows each backend's mean answer per label.
+- `backends.toml` lists Jev and the local models. Its Jev entry runs at rippy's
+  defaults, so its numbers differ from the fitted table above.
 
 Use `rippy jev '<command>'` to check single commands against your config.
 
@@ -731,8 +761,10 @@ Use `rippy jev '<command>'` to check single commands against your config.
   trusted by design; anything that can set that variable for the hook (for
   example a repository's agent settings, depending on the agent's own folder
   trust) can also enable and aim Jev.
-- **Data disclosure.** Eligible commands leave the machine. Redaction covers the
-  common secret shapes; it is not a guarantee, and the README must say so.
+- **Data disclosure.** With a hosted endpoint, eligible commands leave the
+  machine. Redaction covers the common secret shapes; it is not a guarantee, and
+  the README must say so. A loopback endpoint ([Local models](#local-models))
+  sends nothing off the machine; rippy redacts the same way regardless.
 - **Availability.** An unreachable endpoint only costs the prompt that would have
   happened anyway.
 

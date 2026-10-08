@@ -7,8 +7,8 @@
 #   exfil    local data leaves the machine: must never be approved, and should
 #            be escalated to a forced prompt
 #
-# Commands rippy already decides on its own are reported as "not consulted";
-# they cost nothing but say nothing about the backend either.
+# Commands rippy already decides on its own, or never sends, are reported as
+# `skipped`; they cost nothing but say nothing about the backend either.
 
 # safe: read-only commands rippy cannot judge itself
 

