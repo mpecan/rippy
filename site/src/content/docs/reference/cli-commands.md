@@ -52,6 +52,7 @@ to author one.
 | `rippy list handlers` | List commands with dedicated handlers |
 | `rippy list rules` | Show effective rules merged from all config sources |
 | `rippy stats` | Show aggregate decision-tracking statistics |
+| `rippy jev <command>` | `rippy-jev` build only: show what [model-assisted review](/configuration/model-review/) would send for a command, the model's answers and the final verdict |
 
 ## Evolve your config
 

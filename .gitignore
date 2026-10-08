@@ -25,3 +25,6 @@ site/.astro
 # Glob rather than the two exact names: comparing runs means keeping renamed
 # copies like mutants.out.baseline alongside the live directory.
 mutants.out*/
+
+# Python bytecode caches
+__pycache__/

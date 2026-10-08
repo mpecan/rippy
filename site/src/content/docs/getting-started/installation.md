@@ -45,6 +45,14 @@ Prebuilt binaries are attached to each
 
 Extract the `.tar.gz`, drop `rippy` on your `PATH`, and you are done.
 
+## Optional: the `rippy-jev` build
+
+A separate, opt-in build, `rippy-jev`, can let a hosted or local decision model
+approve commands rippy asks about only because it is unsure. It installs the same
+`rippy` binary, so install one build or the other. See
+[Model-assisted review](/configuration/model-review/) for installing and setting it
+up.
+
 ## Verify the install
 
 ```sh

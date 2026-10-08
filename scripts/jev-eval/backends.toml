@@ -1,0 +1,57 @@
+# System One backends for scripts/jev-eval/eval.py. Every key except `name` and
+# `dummy-key` is written into the [jev] section of a generated override config,
+# so any [jev] setting (thresholds, allow-effects, timeout-ms) can be set here.
+# `dummy-key = true` sets the API-key variable to "local" when it is unset, for
+# local servers that need no key. See docs/jev.md#local-models.
+#
+# Differences from the setup guide (site/.../configuration/model-review.md):
+# - Each local backend has its own port, so all of them can run at once; the
+#   guide serves one model at a time on 8012.
+# - timeout-ms is 5000, as the guide recommends for local models, so a slow
+#   request on a busy machine is still scored instead of counted unavailable.
+
+# Hosted Jev at rippy's default thresholds (min-confidence 0.9 and so on), not
+# the thresholds fitted for the table in docs/jev.md#local-models, so its
+# numbers here differ from that table.
+[[backend]]
+name = "jev-remote"
+endpoint = "https://openrouter.ai/api/v1/systemone"
+model = "jev-1.13"
+api-key-env = "OPENROUTER_API_KEY"
+
+# rippy-kev-4b v2 under Kev's server (from a kev checkout; MLX on Apple silicon):
+#   uv run --extra serve python -m kev.serve --run Risethagain/rippy-kev-4b --port 8012
+[[backend]]
+name = "rippy-kev-4b"
+endpoint = "http://127.0.0.1:8012/v1/systemone"
+model = "kev-latest"
+api-key-env = "LOCAL_JEV_KEY"
+dummy-key = true
+timeout-ms = 5000
+min-confidence = 0.75
+
+# rippy-kev-0.8b v2 under Kev's server (from a kev checkout):
+#   uv run --extra serve python -m kev.serve --run Risethagain/rippy-kev-0.8b --port 8016
+[[backend]]
+name = "rippy-kev-0.8b"
+endpoint = "http://127.0.0.1:8016/v1/systemone"
+model = "kev-latest"
+api-key-env = "LOCAL_JEV_KEY"
+dummy-key = true
+timeout-ms = 5000
+min-confidence = 0.85
+
+# rippy-kev-4b v2 as a Q8_0 GGUF under llama.cpp (release b11361 or later):
+#   hf download Risethagain/rippy-kev-4b rippy-kev-4b-v2-Q8_0.gguf --local-dir .
+#   llama-server -m rippy-kev-4b-v2-Q8_0.gguf --alias kev-latest --port 8020 \
+#     -ngl 99 --parallel 1 -c 4096 --cache-ram 0 --ctx-checkpoints 0
+# llama-server ignores the request's `model` in single-model mode; --alias sets
+# the id it answers with.
+[[backend]]
+name = "rippy-kev-4b-gguf"
+endpoint = "http://127.0.0.1:8020/v1/systemone"
+model = "kev-latest"
+api-key-env = "LOCAL_JEV_KEY"
+dummy-key = true
+timeout-ms = 5000
+min-confidence = 0.75
