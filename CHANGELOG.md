@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.4...rippy-cli-v0.2.5) (2026-10-08)
+
+
+### Documentation
+
+* **jev:** run model-assisted review locally with the open rippy-kev models ([#219](https://github.com/mpecan/rippy/issues/219)) ([c199fb2](https://github.com/mpecan/rippy/commit/c199fb2920ea467289e1c5c61d87dd6143ffa419))
+
 ## [0.2.4](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.3...rippy-cli-v0.2.4) (2026-10-05)
 
 
