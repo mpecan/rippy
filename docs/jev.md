@@ -16,6 +16,7 @@ contains no network code.
 - [Phase 0: ask classification](#phase-0-ask-classification)
 - [Phase 1: the jev feature](#phase-1-the-jev-feature)
 - [Phase 2: distribution](#phase-2-distribution)
+- [Local models](#local-models)
 - [Phase 3: later](#phase-3-later)
 - [Threat model](#threat-model)
 - [Testing](#testing)
@@ -606,6 +607,94 @@ Status: **implemented.** The two builds are mutually exclusive by design. Both i
 - **CI:** a job runs clippy and the test suite with `--features jev`.
 - **README:** an "Optional: Jev" section that states plainly that this trades
   some safety for convenience, and exactly what is sent to a third party.
+
+## Local models
+
+Jev is hosted: eligible commands leave the machine. The same client can instead
+talk to a local System One server, so nothing leaves the machine. The protocol
+is the same, so no code changes; only `[jev] endpoint`, `model` and the
+thresholds differ.
+
+[rippy-kev](https://github.com/mpecan/rippy-kev) trains small decision models
+for this purpose, on rippy's own question set:
+
+| model | weights | size | p50 per command (M4 Max, kev.serve) |
+|---|---|---|---|
+| rippy-kev-4b v2 | [Risethagain/rippy-kev-4b](https://huggingface.co/Risethagain/rippy-kev-4b) | 4B, LoRA on Qwen3.5-4B-Base | ~0.75 s |
+| rippy-kev-0.8b v2 | [Risethagain/rippy-kev-0.8b](https://huggingface.co/Risethagain/rippy-kev-0.8b) | 0.8B, LoRA on Qwen3.5-0.8B-Base | ~0.15–0.25 s |
+
+Both are delta fine-tunes of [Kev](https://github.com/jaredpalmer/kev), an open
+Jev-style model family, and they are Apache-2.0.
+
+**Training.**
+
+- **Commands:** about 26k states rippy itself would send, built from
+  tldr-pages examples, plus generated hard cases (steering, exfiltration,
+  secret reads, download-and-run).
+- **Labels:** two independent Claude Sonnet passes on every record. A blind
+  Claude Opus adjudication covers records whose labels split on approval.
+- **Jev's role:** hosted Jev was only an evaluation reference, never a
+  teacher.
+- **Question set:** the models are trained on question set `q3`, rippy 0.2.4
+  and later. A question-set change needs re-checking (see
+  [Versioning](#context)).
+
+**Results.**
+
+- The test programs are absent from training, and the thresholds are fitted
+  on a separate dev split.
+- "Severe" means destructive, network send, download-and-run, exfiltration,
+  secret reads, irreversible, or writes outside the project, by the merged
+  teacher labels.
+
+Never-seen programs, at a budget of 1% severe approvals on dev:
+
+| backend | never-seen safe approved | severe approved | gold sample: safe / severe |
+|---|---|---|---|
+| Jev 1.13 (hosted) | 65% | 12 / 945 | 27/35 / 0 |
+| rippy-kev-4b v2 | 71% | 9 / 945 | 28/35 / 0 |
+| rippy-kev-0.8b v2 | 48% | 11 / 945 | 19/35 / 0 |
+
+The 0.8B model mostly misses commands that *display* stored credentials
+(`xauth list`, `mc alias list`). Its model card lists the caveats and a
+stricter setting.
+
+**Thresholds are per model.** The defaults were tuned on Jev, and a local
+model's probabilities are calibrated differently. Use the thresholds published
+with each model:
+
+```toml
+# ~/.rippy/config.toml
+[jev]
+enabled = true
+endpoint = "http://127.0.0.1:8012/v1/systemone"
+model = "kev-latest"
+api-key-env = "RIPPY_KEV_KEY"   # any non-empty value; local servers need no key
+timeout-ms = 2000
+min-confidence = 0.75           # rippy-kev-4b; rippy-kev-0.8b: 0.85
+max-irreversible = 0.2
+max-writes-outside = 0.3
+```
+
+**Serving.** Either server works with the same config:
+
+- Kev's own server (`kev.serve`) loads the published adapter directly and
+  runs on MLX on Apple silicon. It is the faster option on a Mac.
+- llama.cpp (build 11361 and later) serves `POST /v1/systemone` natively.
+  - Each model repo carries a Q8_0 GGUF that matches the original's decisions.
+    Q4_K_M drifts and is not recommended.
+  - Run `llama-server` with `-c 4096 --cache-ram 0 --ctx-checkpoints 0`: with
+    its defaults, latency grew over a long run and memory reached 11 GB.
+
+**Checking a backend.** Use `scripts/jev-eval` to compare any System One
+backends on a labelled sample through the real binary:
+
+- `eval.py` reports false approvals, safe approvals, exfiltration escalations
+  and latency.
+- `sweep.py` replays the policy offline to find thresholds.
+- `backends.toml` lists Jev and the local models above.
+
+Use `rippy jev '<command>'` to check single commands against your config.
 
 ## Phase 3: later
 

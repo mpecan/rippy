@@ -65,7 +65,9 @@ cargo binstall rippy-cli --pkg-url '{ repo }/releases/download/rippy-cli-v{ vers
 ```
 
 `rippy --version` ends in `+jev` on this build. It does nothing until enabled; see
-[Jev review of uncertain asks](#jev-review-of-uncertain-asks-rippy-jev-only).
+[Jev review of uncertain asks](#jev-review-of-uncertain-asks-rippy-jev-only). It can also use a local
+model instead of a hosted one, so commands never leave your machine; see
+[Run it locally](#run-it-locally).
 
 ## Quick Start
 
@@ -372,9 +374,50 @@ min-confidence = 0.9                                 # plus per-risk gates, see 
 timeout-ms = 2000
 ```
 
+#### Run it locally
+
+To keep commands on your machine, point `[jev]` at a local model instead.
+[rippy-kev](https://github.com/mpecan/rippy-kev) trains small open models on
+rippy's own questions. On never-seen programs, rippy-kev-4b approves more safe
+commands than hosted Jev with fewer severe approvals:
+
+| model | weights | p50 on an M4 Max | thresholds |
+|---|---|---|---|
+| rippy-kev-4b | [Risethagain/rippy-kev-4b](https://huggingface.co/Risethagain/rippy-kev-4b) | ~0.75 s | `min-confidence = 0.75` |
+| rippy-kev-0.8b | [Risethagain/rippy-kev-0.8b](https://huggingface.co/Risethagain/rippy-kev-0.8b) (read its caveats) | ~0.2 s | `min-confidence = 0.85` |
+
+Serve one with Kev's server (fastest on Apple silicon):
+
+```sh
+git clone https://github.com/jaredpalmer/kev && cd kev && uv sync --extra serve
+uv run --extra serve python -m kev.serve --run Risethagain/rippy-kev-4b --port 8012
+```
+
+Or with llama.cpp (build 11361 or later), using the Q8_0 GGUF from the same repo:
+
+```sh
+llama-server -m rippy-kev-4b-v2-Q8_0.gguf --port 8012 -ngl 99 --parallel 1 -c 4096 --cache-ram 0 --ctx-checkpoints 0
+```
+
+Then configure rippy:
+
+```toml
+[jev]
+enabled = true
+endpoint = "http://127.0.0.1:8012/v1/systemone"
+model = "kev-latest"
+api-key-env = "RIPPY_KEV_KEY"   # any non-empty value; the local server needs no key
+min-confidence = 0.75           # use the model's own thresholds, not Jev's
+max-irreversible = 0.2
+max-writes-outside = 0.3
+```
+
+The models need rippy 0.2.4 or later. The evaluation, thresholds and caveats are in
+[docs/jev.md](docs/jev.md#local-models).
+
 What to know before enabling it:
 
-- **Commands leave your machine.** Eligible commands are sent to the endpoint with comments
+- **With a hosted endpoint, commands leave your machine.** Eligible commands are sent to the endpoint with comments
   removed and secrets replaced by `<redacted>`: assignment and `NAME=value` values, credential
   flags, `Bearer`/`Authorization` values, token shapes and JWTs, and URL credentials and query
   secrets. Variable values are never sent. Redaction covers common shapes; it is not a

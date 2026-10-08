@@ -1,8 +1,8 @@
 # System One backends for scripts/jev-eval/eval.py. Every key except `name` and
 # `dummy-key` is written into the [jev] section of a generated override config,
-# so any JevSettings key (thresholds, allow-effects, timeout-ms) can be set here.
+# so any [jev] setting (thresholds, allow-effects, timeout-ms) can be set here.
 # `dummy-key = true` sets the API-key variable to "local" when it is unset, for
-# local servers that need no key.
+# local servers that need no key. See docs/jev.md#local-models.
 
 [[backend]]
 name = "jev-remote"
@@ -10,30 +10,42 @@ endpoint = "https://openrouter.ai/api/v1/systemone"
 model = "jev-1.13"
 api-key-env = "OPENROUTER_API_KEY"
 
-# uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
+# rippy-kev-4b v2 under Kev's server (MLX on Apple silicon):
+#   uv run --extra serve python -m kev.serve --run Risethagain/rippy-kev-4b --port 8012
 [[backend]]
-name = "kev-4b"
-endpoint = "http://127.0.0.1:8009/v1/systemone"
+name = "rippy-kev-4b"
+endpoint = "http://127.0.0.1:8012/v1/systemone"
 model = "kev-latest"
 api-key-env = "LOCAL_JEV_KEY"
 dummy-key = true
-timeout-ms = 10000
+timeout-ms = 5000
+min-confidence = 0.75
+max-irreversible = 0.2
+max-writes-outside = 0.3
 
+# rippy-kev-0.8b v2 under Kev's server:
+#   uv run --extra serve python -m kev.serve --run Risethagain/rippy-kev-0.8b --port 8016
 [[backend]]
-name = "kev-9b"
-endpoint = "http://127.0.0.1:8010/v1/systemone"
+name = "rippy-kev-0.8b"
+endpoint = "http://127.0.0.1:8016/v1/systemone"
 model = "kev-latest"
 api-key-env = "LOCAL_JEV_KEY"
 dummy-key = true
-timeout-ms = 10000
+timeout-ms = 5000
+min-confidence = 0.85
+max-irreversible = 0.2
+max-writes-outside = 0.3
 
-# VON_NOUL_DECISION=raw von serve --port 8011 --device mps
-# The default "band" mode pushes every noul outside 0.2-0.8, which defeats
-# rippy's thresholds; always serve Von with raw nouls.
+# rippy-kev-4b v2 as a Q8_0 GGUF under llama.cpp (build 11361 or later):
+#   llama-server -m rippy-kev-4b-v2-Q8_0.gguf --port 8020 -ngl 99 --parallel 1 \
+#     -c 4096 --cache-ram 0 --ctx-checkpoints 0
 [[backend]]
-name = "von"
-endpoint = "http://127.0.0.1:8011/v1/systemone"
-model = "von-1.3.0"
+name = "rippy-kev-4b-gguf"
+endpoint = "http://127.0.0.1:8020/v1/systemone"
+model = "rippy-kev-4b"
 api-key-env = "LOCAL_JEV_KEY"
 dummy-key = true
-timeout-ms = 10000
+timeout-ms = 5000
+min-confidence = 0.75
+max-irreversible = 0.2
+max-writes-outside = 0.3

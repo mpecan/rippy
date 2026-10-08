@@ -39,6 +39,7 @@ export default defineConfig({
             { label: 'Rules', slug: 'configuration/rules' },
             { label: 'Patterns', slug: 'configuration/patterns' },
             { label: 'Examples', slug: 'configuration/examples' },
+            { label: 'Model-assisted review', slug: 'configuration/model-review' },
           ],
         },
         {
