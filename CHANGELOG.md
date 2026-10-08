@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.3...rippy-cli-v0.2.4) (2026-10-05)
+
+
+### Bug Fixes
+
+* **jev:** word missing-program and unset-variable facts as unknown, not absent ([#216](https://github.com/mpecan/rippy/issues/216)) ([98ff781](https://github.com/mpecan/rippy/commit/98ff7814b3f8c3aee68ba3ecb1477b88798f0d13))
+
 ## [0.2.3](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.2...rippy-cli-v0.2.3) (2026-09-30)
 
 
