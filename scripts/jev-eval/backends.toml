@@ -7,9 +7,8 @@
 # Differences from the setup guide (site/.../configuration/model-review.md):
 # - Each local backend has its own port, so all of them can run at once; the
 #   guide serves one model at a time on 8012.
-# - timeout-ms is 5000 rather than the guide's 2000, so a slow request on a busy
-#   machine is still scored instead of counted unavailable. Latency is reported
-#   separately; compare it with the hook's 2000 ms budget.
+# - timeout-ms is 5000, as the guide recommends for local models, so a slow
+#   request on a busy machine is still scored instead of counted unavailable.
 
 # Hosted Jev at rippy's default thresholds (min-confidence 0.9 and so on), not
 # the thresholds fitted for the table in docs/jev.md#local-models, so its

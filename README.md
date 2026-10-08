@@ -399,6 +399,7 @@ enabled = true
 endpoint = "http://127.0.0.1:8012/v1/systemone"
 model = "kev-latest"
 api-key-env = "RIPPY_KEV_KEY"
+timeout-ms = 5000               # local models need more than the 2000 default
 min-confidence = 0.75        # rippy-kev-0.8b: 0.85
 ```
 

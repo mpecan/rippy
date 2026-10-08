@@ -119,9 +119,15 @@ enabled = true
 endpoint = "http://127.0.0.1:8012/v1/systemone"
 model = "kev-latest"
 api-key-env = "RIPPY_KEV_KEY"
-timeout-ms = 2000
+timeout-ms = 5000               # see below; the 2000 default suits hosted Jev
 min-confidence = 0.75           # rippy-kev-0.8b: 0.85
 ```
+
+Give a local model more time than hosted Jev needs. On an idle M4 Max the 4B answers
+in about 0.75 s, but with other GPU or memory load on the machine it took 2.4 s, and
+a request past `timeout-ms` leaves the ask in place (`jev unavailable: timed out`).
+5000 ms keeps the review working under load; the hook only waits this long for
+commands rippy would otherwise ask about.
 
 Use each model's own `min-confidence`. The default, 0.9, was tuned on Jev and makes
 a local model approve far less. The other thresholds keep their defaults
