@@ -216,46 +216,67 @@ pub(crate) fn filter_auto_allowed(
     Ok(filtered)
 }
 
-/// Keep only commands decided inside a `--since` window.
+/// Keep only commands decided inside a `--since` window; also returns how many were dropped
+/// for lacking a usable timestamp, so the caller can say so rather than shrink counts silently.
 ///
-/// `duration` is a [`crate::tracking::parse_duration`] result (e.g. `"7 days"`). `SQLite` does the
-/// date math, as it does for the tracking DB, so both sources share one meaning of "since" and
-/// any timestamp form `SQLite` understands (fractional seconds, `Z`, `+02:00`) compares correctly.
-/// A command with no parseable timestamp is dropped: it cannot be shown to be in the window.
+/// `duration` is a [`crate::tracking::parse_since_window`] result (e.g. `"7 days"`). `SQLite`
+/// does the date math, as it does for the tracking DB, so both sources share one meaning of
+/// "since" and any timestamp form `SQLite` understands (fractional seconds, `Z`, `+02:00`)
+/// compares as an instant.
 ///
 /// # Errors
 ///
-/// Returns `RippyError::Tracking` if the in-memory `SQLite` evaluation fails.
+/// Returns `RippyError::Tracking` if the in-memory `SQLite` evaluation fails or the window is out
+/// of range.
 pub(crate) fn retain_since(
     commands: Vec<SessionCommand>,
     duration: &str,
-) -> Result<Vec<SessionCommand>, RippyError> {
-    let err = |e: rusqlite::Error| RippyError::Tracking(format!("--since evaluation failed: {e}"));
-    let conn = rusqlite::Connection::open_in_memory().map_err(err)?;
+) -> Result<(Vec<SessionCommand>, usize), RippyError> {
+    let conn = rusqlite::Connection::open_in_memory().map_err(|e| since_err(&e))?;
     let cutoff: Option<f64> = conn
         .query_row(
             "SELECT julianday('now', ?1)",
             [format!("-{duration}")],
             |r| r.get(0),
         )
-        .map_err(err)?;
+        .map_err(|e| since_err(&e))?;
     let Some(cutoff) = cutoff else {
         return Err(RippyError::Tracking(format!(
             "invalid --since window: {duration}"
         )));
     };
-    let mut stmt = conn.prepare("SELECT julianday(?1)").map_err(err)?;
+    retain_from(&conn, commands, cutoff)
+}
+
+/// Keep commands at or after `cutoff` (a Julian day number); count the untimed ones dropped.
+fn retain_from(
+    conn: &rusqlite::Connection,
+    commands: Vec<SessionCommand>,
+    cutoff: f64,
+) -> Result<(Vec<SessionCommand>, usize), RippyError> {
+    let mut stmt = conn
+        .prepare("SELECT julianday(?1)")
+        .map_err(|e| since_err(&e))?;
     let mut kept = Vec::with_capacity(commands.len());
+    let mut untimed = 0;
     for cmd in commands {
-        let Some(ts) = cmd.timestamp.as_deref() else {
-            continue;
+        let at: Option<f64> = match cmd.timestamp.as_deref() {
+            Some(ts) => stmt
+                .query_row([ts], |r| r.get(0))
+                .map_err(|e| since_err(&e))?,
+            None => None,
         };
-        let at: Option<f64> = stmt.query_row([ts], |r| r.get(0)).map_err(err)?;
-        if at.is_some_and(|at| at >= cutoff) {
-            kept.push(cmd);
+        match at {
+            Some(at) if at >= cutoff => kept.push(cmd),
+            Some(_) => {}
+            None => untimed += 1,
         }
     }
-    Ok(kept)
+    Ok((kept, untimed))
+}
+
+fn since_err(e: &rusqlite::Error) -> RippyError {
+    RippyError::Tracking(format!("--since evaluation failed: {e}"))
 }
 
 // Conversion to CommandBreakdown
@@ -591,9 +612,13 @@ mod tests {
             cmd("no-timestamp", None),
             cmd("garbage-timestamp", Some("yesterday-ish".to_string())),
         ];
-        let kept = retain_since(commands, "1 hours").unwrap();
+        let (kept, untimed) = retain_since(commands, "1 hours").unwrap();
         let names: Vec<_> = kept.iter().map(|c| c.command.as_str()).collect();
         assert_eq!(names, ["recent"]);
+        assert_eq!(
+            untimed, 2,
+            "no-timestamp and garbage-timestamp are counted, not just lost"
+        );
     }
 
     #[test]
@@ -602,7 +627,8 @@ mod tests {
             cmd("recent", Some(ts_from_now("-30 minutes"))),
             cmd("old", Some(ts_from_now("-3 hours"))),
         ];
-        assert_eq!(retain_since(commands, "1 days").unwrap().len(), 2);
+        let (kept, untimed) = retain_since(commands, "1 days").unwrap();
+        assert_eq!((kept.len(), untimed), (2, 0));
     }
 
     #[test]
@@ -618,8 +644,30 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        let kept = retain_since(vec![cmd("shifted", Some(shifted))], "1 hours").unwrap();
+        let (kept, _) = retain_since(vec![cmd("shifted", Some(shifted))], "1 hours").unwrap();
         assert_eq!(kept.len(), 1);
+    }
+
+    #[test]
+    fn retain_from_keeps_a_command_exactly_at_the_cutoff() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let ts = "2026-06-01T12:00:00.000Z";
+        let cutoff: f64 = conn
+            .query_row("SELECT julianday(?1)", [ts], |r| r.get(0))
+            .unwrap();
+        let (kept, _) =
+            retain_from(&conn, vec![cmd("edge", Some(ts.to_string()))], cutoff).unwrap();
+        assert_eq!(
+            kept.len(),
+            1,
+            "the window is inclusive, like the tracking DB's >="
+        );
+    }
+
+    #[test]
+    fn retain_since_rejects_out_of_range_window() {
+        let commands = vec![cmd("x", Some(ts_from_now("-1 minutes")))];
+        assert!(retain_since(commands, "99999999999 days").is_err());
     }
 
     #[test]

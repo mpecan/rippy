@@ -78,7 +78,10 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
     let suggestions = analyze_breakdowns(&breakdowns, args.min_count);
 
     if suggestions.is_empty() {
-        eprintln!("[rippy] No suggestions — not enough data yet.");
+        match &args.since {
+            Some(w) => eprintln!("[rippy] No suggestions from the last {w} — not enough data."),
+            None => eprintln!("[rippy] No suggestions — not enough data yet."),
+        }
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -103,7 +106,11 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
 /// Sessions are the default for Claude Code users (always available, no setup needed).
 fn load_breakdowns(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
     // Parsed up front so a bad `--since` is rejected whichever source is used.
-    let since = parse_since(args.since.as_deref())?;
+    let since = args
+        .since
+        .as_deref()
+        .map(tracking::parse_since_window)
+        .transpose()?;
     let since = since.as_deref();
 
     if let Some(file) = &args.session_file {
@@ -133,7 +140,15 @@ fn load_from_session_commands(
     cwd: &std::path::Path,
 ) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
     let commands = match since {
-        Some(duration) => crate::sessions::retain_since(commands, duration)?,
+        Some(duration) => {
+            let (kept, untimed) = crate::sessions::retain_since(commands, duration)?;
+            if untimed > 0 {
+                eprintln!(
+                    "[rippy] warning: --since skipped {untimed} command(s) with no timestamp"
+                );
+            }
+            kept
+        }
         None => commands,
     };
 
@@ -173,18 +188,6 @@ fn print_command_suggestions(command: &str) {
 
 fn resolve_db_path(args: &SuggestArgs) -> Result<PathBuf, RippyError> {
     tracking::resolve_db_path(args.db.as_deref())
-}
-
-fn parse_since(since: Option<&str>) -> Result<Option<String>, RippyError> {
-    since.map_or(Ok(None), |s| {
-        tracking::parse_duration(s)
-            .ok_or_else(|| {
-                RippyError::Tracking(format!(
-                    "invalid duration: {s}. Use format like 7d, 1h, 30m"
-                ))
-            })
-            .map(Some)
-    })
 }
 
 // Analysis engine

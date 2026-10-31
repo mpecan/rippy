@@ -249,6 +249,40 @@ pub fn parse_duration(input: &str) -> Option<String> {
     Some(format!("{num} {sqlite_unit}"))
 }
 
+/// Parse a `--since` value into a `SQLite` modifier span such as `"7 days"`.
+///
+/// Rejects malformed input and windows reaching back past what `SQLite` dates can represent:
+/// such a window makes `datetime('now', ..)` NULL, which every source would otherwise read as
+/// "nothing matched".
+///
+/// # Errors
+///
+/// Returns `RippyError::Tracking` naming the user's input when it cannot be used.
+pub fn parse_since_window(input: &str) -> Result<String, RippyError> {
+    let duration = parse_duration(input).ok_or_else(|| {
+        RippyError::Tracking(format!(
+            "invalid duration: {input}. Use format like 7d, 1h, 30m"
+        ))
+    })?;
+    let conn = Connection::open_in_memory()
+        .map_err(|e| RippyError::Tracking(format!("--since evaluation failed: {e}")))?;
+    let in_range: bool = conn
+        .query_row(
+            "SELECT datetime('now', ?1) IS NOT NULL",
+            [format!("-{duration}")],
+            |r| r.get(0),
+        )
+        .map_err(|e| RippyError::Tracking(format!("--since evaluation failed: {e}")))?;
+    if in_range {
+        Ok(duration)
+    } else {
+        Err(RippyError::Tracking(format!(
+            "--since {input} reaches back past the earliest representable date; \
+             use a smaller window"
+        )))
+    }
+}
+
 /// Resolve the tracking database path from an explicit override or config.
 ///
 /// # Errors
@@ -513,6 +547,15 @@ mod tests {
         assert_eq!(parse_duration("d"), None);
         assert_eq!(parse_duration("abc"), None);
         assert_eq!(parse_duration("7x"), None);
+    }
+
+    #[test]
+    fn parse_since_window_accepts_and_rejects() {
+        assert_eq!(parse_since_window("7d").unwrap(), "7 days");
+        let bad = parse_since_window("7x").unwrap_err().to_string();
+        assert!(bad.contains("invalid duration: 7x"), "{bad}");
+        let far = parse_since_window("999999999d").unwrap_err().to_string();
+        assert!(far.contains("--since 999999999d reaches back"), "{far}");
     }
 
     #[test]
