@@ -16,7 +16,12 @@ use crate::verdict::Decision;
 pub(crate) struct SessionCommand {
     pub command: String,
     pub allowed: bool,
+    /// When the user decided: the `tool_result` entry's timestamp, else the `tool_use` one's.
+    pub timestamp: Option<String>,
 }
+
+/// A `tool_use` awaiting its `tool_result`: the command and the entry's timestamp.
+type Pending = HashMap<String, (String, Option<String>)>;
 
 /// Parse a single JSONL session file for Bash tool commands.
 ///
@@ -34,7 +39,7 @@ pub(crate) fn parse_session_file(path: &Path) -> Result<Vec<SessionCommand>, Rip
 
 /// Parse JSONL content for Bash tool commands.
 fn parse_session_content(content: &str) -> Vec<SessionCommand> {
-    let mut pending: HashMap<String, String> = HashMap::new();
+    let mut pending = Pending::new();
     let mut commands = Vec::new();
 
     for line in content.lines() {
@@ -56,7 +61,14 @@ fn parse_session_content(content: &str) -> Vec<SessionCommand> {
     commands
 }
 
-fn extract_tool_uses(entry: &serde_json::Value, pending: &mut HashMap<String, String>) {
+fn entry_timestamp(entry: &serde_json::Value) -> Option<String> {
+    entry
+        .get("timestamp")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+fn extract_tool_uses(entry: &serde_json::Value, pending: &mut Pending) {
     let Some(content) = entry
         .get("message")
         .and_then(|m| m.get("content"))
@@ -79,14 +91,17 @@ fn extract_tool_uses(entry: &serde_json::Value, pending: &mut HashMap<String, St
                 .and_then(serde_json::Value::as_str),
         ) && !command.is_empty()
         {
-            pending.insert(id.to_string(), command.to_string());
+            pending.insert(
+                id.to_string(),
+                (command.to_string(), entry_timestamp(entry)),
+            );
         }
     }
 }
 
 fn extract_tool_results(
     entry: &serde_json::Value,
-    pending: &mut HashMap<String, String>,
+    pending: &mut Pending,
     commands: &mut Vec<SessionCommand>,
 ) {
     let Some(content) = entry
@@ -104,11 +119,12 @@ fn extract_tool_results(
         let Some(tool_use_id) = item.get("tool_use_id").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        if let Some(command) = pending.remove(tool_use_id) {
+        if let Some((command, use_timestamp)) = pending.remove(tool_use_id) {
             let is_error = item.get("is_error").and_then(serde_json::Value::as_bool);
             commands.push(SessionCommand {
                 command,
                 allowed: is_error != Some(true),
+                timestamp: entry_timestamp(entry).or(use_timestamp),
             });
         }
     }
@@ -198,6 +214,69 @@ pub(crate) fn filter_auto_allowed(
         .collect();
 
     Ok(filtered)
+}
+
+/// Keep only commands decided inside a `--since` window; also returns how many were dropped
+/// for lacking a usable timestamp, so the caller can say so rather than shrink counts silently.
+///
+/// `duration` is a [`crate::tracking::parse_since_window`] result (e.g. `"7 days"`). `SQLite`
+/// does the date math, as it does for the tracking DB, so both sources share one meaning of
+/// "since" and any timestamp form `SQLite` understands (fractional seconds, `Z`, `+02:00`)
+/// compares as an instant.
+///
+/// # Errors
+///
+/// Returns `RippyError::Tracking` if the in-memory `SQLite` evaluation fails or the window is out
+/// of range.
+pub(crate) fn retain_since(
+    commands: Vec<SessionCommand>,
+    duration: &str,
+) -> Result<(Vec<SessionCommand>, usize), RippyError> {
+    let conn = rusqlite::Connection::open_in_memory().map_err(|e| since_err(&e))?;
+    let cutoff: Option<f64> = conn
+        .query_row(
+            "SELECT julianday('now', ?1)",
+            [format!("-{duration}")],
+            |r| r.get(0),
+        )
+        .map_err(|e| since_err(&e))?;
+    let Some(cutoff) = cutoff else {
+        return Err(RippyError::Tracking(format!(
+            "invalid --since window: {duration}"
+        )));
+    };
+    retain_from(&conn, commands, cutoff)
+}
+
+/// Keep commands at or after `cutoff` (a Julian day number); count the untimed ones dropped.
+fn retain_from(
+    conn: &rusqlite::Connection,
+    commands: Vec<SessionCommand>,
+    cutoff: f64,
+) -> Result<(Vec<SessionCommand>, usize), RippyError> {
+    let mut stmt = conn
+        .prepare("SELECT julianday(?1)")
+        .map_err(|e| since_err(&e))?;
+    let mut kept = Vec::with_capacity(commands.len());
+    let mut untimed = 0;
+    for cmd in commands {
+        let at: Option<f64> = match cmd.timestamp.as_deref() {
+            Some(ts) => stmt
+                .query_row([ts], |r| r.get(0))
+                .map_err(|e| since_err(&e))?,
+            None => None,
+        };
+        match at {
+            Some(at) if at >= cutoff => kept.push(cmd),
+            Some(_) => {}
+            None => untimed += 1,
+        }
+    }
+    Ok((kept, untimed))
+}
+
+fn since_err(e: &rusqlite::Error) -> RippyError {
+    RippyError::Tracking(format!("--since evaluation failed: {e}"))
 }
 
 // Conversion to CommandBreakdown
@@ -458,6 +537,137 @@ mod tests {
         let normalized = cwd_str.trim_start_matches('/').replace(['/', '.'], "-");
         let name = format!("-{normalized}");
         assert_eq!(name, "-Users-mdp-src-github-com-mpecan-rippy");
+    }
+
+    fn with_ts(line: &str, ts: &str) -> String {
+        line.replacen('{', &format!(r#"{{"timestamp":"{ts}","#), 1)
+    }
+
+    /// A timestamp `offset` from now (an `SQLite` modifier such as `"-2 hours"`), in Claude Code's
+    /// own format.
+    fn ts_from_now(offset: &str) -> String {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.query_row(
+            "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1)",
+            [offset],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    fn cmd(command: &str, timestamp: Option<String>) -> SessionCommand {
+        SessionCommand {
+            command: command.to_string(),
+            allowed: true,
+            timestamp,
+        }
+    }
+
+    #[test]
+    fn parse_takes_timestamp_from_tool_result() {
+        let content = [
+            with_ts(
+                &tool_use_line("t1", "Bash", r#"{"command":"ls"}"#),
+                "2026-01-01T00:00:00Z",
+            ),
+            with_ts(&tool_result_line("t1", "", "ok"), "2026-01-02T00:00:00Z"),
+        ]
+        .join("\n");
+        let commands = parse_session_content(&content);
+        assert_eq!(
+            commands[0].timestamp.as_deref(),
+            Some("2026-01-02T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn parse_falls_back_to_tool_use_timestamp() {
+        let content = [
+            with_ts(
+                &tool_use_line("t1", "Bash", r#"{"command":"ls"}"#),
+                "2026-01-01T00:00:00Z",
+            ),
+            tool_result_line("t1", "", "ok"),
+        ]
+        .join("\n");
+        let commands = parse_session_content(&content);
+        assert_eq!(
+            commands[0].timestamp.as_deref(),
+            Some("2026-01-01T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn parse_without_timestamps_leaves_none() {
+        let commands = parse_session_content(&sample_jsonl());
+        assert!(commands.iter().all(|c| c.timestamp.is_none()));
+    }
+
+    #[test]
+    fn retain_since_keeps_only_the_window() {
+        let commands = vec![
+            cmd("recent", Some(ts_from_now("-30 minutes"))),
+            cmd("old", Some(ts_from_now("-3 hours"))),
+            cmd("ancient", Some("2000-01-01T00:00:00.000Z".to_string())),
+            cmd("no-timestamp", None),
+            cmd("garbage-timestamp", Some("yesterday-ish".to_string())),
+        ];
+        let (kept, untimed) = retain_since(commands, "1 hours").unwrap();
+        let names: Vec<_> = kept.iter().map(|c| c.command.as_str()).collect();
+        assert_eq!(names, ["recent"]);
+        assert_eq!(
+            untimed, 2,
+            "no-timestamp and garbage-timestamp are counted, not just lost"
+        );
+    }
+
+    #[test]
+    fn retain_since_wide_window_keeps_all_timestamped() {
+        let commands = vec![
+            cmd("recent", Some(ts_from_now("-30 minutes"))),
+            cmd("old", Some(ts_from_now("-3 hours"))),
+        ];
+        let (kept, untimed) = retain_since(commands, "1 days").unwrap();
+        assert_eq!((kept.len(), untimed), (2, 0));
+    }
+
+    #[test]
+    fn retain_since_honours_utc_offsets() {
+        // 30 minutes ago, written as -05:00 local time. Compared as text against a UTC
+        // cutoff it would look 5h old and be dropped; as an instant it is in the window.
+        let utc_ago = ts_from_now("-30 minutes");
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let shifted: String = conn
+            .query_row(
+                "SELECT strftime('%Y-%m-%dT%H:%M:%f', ?1, '-5 hours') || '-05:00'",
+                [&utc_ago],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let (kept, _) = retain_since(vec![cmd("shifted", Some(shifted))], "1 hours").unwrap();
+        assert_eq!(kept.len(), 1);
+    }
+
+    #[test]
+    fn retain_from_keeps_a_command_exactly_at_the_cutoff() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let ts = "2026-06-01T12:00:00.000Z";
+        let cutoff: f64 = conn
+            .query_row("SELECT julianday(?1)", [ts], |r| r.get(0))
+            .unwrap();
+        let (kept, _) =
+            retain_from(&conn, vec![cmd("edge", Some(ts.to_string()))], cutoff).unwrap();
+        assert_eq!(
+            kept.len(),
+            1,
+            "the window is inclusive, like the tracking DB's >="
+        );
+    }
+
+    #[test]
+    fn retain_since_rejects_out_of_range_window() {
+        let commands = vec![cmd("x", Some(ts_from_now("-1 minutes")))];
+        assert!(retain_since(commands, "99999999999 days").is_err());
     }
 
     #[test]

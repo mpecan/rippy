@@ -78,7 +78,10 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
     let suggestions = analyze_breakdowns(&breakdowns, args.min_count);
 
     if suggestions.is_empty() {
-        eprintln!("[rippy] No suggestions — not enough data yet.");
+        match &args.since {
+            Some(w) => eprintln!("[rippy] No suggestions from the last {w} — not enough data."),
+            None => eprintln!("[rippy] No suggestions — not enough data yet."),
+        }
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -102,53 +105,70 @@ pub fn run(args: &SuggestArgs) -> Result<ExitCode, RippyError> {
 /// Priority: explicit `--session-file` > explicit `--db` > auto-detect sessions > tracking DB.
 /// Sessions are the default for Claude Code users (always available, no setup needed).
 fn load_breakdowns(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    // Parsed up front so a bad `--since` is rejected whichever source is used.
+    let since = args
+        .since
+        .as_deref()
+        .map(tracking::parse_since_window)
+        .transpose()?;
+    let since = since.as_deref();
+
     if let Some(file) = &args.session_file {
-        return load_from_sessions(args, || crate::sessions::parse_session_file(file));
+        let commands = crate::sessions::parse_session_file(file)?;
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        return load_from_session_commands(args, commands, since, &cwd);
     }
 
     if args.db.is_some() {
-        return load_from_db(args);
+        return load_from_db(args, since);
     }
 
     // Default: try sessions first, fall back to tracking DB.
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     match crate::sessions::parse_project_sessions(&cwd) {
-        Ok(ref commands) if !commands.is_empty() => {
-            load_from_session_commands(args, commands, &cwd)
+        Ok(commands) if !commands.is_empty() => {
+            load_from_session_commands(args, commands, since, &cwd)
         }
-        _ => load_from_db(args),
+        _ => load_from_db(args, since),
     }
-}
-
-fn load_from_sessions(
-    args: &SuggestArgs,
-    parse: impl FnOnce() -> Result<Vec<crate::sessions::SessionCommand>, RippyError>,
-) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let commands = parse()?;
-    load_from_session_commands(args, &commands, &cwd)
 }
 
 fn load_from_session_commands(
     args: &SuggestArgs,
-    commands: &[crate::sessions::SessionCommand],
+    commands: Vec<crate::sessions::SessionCommand>,
+    since: Option<&str>,
     cwd: &std::path::Path,
 ) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+    let commands = match since {
+        Some(duration) => {
+            let (kept, untimed) = crate::sessions::retain_since(commands, duration)?;
+            if untimed > 0 {
+                eprintln!(
+                    "[rippy] warning: --since skipped {untimed} command(s) with no timestamp"
+                );
+            }
+            kept
+        }
+        None => commands,
+    };
+
     if args.audit {
-        let audit = crate::sessions::audit_commands(commands, cwd)?;
+        let audit = crate::sessions::audit_commands(&commands, cwd)?;
         crate::sessions::print_audit(&audit);
     }
 
     // Filter out commands already handled by CC permissions or rippy config.
-    let filtered = crate::sessions::filter_auto_allowed(commands, cwd)?;
+    let filtered = crate::sessions::filter_auto_allowed(&commands, cwd)?;
     Ok(crate::sessions::to_breakdowns(&filtered))
 }
 
-fn load_from_db(args: &SuggestArgs) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
+fn load_from_db(
+    args: &SuggestArgs,
+    since: Option<&str>,
+) -> Result<Vec<tracking::CommandBreakdown>, RippyError> {
     let db_path = resolve_db_path(args)?;
     let conn = tracking::open_db(&db_path)?;
-    let since_modifier = parse_since(args.since.as_deref())?;
-    tracking::query_command_breakdown(&conn, since_modifier.as_deref())
+    tracking::query_command_breakdown(&conn, since)
 }
 
 fn print_command_suggestions(command: &str) {
@@ -168,18 +188,6 @@ fn print_command_suggestions(command: &str) {
 
 fn resolve_db_path(args: &SuggestArgs) -> Result<PathBuf, RippyError> {
     tracking::resolve_db_path(args.db.as_deref())
-}
-
-fn parse_since(since: Option<&str>) -> Result<Option<String>, RippyError> {
-    since.map_or(Ok(None), |s| {
-        tracking::parse_duration(s)
-            .ok_or_else(|| {
-                RippyError::Tracking(format!(
-                    "invalid duration: {s}. Use format like 7d, 1h, 30m"
-                ))
-            })
-            .map(Some)
-    })
 }
 
 // Analysis engine

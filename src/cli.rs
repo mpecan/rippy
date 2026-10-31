@@ -213,7 +213,8 @@ pub struct InitArgs {
 
 #[derive(Args, Debug)]
 pub struct StatsArgs {
-    /// Time filter, e.g. "7d", "30d", "1h", "30m"
+    /// Only count commands from this window, e.g. "7d", "30d", "1h", "30m". Applies to session
+    /// files and the tracking DB alike; session commands without a timestamp are skipped.
     #[arg(long)]
     pub since: Option<String>,
 
@@ -244,7 +245,8 @@ pub struct SuggestArgs {
     #[arg(long)]
     pub from_command: Option<String>,
 
-    /// Time filter, e.g. "7d", "30d", "1h", "30m"
+    /// Only count commands from this window, e.g. "7d", "30d", "1h", "30m". Applies to session
+    /// files and the tracking DB alike; session commands without a timestamp are skipped.
     #[arg(long)]
     pub since: Option<String>,
 
