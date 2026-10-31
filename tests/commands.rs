@@ -204,6 +204,118 @@ fn suggest_from_db_json() {
     assert!(actions.contains(&"deny"));
 }
 
+/// A Claude Code session line pair: one `Bash` `tool_use` and its allowed `tool_result`.
+fn session_lines(id: &str, command: &str, ts: &str) -> String {
+    format!(
+        concat!(
+            r#"{{"type":"assistant","timestamp":"{ts}","message":{{"content":[{{"#,
+            r#""type":"tool_use","id":"{id}","name":"Bash","#,
+            r#""input":{{"command":"{command}"}}}}]}}}}"#,
+            "\n",
+            r#"{{"type":"user","timestamp":"{ts}","message":{{"content":[{{"type":"tool_result","#,
+            r#""tool_use_id":"{id}","content":"ok"}}]}}}}"#,
+            "\n",
+        ),
+        id = id,
+        command = command,
+        ts = ts,
+    )
+}
+
+/// Write a session file: 4x `recent-tool run` from 10 minutes ago, 6x `old-tool run` from 2020.
+fn write_mixed_age_session(dir: &std::path::Path) -> std::path::PathBuf {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let recent: String = conn
+        .query_row(
+            "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut content = String::new();
+    for i in 0..4 {
+        content.push_str(&session_lines(&format!("r{i}"), "recent-tool run", &recent));
+    }
+    for i in 0..6 {
+        content.push_str(&session_lines(
+            &format!("o{i}"),
+            "old-tool run",
+            "2020-01-01T00:00:00.000Z",
+        ));
+    }
+    let path = dir.join("session.jsonl");
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
+/// `(command, evidence.total)` per suggestion from `rippy suggest --session-file ... --json`.
+fn suggest_session_totals(dir: &std::path::Path, extra: &[&str]) -> Vec<(String, i64)> {
+    let session = write_mixed_age_session(dir);
+    let output = common::rippy_command()
+        .args([
+            "suggest",
+            "--session-file",
+            session.to_str().unwrap(),
+            "--json",
+        ])
+        .args(["--min-count", "1"])
+        .args(extra)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mut totals: Vec<(String, i64)> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            let example = s["evidence"]["example_commands"][0]
+                .as_str()
+                .unwrap()
+                .to_string();
+            (example, s["evidence"]["total"].as_i64().unwrap())
+        })
+        .collect();
+    totals.sort();
+    totals
+}
+
+#[test]
+fn suggest_session_file_honours_since() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let all = suggest_session_totals(dir.path(), &[]);
+    assert_eq!(
+        all,
+        [
+            ("old-tool run".to_string(), 6),
+            ("recent-tool run".to_string(), 4)
+        ]
+    );
+
+    let recent = suggest_session_totals(dir.path(), &["--since", "1h"]);
+    assert_eq!(recent, [("recent-tool run".to_string(), 4)]);
+}
+
+#[test]
+fn suggest_session_file_rejects_invalid_since() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let session = write_mixed_age_session(dir.path());
+    let output = common::rippy_command()
+        .args(["suggest", "--session-file", session.to_str().unwrap()])
+        .args(["--since", "garbage"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let both = [output.stdout, output.stderr].concat();
+    assert!(String::from_utf8_lossy(&both).contains("invalid duration: garbage"));
+}
+
 // Structured command matching tests
 
 #[test]
