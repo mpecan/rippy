@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.5...rippy-cli-v0.2.6) (2026-10-31)
+
+
+### Bug Fixes
+
+* **suggest:** honour --since in session mode ([#222](https://github.com/mpecan/rippy/issues/222)) ([1e6d441](https://github.com/mpecan/rippy/commit/1e6d4413969de0f69563ba8b8bacd32ccbd8b8bd))
+
 ## [0.2.5](https://github.com/mpecan/rippy/compare/rippy-cli-v0.2.4...rippy-cli-v0.2.5) (2026-10-08)
 
 
